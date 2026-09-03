@@ -1,0 +1,11 @@
+# Stash plugin source — add in Stash via
+# Settings → Plugins → Add Source, with the raw URL of this file, e.g.:
+# https://raw.githubusercontent.com/jojo-topo/stash-plugins/master/index.yml
+
+- id: sceneTagger
+  name: Scene Tagger
+  description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
+  version: "1.5.0"
+  date: "2026-09-03 14:43:49"
+  path: sceneTagger.zip
+  sha256: c5bc72ec5ea9d1afa399db3a9ab948a22373cac9bd68f7590ac79c91e935ef8e

@@ -1,0 +1,77 @@
+name: sceneTagger
+description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
+version: "1.5.0"
+url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
+
+settings:
+  autoCheckStudio:
+    displayName: "Automatically check new studios"
+    description: "If enabled, studios not yet present in Stash will be checked by default during scraping."
+    type: BOOLEAN
+
+  prioritizeExistingStudio:
+    displayName: "Prioritize studio already in the database"
+    description: "If enabled, when several studios are scraped and one already exists in Stash, it will be selected by default (radio button)."
+    type: BOOLEAN
+
+  autoCheckPerformer:
+    displayName: "Automatically check new performers"
+    description: "If enabled, performers not yet present in Stash will be checked by default during scraping."
+    type: BOOLEAN
+
+  autoCheckNewTags:
+    displayName: "Automatically check new tags"
+    description: "If enabled, tags not yet present in Stash will be checked by default during scraping."
+    type: BOOLEAN
+
+  autoCheckDetails:
+    displayName: "Automatically check Details"
+    description: "If enabled, the Details field will be checked by default during scraping (even if it only contains the Artists: list)."
+    type: BOOLEAN
+
+  studioBlacklist:
+    displayName: "Studio blacklist (VA)"
+    description: "Comma-separated list of studio names to ignore. Ex: name1, name2, name3"
+    type: STRING
+
+  # autoAddOtherStudios: hidden in this public build - depends on a
+  # companion plugin (skExtra-Multiple-Studios-Custom) not published yet.
+  # Uncomment once that plugin is published separately.
+  # autoAddOtherStudios:
+  #   displayName: "Add other artists as Other studios"
+  #   description: "If enabled, studios detected via the Artists: line but not chosen as the main studio are automatically linked as 'Other studios' (compatible with the skExtra-Multiple-Studios-Custom plugin)."
+  #   type: BOOLEAN
+
+  # enableHoverPreview: hidden in this public build - depends on a
+  # companion plugin (videoHoverPreview) not published yet. Uncomment once
+  # that plugin is published separately.
+  # enableHoverPreview:
+  #   displayName: "Enable hover video preview (Video Hover Preview)"
+  #   description: "If disabled, hovering over a scraped row will not show the video preview from the videoHoverPreview plugin."
+  #   type: BOOLEAN
+
+  useUrlIfPresent:
+    displayName: "Use existing URL if available"
+    description: "If enabled, tries to scrape via the URL already saved on the scene before the scraper chain/manual mode."
+    type: BOOLEAN
+
+  manualFallbackOnFail:
+    displayName: "Manual fill-in when scraping fails"
+    description: "If enabled, a failed scrape shows the usual panel (studio/performers/tags/details) empty, ready to fill in by hand, instead of a plain error message."
+    type: BOOLEAN
+
+  manualFallbackAllowTitle:
+    displayName: "Also allow manual title entry"
+    description: "Sub-option of 'Manual fill-in when scraping fails': adds a text field to type the title by hand."
+    type: BOOLEAN
+
+  nativeHoverPreview:
+    displayName: "Native hover preview"
+    description: "If enabled, hovering a thumbnail plays Stash's own generated preview clip directly."
+    type: BOOLEAN
+
+ui:
+  javascript:
+    - sceneTagger.js
+  css:
+    - sceneTagger.css
