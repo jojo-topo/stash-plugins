@@ -308,9 +308,15 @@
   // Global cache (shared across all rows/scenes) name→id used only for the
   // "new" badge shown on screen. Kept separate from the resolution done on
   // Apply click (resolveStudio) - that one remains the source of truth for
-  // actual creation/linking, this cache only fixes the display (a candidate
-  // detected as new because of a missing [id] in Details, or by Stash's own
-  // native matching, may still already exist under an alias).
+  // actual creation/linking, this cache only fixes the display. Two distinct
+  // false-"new" cases it corrects:
+  // 1. A candidate detected as new because of a missing [id] in Details, or
+  //    because it exists only under an alias, not the primary name.
+  // 2. A candidate whose SCRAPER simply never set stored_id at all - many
+  //    community script scrapers (unlike rule34-python) don't do their own
+  //    studio-id lookup, so even an exact primary-name match still comes
+  //    back flagged "new" from Stash's own scrape response. This is why an
+  //    exact-name check has to run here too, not just an alias check.
   // undefined = never checked, null = checked and not found, otherwise = id.
   var studioAliasBadgeCache = {};
 
@@ -320,9 +326,10 @@
   }
 
   // Checks in the background, for a list of "new" candidate names not yet
-  // cached, whether they match an existing alias - and updates the cache.
-  // Makes no call for a name already checked (cache hit, found or not), to
-  // limit network cost on a bulk scrape.
+  // cached, whether they actually match an existing studio - exact name
+  // first, then alias - and updates the cache. Makes no call for a name
+  // already checked (cache hit, found or not), to limit network cost on a
+  // bulk scrape.
   function checkStudioAliasBadges(names) {
     var toCheck = [];
     var seen = {};
@@ -335,18 +342,25 @@
     });
     if (!toCheck.length) return Promise.resolve(false);
     return Promise.all(toCheck.map(function (n) {
-      return gql("FSA", Q_FS_ALIAS, { n: n }).then(function (d) {
-        var studios = (d.findStudios || {}).studios || [];
-        var match = null;
-        for (var i = 0; i < studios.length; i++) {
-          var aliases = studios[i].aliases || [];
-          for (var j = 0; j < aliases.length; j++) {
-            if (aliases[j].toLowerCase() === n.toLowerCase()) { match = studios[i].id; break; }
-          }
-          if (match) break;
+      return gql("FS", Q_FS, { n: n }).then(function (d) {
+        var exact = (d.findStudios || {}).studios || [];
+        if (exact.length) {
+          studioAliasBadgeCache[n.toLowerCase()] = exact[0].id;
+          return true;
         }
-        studioAliasBadgeCache[n.toLowerCase()] = match;
-        return match !== null;
+        return gql("FSA", Q_FS_ALIAS, { n: n }).then(function (d2) {
+          var studios = (d2.findStudios || {}).studios || [];
+          var match = null;
+          for (var i = 0; i < studios.length; i++) {
+            var aliases = studios[i].aliases || [];
+            for (var j = 0; j < aliases.length; j++) {
+              if (aliases[j].toLowerCase() === n.toLowerCase()) { match = studios[i].id; break; }
+            }
+            if (match) break;
+          }
+          studioAliasBadgeCache[n.toLowerCase()] = match;
+          return match !== null;
+        });
       }).catch(function () {
         studioAliasBadgeCache[n.toLowerCase()] = null;
         return false;
@@ -787,9 +801,12 @@
 
     var hintHTML = "";
     if (status === "idle" || status === "scraped" || status === "done") {
+      // Only show something here for scenes that actually look rule34-sourced
+      // (id found in a URL or in the filename via getR34ID) - non-rule34
+      // scrapers (community scrapers, manual entry, etc.) simply have no hint.
       hintHTML = r34url
-        ? '<div class="st-hint"><a class="st-r34-link" href="' + esc(r34url) + '" target="_blank" rel="noopener">rule34 #' + esc(r34id) + ' &#8599;</a></div>'
-        : '<div class="st-hint st-hint-warn">no rule34 URL</div>';
+        ? '<div class="st-hint"><a class="st-r34-link" href="' + esc(r34url) + '" target="_blank" rel="noopener">rule34 ID fichier #' + esc(r34id) + ' &#8599;</a></div>'
+        : "";
     } else if (status === "error") {
       hintHTML = '<div class="st-hint st-hint-error">' + esc(r.msg || "Error") + '</div>';
     }
