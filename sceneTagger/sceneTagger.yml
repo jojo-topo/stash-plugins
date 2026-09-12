@@ -1,7 +1,7 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
 version: "1.5.0"
-url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
+url: "https://github.com/jojo-topo/stash-plugins/tree/main/sceneTagger"
 
 settings:
   autoCheckStudio:
@@ -42,14 +42,6 @@ settings:
   #   description: "If enabled, studios detected via the Artists: line but not chosen as the main studio are automatically linked as 'Other studios' (compatible with the skExtra-Multiple-Studios-Custom plugin)."
   #   type: BOOLEAN
 
-  # enableHoverPreview: hidden in this public build - depends on a
-  # companion plugin (videoHoverPreview) not published yet. Uncomment once
-  # that plugin is published separately.
-  # enableHoverPreview:
-  #   displayName: "Enable hover video preview (Video Hover Preview)"
-  #   description: "If disabled, hovering over a scraped row will not show the video preview from the videoHoverPreview plugin."
-  #   type: BOOLEAN
-
   useUrlIfPresent:
     displayName: "Use existing URL if available"
     description: "If enabled, tries to scrape via the URL already saved on the scene before the scraper chain/manual mode."
@@ -66,8 +58,8 @@ settings:
     type: BOOLEAN
 
   nativeHoverPreview:
-    displayName: "Native hover preview"
-    description: "If enabled, hovering a thumbnail plays Stash's own generated preview clip directly."
+    displayName: "Hover preview"
+    description: "If enabled, hovering a thumbnail plays a preview - Stash's own generated preview clip if one exists, otherwise the source video streamed directly (seeked 10% in). No companion plugin required."
     type: BOOLEAN
 
 ui:

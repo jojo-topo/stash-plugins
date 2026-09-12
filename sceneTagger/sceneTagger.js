@@ -14,6 +14,7 @@
   var STASH_GQL = "/graphql";
   var PANEL_ID  = "st-panel";
   var BTN_ID    = "st-toggle-btn";
+  var REOPEN_FLAG = "st-reopen-after-reload";
 
   // ── GraphQL ────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,13 @@
 
   var Q_SCRAPE = "query ScrapeSingleScene($source:ScraperSourceInput!,$input:ScrapeSingleSceneInput!){scrapeSingleScene(source:$source,input:$input){title code date details director urls image studio{stored_id name image url}tags{stored_id name}performers{stored_id name disambiguation gender urls birthdate ethnicity country eye_color height measurements fake_tits penis_length circumcised career_start career_end tattoos piercings aliases images details death_date hair_color weight}}}";
 
+  // Tried feeding a synthetic scene_input (title only) instead of scene_id
+  // to re-scrape with a manually corrected title without touching the DB -
+  // confirmed dead end: Stash rejects it for "script" action scrapers
+  // ("scraper operation not supported"), regardless of which fields are
+  // set, even with the exact title that scrapes fine natively once it's
+  // the scene's real title. See updateSceneTitle() below for the approach
+  // that actually works (matches native scrape behavior exactly).
   function scrapeSingleScene(scraperID, sceneID) {
     var source = scraperID.indexOf(STASHBOX_PREFIX) === 0
       ? { stash_box_endpoint: scraperID.slice(STASHBOX_PREFIX.length) }
@@ -67,6 +75,18 @@
       var r = d.scrapeSingleScene;
       return Array.isArray(r) ? (r[0] || null) : r;
     });
+  }
+
+  // Updates the scene's real title in Stash - used right before a manual-
+  // title retry so the scrape (by scene_id, the only fragment-scrape path
+  // that actually works for script scrapers) sees the corrected title,
+  // exactly like a native re-scrape after fixing the filename/title by
+  // hand. This IS a real DB write, done deliberately: the user is already
+  // correcting the title with the intent of scraping/applying it.
+  var Q_SCENE_UPDATE_TITLE = "mutation SceneUpdateTitle($id:ID!,$title:String!){sceneUpdate(input:{id:$id,title:$title}){id title}}";
+  function updateSceneTitle(sceneID, title) {
+    return gql("SceneUpdateTitle", Q_SCENE_UPDATE_TITLE, { id: String(sceneID), title: title })
+      .then(function (d) { return d.sceneUpdate; });
   }
 
   // Scrape via the URL already saved on the scene, scraper-agnostic:
@@ -114,6 +134,18 @@
   function scrapeOneEffective(sceneID) {
     var r = state.rows[sceneID];
     var scene = r ? r.scene : null;
+    // Manually typed title (manual fill-in row, after a failed scrape):
+    // write it as the scene's real title first, THEN re-scrape normally by
+    // scene_id - the only way script scrapers actually pick up a corrected
+    // title (see updateSceneTitle() above), matches native re-scrape
+    // behavior exactly. Explicit user intent, takes priority over URL-based
+    // lookups too.
+    if (r && r.manualTitle) {
+      return updateSceneTitle(sceneID, r.manualTitle).then(function () {
+        if (r.scene) r.scene.title = r.manualTitle;
+        return scrapeOneByMode(sceneID);
+      });
+    }
     // URL entered manually on the row: absolute priority, an explicit
     // user action for this specific scene.
     if (r && r.manualUrl) {
@@ -155,7 +187,7 @@
   // races that were impossible to fully eliminate (see history of attempts).
   // ────────────────────────────────────────────────────────────────────────
 
-  var Q_FIND_BY_IDS = "query FindScenesByIds($ids:[ID!]){findScenes(ids:$ids){count scenes{id title urls date code details director organized paths{screenshot preview}files{path basename}studio{id name}performers{id name}tags{id name}}}}";
+  var Q_FIND_BY_IDS = "query FindScenesByIds($ids:[ID!]){findScenes(ids:$ids){count scenes{id title urls date code details director organized paths{screenshot preview stream}files{path basename duration}studio{id name}performers{id name}tags{id name}}}}";
 
   // IDs of the scenes visible in the native grid, in display order.
   function getVisibleSceneIdsInOrder() {
@@ -235,8 +267,9 @@
   var Q_FS_SEARCH = "query FSS($n:String!){findStudios(studio_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:8}){studios{id name}}}";
   var M_CS = "mutation CS($n:String!,$image:String,$url:String){studioCreate(input:{name:$n,image:$image,url:$url}){id}}";
   var Q_FP        = "query FP($n:String!){findPerformers(performer_filter:{name:{value:$n,modifier:EQUALS}},filter:{per_page:1}){performers{id}}}";
-  var Q_FP_SEARCH       = "query FPS($n:String!){findPerformers(performer_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name}}}";
-  var Q_FP_SEARCH_ALIAS = "query FPSA($n:String!){findPerformers(performer_filter:{aliases:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name}}}";
+  var Q_FP_SEARCH       = "query FPS($n:String!){findPerformers(performer_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name image_path}}}";
+  var Q_FP_SEARCH_ALIAS = "query FPSA($n:String!){findPerformers(performer_filter:{aliases:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name image_path}}}";
+  var Q_FP_IMAGE        = "query FPImg($id:ID!){findPerformer(id:$id){id image_path}}";
   var Q_FTAG_SEARCH     = "query FTagS($n:String!){findTags(tag_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){tags{id name}}}";
   var M_CP = "mutation CP($n:String!,$disambiguation:String,$urls:[String!],$gender:GenderEnum,$birthdate:String,$ethnicity:String,$country:String,$eye_color:String,$height_cm:Int,$measurements:String,$fake_tits:String,$penis_length:Float,$circumcised:CircumcisedEnum,$career_start:String,$career_end:String,$tattoos:String,$piercings:String,$alias_list:[String!],$image:String,$details:String,$death_date:String,$hair_color:String,$weight:Int){performerCreate(input:{name:$n,disambiguation:$disambiguation,urls:$urls,gender:$gender,birthdate:$birthdate,ethnicity:$ethnicity,country:$country,eye_color:$eye_color,height_cm:$height_cm,measurements:$measurements,fake_tits:$fake_tits,penis_length:$penis_length,circumcised:$circumcised,career_start:$career_start,career_end:$career_end,tattoos:$tattoos,piercings:$piercings,alias_list:$alias_list,image:$image,details:$details,death_date:$death_date,hair_color:$hair_color,weight:$weight}){id}}";
   var Q_FT = "query FT($n:String!){findTags(tag_filter:{name:{value:$n,modifier:EQUALS}},filter:{per_page:1}){tags{id}}}";
@@ -505,7 +538,6 @@
     // Automatically adds "Artists:" candidates not chosen as the main studio
     // to "Other studios" (compatible with skExtra-Multiple-Studios-Custom)
     autoAddOtherStudios:     false,
-    enableHoverPreview:      true,
     // Scraper fallback chain: [{id, enabled}, ...] in priority order.
     // Reconciled with the real scraper list on every load (see
     // reconcileScraperChain) - never empty once the scrapers are loaded.
@@ -528,10 +560,10 @@
     // Sub-option (only has an effect if manualFallbackOnFail is enabled):
     // adds a text field to type the title by hand.
     manualFallbackAllowTitle:  false,
-    // If enabled, hovering a thumbnail plays Stash's own generated preview
-    // clip (scene.paths.preview) directly, no companion plugin required.
-    // Independent of enableHoverPreview (videoHoverPreview integration) -
-    // don't enable both at once, they'd fight over the same hover.
+    // If enabled, hovering a thumbnail streams the source video directly
+    // (scene.paths.stream, seeked to 10% in) - fully self-contained, no
+    // generated preview clip and no companion plugin (videoHoverPreview)
+    // required or hooked into.
     nativeHoverPreview:        false
   };
 
@@ -547,7 +579,6 @@
           if (cfg.autoCheckDetails   !== undefined) pluginConfig.autoCheckDetails   = !!cfg.autoCheckDetails;
           if (cfg.prioritizeExistingStudio !== undefined) pluginConfig.prioritizeExistingStudio = !!cfg.prioritizeExistingStudio;
           if (cfg.autoAddOtherStudios !== undefined) pluginConfig.autoAddOtherStudios = !!cfg.autoAddOtherStudios;
-           if (cfg.enableHoverPreview  !== undefined) pluginConfig.enableHoverPreview  = !!cfg.enableHoverPreview;   // <-- add
           if (cfg.scraperMode === "auto" || cfg.scraperMode === "manual") pluginConfig.scraperMode = cfg.scraperMode;
           if (cfg.useUrlIfPresent !== undefined) pluginConfig.useUrlIfPresent = !!cfg.useUrlIfPresent;
           if (cfg.compactMode     !== undefined) pluginConfig.compactMode     = !!cfg.compactMode;
@@ -611,6 +642,7 @@
     scrapers:    [],
     manualScraperID: "",   // scraper chosen in manual mode
     studioFilter: "all",  // "all" | "new" | "existing"
+    scraperFilter: "all", // "all" | a scraperID (only scrapers with >=1 result are listed)
     currentPage: 1,
     totalPages:  1
   };
@@ -645,6 +677,10 @@
 
   function getThumb(scene) {
     return scene.paths && scene.paths.screenshot ? scene.paths.screenshot : "";
+  }
+
+  function getSceneDuration(scene) {
+    return scene.files && scene.files.length && scene.files[0].duration ? scene.files[0].duration : 0;
   }
 
   function getR34ID(scene) {
@@ -792,7 +828,7 @@
     var el = document.getElementById("st-row-" + id);
     if (!el) return;
 
-    el.className = "st-row st-state-" + status + (pluginConfig.enableHoverPreview ? " vhp-hover-card" : "");
+    el.className = "st-row st-state-" + status;
 
     var thumb  = getThumb(scene);
     var fname  = getFilename(scene);
@@ -1017,6 +1053,7 @@
           var perfChecked = isNew ? pluginConfig.autoCheckPerformer : true;
           return '<label class="st-perf-item' + (isNew ? ' st-perf-new' : '') + '">' +
             '<input type="checkbox" data-cb="performer" data-idx="' + i + '" ' + (perfChecked ? 'checked' : '') + '>' +
+            (p.storedImage ? '<img class="st-perf-chip-avatar" src="' + esc(p.storedImage) + '">' : '') +
             '<span class="st-perf-name">' + esc(p.name) + '</span>' +
             (isNew ? '<span class="st-new-badge">new</span>' : '') +
           '</label>';
@@ -1110,7 +1147,7 @@
           '<div class="st-inline-actions">' +
             '<button class="st-btn st-btn-success" onclick="stApplyOne(\'' + esc(id) + '\')">Apply</button>' +
             (r.manualFallback ? '<button class="st-btn st-btn-ghost" onclick="stScrapeOne(\'' + esc(id) + '\')">Retry</button>' : '') +
-            '<button class="st-btn st-btn-ghost"   onclick="stSkipOne(\''  + esc(id) + '\')">Skip</button>' +
+            '<button class="st-btn st-btn-danger"  onclick="stSkipOne(\''  + esc(id) + '\')">Skip</button>' +
           '</div>' +
         '</div>';
     }
@@ -1141,18 +1178,27 @@
       '<div class="st-row-top">' +
         // .st-thumb-clip does the clipping (size + overflow:hidden) - see
         // the CSS comment on that class: Stash's native SFW blur targets
-        // .scene-card-preview (carried here by .st-thumb-link for hover
-        // compatibility), and an element can never clip its OWN filter
-        // bleed with its own overflow:hidden - only an ANCESTOR can, hence
-        // this dedicated outer wrapper.
+        // .scene-card-preview (carried here by .st-thumb-link, unconditionally
+        // - it's Stash's own blur hook, unrelated to the hover-preview
+        // feature below despite the confusingly similar name), and an
+        // element can never clip its OWN filter bleed with its own
+        // overflow:hidden - only an ANCESTOR can, hence this dedicated
+        // outer wrapper.
         '<span class="st-thumb-clip"' +
           (pluginConfig.nativeHoverPreview && scene.paths && scene.paths.preview
+            // Already-generated preview clip: short and pre-trimmed, so no
+            // 10%-in seek needed - just loop it from 0 like a normal preview.
             ? ' data-preview-url="' + esc(scene.paths.preview) + '"'
+            : pluginConfig.nativeHoverPreview && scene.paths && scene.paths.stream
+            // No generated preview for this scene - stream the source
+            // directly instead of forcing a generation pass just for hover.
+            ? ' data-preview-url="' + esc(scene.paths.stream) + '"' +
+              ' data-preview-duration="' + esc(getSceneDuration(scene)) + '"'
             : '') +
         '>' +
         (thumb
-          ? '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-thumb-link' + (pluginConfig.enableHoverPreview ? ' scene-card-preview vhp-hover-trigger' : '') + '"><img class="st-thumb" src="' + esc(thumb) + '" loading="lazy"></a>'
-          : '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-thumb-link' + (pluginConfig.enableHoverPreview ? ' scene-card-preview vhp-hover-trigger' : '') + '"><div class="st-thumb"></div></a>') +
+          ? '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-thumb-link scene-card-preview"><img class="st-thumb" src="' + esc(thumb) + '" loading="lazy"></a>'
+          : '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-thumb-link scene-card-preview"><div class="st-thumb"></div></a>') +
         '</span>' +
         '<div class="st-row-info">' +
           '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-filename st-scene-link">' + esc(fname) + '</a>' +
@@ -1236,7 +1282,7 @@
                 perfSearchResults.innerHTML = createItem;
               } else {
                 perfSearchResults.innerHTML = perfs.map(function (p) {
-                  return '<div class="st-perf-result-item" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '">' + esc(p.name) + '</div>';
+                  return '<div class="st-perf-result-item" data-id="' + esc(p.id) + '" data-name="' + esc(p.name) + '" data-image="' + esc(p.image_path || "") + '">' + esc(p.name) + '</div>';
                 }).join("") + createItem;
               }
               perfSearchResults.style.display = "block";
@@ -1251,21 +1297,54 @@
           if (first) first.click();
         });
 
+        // Thumbnail on hover: a single reusable preview element rather than
+        // one <img> per result (avoids loading all 10 images up front for a
+        // dropdown the user is just scanning by name), shown/positioned
+        // against whichever item the mouse is currently over.
+        var perfHoverPreview = null;
+        perfSearchResults.addEventListener("mouseover", function (e) {
+          var item = e.target.closest('.st-perf-result-item');
+          if (!item) return;
+          var img = item.getAttribute("data-image");
+          if (!img) { if (perfHoverPreview) perfHoverPreview.style.display = "none"; return; }
+          if (!perfHoverPreview) {
+            perfHoverPreview = document.createElement("img");
+            perfHoverPreview.className = "st-perf-hover-preview";
+            perfSearchResults.parentNode.appendChild(perfHoverPreview);
+          }
+          perfHoverPreview.src = img;
+          // Positioned against the wrap (.st-perf-search-wrap, position:relative),
+          // not against perfSearchResults itself, since the preview is a sibling
+          // of the dropdown rather than a child of it.
+          var wrapRect = perfSearchResults.parentNode.getBoundingClientRect();
+          var itemRect = item.getBoundingClientRect();
+          perfHoverPreview.style.top = (itemRect.top - wrapRect.top) + "px";
+          perfHoverPreview.style.display = "block";
+        });
+        perfSearchResults.addEventListener("mouseleave", function () {
+          if (perfHoverPreview) perfHoverPreview.style.display = "none";
+        });
+
         perfSearchResults.addEventListener("click", function (e) {
           var item = e.target.closest('.st-perf-result-item');
           if (!item) return;
-          var pid   = item.getAttribute("data-id");
-          var pname = item.getAttribute("data-name");
+          var pid    = item.getAttribute("data-id");
+          var pname  = item.getAttribute("data-name");
+          var pimage = item.getAttribute("data-image");
 
           // Avoid duplicates
           var already = Array.from(perfsAdded.querySelectorAll('[data-cb="performer-added"]'))
             .some(function (el) { return el.getAttribute("data-perf-name").toLowerCase() === pname.toLowerCase(); });
           if (already) { perfSearchResults.style.display = "none"; perfSearchInput.value = ""; return; }
 
-          // Create the added chip
+          // Create the added chip — small round avatar (like Refract Cards'
+          // performer circles) when the search result carried an image_path,
+          // silently omitted otherwise (a "+ Create" pseudo-performer has none).
           var chip = document.createElement("span");
           chip.className = "st-perf-added-chip";
-          chip.innerHTML = esc(pname) + ' <button class="st-perf-chip-remove" title="Remove">&#10005;</button>';
+          chip.innerHTML =
+            (pimage ? '<img class="st-perf-chip-avatar" src="' + esc(pimage) + '">' : '') +
+            esc(pname) + ' <button class="st-perf-chip-remove" title="Remove">&#10005;</button>';
           chip.setAttribute("data-cb", "performer-added");
           chip.setAttribute("data-perf-id", pid);
           chip.setAttribute("data-perf-name", pname);
@@ -1285,7 +1364,18 @@
             document.removeEventListener("click", onPerfDocClick);
           }
         });
+
+        // Hover preview on the confirmed chip's own avatar (its <img src>
+        // already holds the image_path, no need to re-store it anywhere).
+        wireAvatarHoverPreview(perfsAdded, ".st-perf-added-chip");
       }
+
+      // Same preview, wired to the scraped-performers checkbox grid (its
+      // avatars, if any, come from fetchStoredPerformerImages() instead of
+      // a search result - the .st-perf-chip-avatar class and hover
+      // mechanics are identical either way).
+      var perfsGrid = el.querySelector(".st-perfs-grid");
+      if (perfsGrid) wireAvatarHoverPreview(perfsGrid, ".st-perf-item");
     }
 
     // ── Live tag search ─────────────────────────────────────────────────────
@@ -1514,8 +1604,41 @@
     return "none";
   }
 
+  // Rebuilds the "Filter by scraper" dropdown from what's actually on
+  // screen right now: only scrapers that produced >=1 scraped result are
+  // listed (never the full scraper catalog - most won't have matched
+  // anything in a given batch). Called after every scrape and on Clear/
+  // Reload so the list stays live. Preserves the current selection when
+  // it's still a valid option; falls back to "all" otherwise (e.g. Clear).
+  function renderScraperFilterOptions() {
+    var sel = document.getElementById("st-scraper-filter");
+    if (!sel) return;
+    var seen = {};
+    var options = [];
+    state.scenes.forEach(function (scene) {
+      var r = state.rows[scene.id];
+      if (r && r.status === "scraped" && r.matchedScraperID && !seen[r.matchedScraperID]) {
+        seen[r.matchedScraperID] = true;
+        options.push({ id: r.matchedScraperID, name: r.matchedScraperName || r.matchedScraperID });
+      }
+    });
+    options.sort(function (a, b) { return a.name.localeCompare(b.name); });
+
+    var current = state.scraperFilter;
+    var stillValid = current === "all" || seen[current];
+    sel.innerHTML = '<option value="all">All scrapers</option>' +
+      options.map(function (o) {
+        return '<option value="' + esc(o.id) + '"' + (o.id === current ? " selected" : "") + '>' + esc(o.name) + '</option>';
+      }).join("");
+    if (!stillValid) {
+      state.scraperFilter = "all";
+      sel.value = "all";
+    }
+  }
+
   function applyStudioFilter() {
     var f = state.studioFilter;
+    var sf = state.scraperFilter;
     state.scenes.forEach(function(scene) {
       var el = document.getElementById("st-row-" + scene.id);
       if (!el) return;
@@ -1523,14 +1646,15 @@
       // Errors: no new/existing status since there's no scraped result to
       // classify - hidden under New/Existing, stay visible under All so
       // failures needing a retry aren't lost from view.
-      if (r && r.status === "error" && f !== "all") {
+      if (r && r.status === "error" && (f !== "all" || sf !== "all")) {
         el.style.display = "none";
         return;
       }
       if (!r || r.status !== "scraped") {
-        el.style.display = "";
+        el.style.display = (sf === "all") ? "" : "none";
         return;
       }
+      if (sf !== "all" && r.matchedScraperID !== sf) { el.style.display = "none"; return; }
       if (f === "all") { el.style.display = ""; return; }
       var status = getRowStudioStatus(scene.id);
       if (f === "new")      el.style.display = (status === "new")      ? "" : "none";
@@ -1574,6 +1698,59 @@
     });
   }
 
+  // Shared hover-preview wiring for any container holding .st-perf-chip-avatar
+  // images (the confirmed-performer chips AND the scraped-performers
+  // checkbox grid both use it) - one reusable floating <img>, repositioned
+  // above whichever chip/item is under the mouse, rather than one full-size
+  // preview element sitting behind every avatar up front.
+  function wireAvatarHoverPreview(container, chipSelector) {
+    var preview = null;
+    container.addEventListener("mouseover", function (e) {
+      var avatar = e.target.closest(".st-perf-chip-avatar");
+      if (!avatar) return;
+      if (!preview) {
+        preview = document.createElement("img");
+        preview.className = "st-perf-hover-preview";
+        container.appendChild(preview);
+      }
+      preview.src = avatar.src;
+      var wrapRect = container.getBoundingClientRect();
+      var chipRect = avatar.closest(chipSelector).getBoundingClientRect();
+      // Popped above the chip/item (like a tooltip), not on top of it - the
+      // preview's own fixed 120px height (see .st-perf-hover-preview) is the
+      // offset, plus a small gap.
+      preview.style.top  = (chipRect.top - wrapRect.top - 120 - 8) + "px";
+      preview.style.left = (chipRect.left - wrapRect.left) + "px";
+      preview.style.display = "block";
+    });
+    container.addEventListener("mouseleave", function () {
+      if (preview) preview.style.display = "none";
+    });
+  }
+
+  // For performers already matched to an existing DB entry (stored_id set),
+  // fetches that performer's own local avatar (image_path) so the checkbox
+  // list can show the same round Refract-Cards-style avatar + hover preview
+  // as manually-searched-and-added performers. Deliberately NOT the
+  // scraper-provided `p.images` (that's a source-site image, possibly
+  // unrelated/outdated for a performer that already has a curated local
+  // photo) - only performers actually in the database qualify.
+  // Non-blocking, same pattern as refreshStudioAliasBadges: the row displays
+  // normally while this runs, then re-renders once images arrive.
+  function fetchStoredPerformerImages(id) {
+    var r = state.rows[id];
+    if (!r || !r.scraped || !r.scraped.performers) return;
+    var toFetch = r.scraped.performers.filter(function (p) { return p.stored_id && p.storedImage === undefined; });
+    if (!toFetch.length) return;
+    Promise.all(toFetch.map(function (p) {
+      return gql("FPImg", Q_FP_IMAGE, { id: p.stored_id }).then(function (d) {
+        p.storedImage = (d.findPerformer && d.findPerformer.image_path) || "";
+      }).catch(function () { p.storedImage = ""; });
+    })).then(function () {
+      if (state.rows[id] && state.rows[id].scraped === r.scraped) renderRow(id);
+    });
+  }
+
   // Marks a scrape failure on row r. If the "manual fill-in" mode is
   // enabled, treats the row as "scraped" with empty data (shows the usual
   // panel: studio/performers/tags/details all empty, ready to fill in by
@@ -1602,8 +1779,8 @@
       .then(function (res) {
         if (!res.scraped) { handleScrapeFailure(r, "No result"); }
         else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; }
-        renderRow(id); updatePageInfo();
-        if (r.status === "scraped") refreshStudioAliasBadges(id);
+        renderRow(id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
+        if (r.status === "scraped") { refreshStudioAliasBadges(id); fetchStoredPerformerImages(id); }
       })
       .catch(function (err) {
         handleScrapeFailure(r, err.message || String(err));
@@ -1670,8 +1847,8 @@
         .then(function (res) {
           if (!res.scraped) { handleScrapeFailure(r, "No result"); }
           else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; }
-          renderRow(scene.id); updatePageInfo();
-          if (r.status === "scraped") refreshStudioAliasBadges(scene.id);
+          renderRow(scene.id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
+          if (r.status === "scraped") { refreshStudioAliasBadges(scene.id); fetchStoredPerformerImages(scene.id); }
           setTimeout(function () { next(i + 1); }, 700);
         })
         .catch(function (err) {
@@ -1730,7 +1907,11 @@
     setApplyAllBtn(scraped === 0);
   }
 
-  function setScrapeAllBtn(d) { var b = document.getElementById("st-btn-scrape-all"); if (b) b.disabled = d; }
+  function setScrapeAllBtn(d) {
+    var b = document.getElementById("st-btn-scrape-all"); if (b) b.disabled = d;
+    var drag = document.getElementById("st-titlebar-drag");
+    if (drag) drag.classList.toggle("st-titlebar-active", d);
+  }
   function setApplyAllBtn(d)  { var b = document.getElementById("st-btn-apply-all");  if (b) b.disabled = d; }
 
   function updatePageNav() {
@@ -1851,9 +2032,11 @@
     panel.innerHTML =
       '<div id="st-titlebar">' +
         '<span id="st-titlebar-drag">&#9776; Scene Tagger</span>' +
-        '<button id="st-titlebar-compact" title="Compact mode">&#8596;</button>' +
-        '<button id="st-titlebar-settings" title="Settings">&#9881;</button>' +
-        '<button id="st-titlebar-close" title="Close">&#10005;</button>' +
+        '<div id="st-titlebar-actions">' +
+          '<button id="st-titlebar-compact" title="Compact mode">&#8644;&#xFE0E;</button>' +
+          '<button id="st-titlebar-settings" title="Settings">&#9881;&#xFE0E;</button>' +
+          '<button id="st-titlebar-close" title="Close">&#10005;</button>' +
+        '</div>' +
       '</div>' +
       '<div id="st-settings-panel" style="display:none">' +
         '<div class="st-setting-row st-scraper-chain-row">' +
@@ -1882,12 +2065,6 @@
         '<div class="st-setting-row">' +
           '<label class="st-setting-label"><input type="checkbox" id="st-cfg-details"> Details checked by default</label>' +
         '</div>' +
-        // "Video Hover Preview" row hidden in this public build: the
-        // companion plugin it depends on isn't published yet, same as
-        // "Other studios" above. Uncomment once that plugin is published.
-        // '<div class="st-setting-row">' +
-        //   '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hover-preview"> Video preview on hover (Video Hover Preview)</label>' +
-        // '</div>' +
         '<div class="st-setting-row">' +
           '<label class="st-setting-label"><input type="checkbox" id="st-cfg-use-url"> Use the existing URL on the scene if available (before scraper/chain)</label>' +
         '</div>' +
@@ -1898,7 +2075,7 @@
           '<label class="st-setting-label"><input type="checkbox" id="st-cfg-manual-fallback-title"> Also allow manual title entry</label>' +
         '</div>' +
         '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Native hover preview</label>' +
+          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Hover preview</label>' +
         '</div>' +
         '<div class="st-setting-row st-blacklist-row">' +
           '<div class="st-blacklist-label">Studio blacklist (VA)</div>' +
@@ -1922,9 +2099,15 @@
           }).join("") +
         '</select>' +
         '<div class="st-filter-radios">' +
-          '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="all" checked> All</label>' +
-          '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="new"> New</label>' +
-          '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="existing"> Existing</label>' +
+          '<select id="st-scraper-filter" class="st-scraper-filter-select" title="Filter by scraper">' +
+            '<option value="all">All scrapers</option>' +
+          '</select>' +
+          '<div class="st-filter-group">' +
+            '<span class="st-filter-indicator"></span>' +
+            '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="all" checked> All</label>' +
+            '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="new"> New</label>' +
+            '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="existing"> Existing</label>' +
+          '</div>' +
         '</div>' +
       '</div>' +
       '<div id="st-status-bar">' +
@@ -1951,10 +2134,18 @@
   function attachPanelEvents() {
     renderScraperChain();
 
-    // ── Native hover preview (no companion plugin) ──────────────────────────
+    // ── Hover preview (no companion plugin) ──────────────────────────────────
     // Delegated on #st-rows (attached once here, not per-row in renderRow)
     // since rows are rebuilt constantly - avoids piling up listeners.
     // Muted from the start so autoplay is never blocked by the browser.
+    // data-preview-url is scene.paths.preview when Stash already generated
+    // one for that scene (cheap - just loop it from 0, see the else branch
+    // below), otherwise scene.paths.stream, the source file itself - no need
+    // to force-generate previews for the whole library just to hover-scrub
+    // scenes in this panel (unlike videoHoverPreview, whose whole point was
+    // avoiding that generation cost too - see its STREAM_BASE + "/stream"
+    // use). Only the stream case carries data-preview-duration (set in
+    // renderRow), which is what selects the 10%-in seek below.
     var rowsEl = document.getElementById("st-rows");
     if (rowsEl) {
       rowsEl.addEventListener("mouseover", function (e) {
@@ -1963,12 +2154,29 @@
         if (!clip || (e.relatedTarget && clip.contains(e.relatedTarget))) return;
         var url = clip.getAttribute("data-preview-url");
         if (!url || clip.querySelector(".st-thumb-preview-video")) return;
+        var duration = parseFloat(clip.getAttribute("data-preview-duration")) || 0;
+        var startAt = duration > 1 ? duration * 0.10 : 0;
         var video = document.createElement("video");
         video.className = "st-thumb-preview-video";
         video.src = url;
         video.muted = true;
-        video.loop = true;
         video.playsInline = true;
+        video.preload = "metadata";
+        if (startAt > 0) {
+          // Loop from the 10%-in point rather than 0s (often a black/title
+          // frame on these sources) - native `video.loop` always restarts
+          // at 0, so the loop-back is done by hand via timeupdate instead.
+          video.addEventListener("loadedmetadata", function () {
+            video.currentTime = startAt;
+          });
+          video.addEventListener("timeupdate", function () {
+            if (video.duration && video.currentTime >= video.duration - 0.2) {
+              video.currentTime = startAt;
+            }
+          });
+        } else {
+          video.loop = true;
+        }
         clip.appendChild(video);
         video.play().catch(function () {});
       });
@@ -2006,10 +2214,11 @@
         var r = state.rows[scene.id];
         if (r && r.status !== "done") { r.status = "idle"; r.scraped = null; r.msg = ""; }
       });
-      buildAllRows(); updateStatus("Results cleared");
+      buildAllRows(); renderScraperFilterOptions(); updateStatus("Results cleared");
     });
     document.getElementById("st-btn-reload").addEventListener("click", function () {
-      state.scenes = []; state.rows = {}; loadScenes();
+      try { sessionStorage.setItem(REOPEN_FLAG, "1"); } catch (e) {}
+      window.location.reload();
     });
 
     var prevBtn = document.getElementById("st-btn-page-prev");
@@ -2053,6 +2262,9 @@
         compactBtn.style.color = pluginConfig.compactMode ? "rgba(var(--accent-rgb,94,129,172),1)" : "";
         var handle = document.getElementById("st-resize-handle");
         if (handle) handle.style.display = pluginConfig.compactMode ? "none" : "flex";
+        // Compact mode shrinks the filter labels' font-size, so the sliding
+        // indicator needs to be recomputed once the new layout has settled.
+        setTimeout(updateFilterIndicator, 0);
       });
     }
 
@@ -2077,8 +2289,7 @@
     }
     bindSettingCb("st-cfg-studio",              "autoCheckStudio");
     bindSettingCb("st-cfg-prioritize-existing", "prioritizeExistingStudio");
-        // bindSettingCb("st-cfg-hover-preview", "enableHoverPreview"); // row hidden, see buildPanel()
-        bindSettingCb("st-cfg-use-url",             "useUrlIfPresent");
+    bindSettingCb("st-cfg-use-url",             "useUrlIfPresent");
     // bindSettingCb("st-cfg-auto-other-studios", "autoAddOtherStudios"); // row hidden, see buildPanel()
     bindSettingCb("st-cfg-performer",           "autoCheckPerformer");
     bindSettingCb("st-cfg-tags",                "autoCheckNewTags");
@@ -2088,6 +2299,24 @@
     bindSettingCb("st-cfg-native-hover",          "nativeHoverPreview");
 
     // ── Live studio filter ───────────────────────────────────────────────────
+    // Sliding pill behind the checked All/New/Existing label, repositioned
+    // to the checked item's own width/offset (labels aren't equal width) —
+    // pure CSS can't animate this since :has(input:checked) only recolors
+    // the item in place, it can't slide a shared background between
+    // siblings of different sizes.
+    function updateFilterIndicator() {
+      var group = document.querySelector(".st-filter-group");
+      var indicator = document.querySelector(".st-filter-indicator");
+      var checked = document.querySelector('input[name="st-studio-filter"]:checked');
+      if (!group || !indicator || !checked) return;
+      var label = checked.closest(".st-filter-item");
+      if (!label) return;
+      var groupRect = group.getBoundingClientRect();
+      var labelRect = label.getBoundingClientRect();
+      indicator.style.width = labelRect.width + "px";
+      indicator.style.left = (labelRect.left - groupRect.left) + "px";
+    }
+
     document.querySelectorAll('input[name="st-studio-filter"]').forEach(function(radio) {
       // Sync initial state
       if (radio.value === state.studioFilter) radio.checked = true;
@@ -2095,9 +2324,24 @@
         if (radio.checked) {
           state.studioFilter = radio.value;
           applyStudioFilter();
+          updateFilterIndicator();
         }
       });
     });
+    // Position on first render (after layout so widths are known) and once
+    // more shortly after (panel/compact-mode transitions can still be
+    // animating their own width at this point).
+    setTimeout(updateFilterIndicator, 0);
+    setTimeout(updateFilterIndicator, 300);
+
+    var scraperFilterSel = document.getElementById("st-scraper-filter");
+    if (scraperFilterSel) {
+      renderScraperFilterOptions();
+      scraperFilterSel.addEventListener("change", function () {
+        state.scraperFilter = scraperFilterSel.value;
+        applyStudioFilter();
+      });
+    }
 
     // ── Studio blacklist ─────────────────────────────────────────────────────
     function renderBlacklistChips() {
@@ -2150,13 +2394,19 @@
         startX = e.clientX; startY = e.clientY;
         var rect = panel.getBoundingClientRect();
         origLeft = rect.left; origTop = rect.top;
-        // Convert from full width to a floating position
+        // Convert from the docked top/left/right/bottom layout to a
+        // floating position pinned by left/top/width/height alone —
+        // `bottom` must be cleared too, otherwise the panel keeps stretching
+        // to the viewport's bottom edge (12px above it) while only top/left
+        // move, distorting its height as it's dragged.
         panel.style.left      = origLeft + "px";
         panel.style.top       = origTop + "px";
         panel.style.right     = "auto";
+        panel.style.bottom    = "auto";
         panel.style.width     = rect.width + "px";
+        panel.style.height    = rect.height + "px";
         panel.style.transform = "none";
-        panel.style.borderRadius = "10px";
+        panel.style.borderRadius = "14px";
         e.preventDefault();
       });
       document.addEventListener("mousemove", function (e) {
@@ -2315,6 +2565,18 @@
             var panel = buildPanel(scrapers);
             document.body.appendChild(panel);
             attachPanelEvents();
+          }
+          var reopen = false;
+          try {
+            if (sessionStorage.getItem(REOPEN_FLAG) === "1") {
+              sessionStorage.removeItem(REOPEN_FLAG);
+              reopen = true;
+            }
+          } catch (e) {}
+          if (reopen && !state.visible) {
+            state.visible = true;
+            var panelEl = document.getElementById(PANEL_ID);
+            if (panelEl) panelEl.style.display = "";
           }
           injectToggleBtn();
           if (state.visible && state.scenes.length === 0) loadScenes();
