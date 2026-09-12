@@ -2196,6 +2196,14 @@
         video.muted = true;
         video.playsInline = true;
         video.preload = "metadata";
+        // Attached to the DOM BEFORE src/play() - calling play() on a
+        // detached element is unreliable across browsers (the media
+        // pipeline doesn't fully engage until it's actually in the tree),
+        // which is what made this flaky before: it happened to work often
+        // enough to look like it "sometimes" worked. Wire the fallback
+        // listener before setting src either way, so a same-tick error
+        // can't be missed.
+        clip.appendChild(video);
         if (previewUrl) {
           // Falls back to the source stream exactly once if the "generated
           // preview" turns out not to actually exist (see comment above).
@@ -2211,7 +2219,6 @@
           video.src = streamUrl;
           playPreviewFrom(video, duration);
         }
-        clip.appendChild(video);
       });
       rowsEl.addEventListener("mouseout", function (e) {
         var clip = e.target.closest(".st-thumb-clip");
