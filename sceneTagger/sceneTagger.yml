@@ -1,7 +1,7 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.6.1"
-url: "https://github.com/jojo-topo/stash-plugins/tree/main/sceneTagger"
+version: "1.6.3"
+url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 settings:
   autoCheckStudio:

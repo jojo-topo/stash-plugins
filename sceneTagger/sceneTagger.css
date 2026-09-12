@@ -296,6 +296,7 @@
 .st-row-info { min-width: 0; }
 
 .st-filename {
+  display: block;
   font-size: 13px;
   color: #8a9099;
   white-space: nowrap;

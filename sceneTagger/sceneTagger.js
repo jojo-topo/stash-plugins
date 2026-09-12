@@ -2381,6 +2381,32 @@
     setTimeout(updateFilterIndicator, 0);
     setTimeout(updateFilterIndicator, 300);
 
+    // Drag-to-switch: press down anywhere in the segmented control and
+    // slide across to another option without releasing, like a physical
+    // toggle switch, instead of only supporting a plain click per option.
+    var filterGroup = document.querySelector(".st-filter-group");
+    if (filterGroup) {
+      var filterDragging = false;
+      function selectFilterAt(clientX, clientY) {
+        var el = document.elementFromPoint(clientX, clientY);
+        var item = el && el.closest && el.closest(".st-filter-item");
+        if (!item || !filterGroup.contains(item)) return;
+        var radio = item.querySelector('input[name="st-studio-filter"]');
+        if (!radio || radio.checked) return;
+        radio.checked = true;
+        radio.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      filterGroup.addEventListener("mousedown", function (e) {
+        filterDragging = true;
+        selectFilterAt(e.clientX, e.clientY);
+      });
+      document.addEventListener("mousemove", function (e) {
+        if (!filterDragging) return;
+        selectFilterAt(e.clientX, e.clientY);
+      });
+      document.addEventListener("mouseup", function () { filterDragging = false; });
+    }
+
     var scraperFilterSel = document.getElementById("st-scraper-filter");
     if (scraperFilterSel) {
       renderScraperFilterOptions();
