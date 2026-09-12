@@ -1184,15 +1184,19 @@
         // element can never clip its OWN filter bleed with its own
         // overflow:hidden - only an ANCESTOR can, hence this dedicated
         // outer wrapper.
+        // Stash always returns a constructed paths.preview URL whether or
+        // not that clip was actually generated on disk - hitting it 404s
+        // for scenes without one, there's no truthiness check that tells
+        // you in advance. So both URLs are carried (preview tried first,
+        // cheap when it exists; data-stream-url as the fallback the hover
+        // handler switches to on the video's 'error' event) instead of
+        // picking one up front.
         '<span class="st-thumb-clip"' +
           (pluginConfig.nativeHoverPreview && scene.paths && scene.paths.preview
-            // Already-generated preview clip: short and pre-trimmed, so no
-            // 10%-in seek needed - just loop it from 0 like a normal preview.
             ? ' data-preview-url="' + esc(scene.paths.preview) + '"'
-            : pluginConfig.nativeHoverPreview && scene.paths && scene.paths.stream
-            // No generated preview for this scene - stream the source
-            // directly instead of forcing a generation pass just for hover.
-            ? ' data-preview-url="' + esc(scene.paths.stream) + '"' +
+            : '') +
+          (pluginConfig.nativeHoverPreview && scene.paths && scene.paths.stream
+            ? ' data-stream-url="' + esc(scene.paths.stream) + '"' +
               ' data-preview-duration="' + esc(getSceneDuration(scene)) + '"'
             : '') +
         '>' +
@@ -2138,47 +2142,76 @@
     // Delegated on #st-rows (attached once here, not per-row in renderRow)
     // since rows are rebuilt constantly - avoids piling up listeners.
     // Muted from the start so autoplay is never blocked by the browser.
-    // data-preview-url is scene.paths.preview when Stash already generated
-    // one for that scene (cheap - just loop it from 0, see the else branch
-    // below), otherwise scene.paths.stream, the source file itself - no need
-    // to force-generate previews for the whole library just to hover-scrub
-    // scenes in this panel (unlike videoHoverPreview, whose whole point was
-    // avoiding that generation cost too - see its STREAM_BASE + "/stream"
-    // use). Only the stream case carries data-preview-duration (set in
-    // renderRow), which is what selects the 10%-in seek below.
+    // data-preview-url (scene.paths.preview) is tried first when present -
+    // cheap, just loop it from 0 - but Stash always returns a CONSTRUCTED
+    // preview URL whether or not that clip actually exists on disk (a scene
+    // with no generated preview still gets a URL, it just 404s/format-errors
+    // when played - confirmed in session 2026-09-12, see the video 'error'
+    // handler below). So data-stream-url (scene.paths.stream, the source
+    // file itself, with data-preview-duration for the 10%-in seek) is the
+    // fallback switched to on that error, not a second choice picked up
+    // front from a truthiness check that can't actually tell the two cases
+    // apart.
     var rowsEl = document.getElementById("st-rows");
     if (rowsEl) {
-      rowsEl.addEventListener("mouseover", function (e) {
-        if (!pluginConfig.nativeHoverPreview) return;
-        var clip = e.target.closest(".st-thumb-clip");
-        if (!clip || (e.relatedTarget && clip.contains(e.relatedTarget))) return;
-        var url = clip.getAttribute("data-preview-url");
-        if (!url || clip.querySelector(".st-thumb-preview-video")) return;
-        var duration = parseFloat(clip.getAttribute("data-preview-duration")) || 0;
+      // Applies either seek-and-loop-from-10% (source stream, duration
+      // known) or plain loop-from-0 (generated preview clip, already short)
+      // to a <video> depending on whether a usable duration was passed.
+      function playPreviewFrom(video, duration) {
         var startAt = duration > 1 ? duration * 0.10 : 0;
-        var video = document.createElement("video");
-        video.className = "st-thumb-preview-video";
-        video.src = url;
-        video.muted = true;
-        video.playsInline = true;
-        video.preload = "metadata";
+        video.currentTime = 0;
+        // Clear any stale seek/loop listeners from a previous attempt on
+        // this same <video> (the preview→stream fallback reuses the
+        // element rather than creating a new one).
+        video.loop = false;
+        video.onloadedmetadata = null;
+        video.ontimeupdate = null;
         if (startAt > 0) {
           // Loop from the 10%-in point rather than 0s (often a black/title
           // frame on these sources) - native `video.loop` always restarts
           // at 0, so the loop-back is done by hand via timeupdate instead.
-          video.addEventListener("loadedmetadata", function () {
-            video.currentTime = startAt;
-          });
-          video.addEventListener("timeupdate", function () {
+          video.onloadedmetadata = function () { video.currentTime = startAt; };
+          video.ontimeupdate = function () {
             if (video.duration && video.currentTime >= video.duration - 0.2) {
               video.currentTime = startAt;
             }
-          });
+          };
         } else {
           video.loop = true;
         }
-        clip.appendChild(video);
         video.play().catch(function () {});
+      }
+
+      rowsEl.addEventListener("mouseover", function (e) {
+        if (!pluginConfig.nativeHoverPreview) return;
+        var clip = e.target.closest(".st-thumb-clip");
+        if (!clip || (e.relatedTarget && clip.contains(e.relatedTarget))) return;
+        var previewUrl = clip.getAttribute("data-preview-url");
+        var streamUrl  = clip.getAttribute("data-stream-url");
+        var duration   = parseFloat(clip.getAttribute("data-preview-duration")) || 0;
+        var url = previewUrl || streamUrl;
+        if (!url || clip.querySelector(".st-thumb-preview-video")) return;
+        var video = document.createElement("video");
+        video.className = "st-thumb-preview-video";
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = "metadata";
+        if (previewUrl) {
+          // Falls back to the source stream exactly once if the "generated
+          // preview" turns out not to actually exist (see comment above).
+          video.addEventListener("error", function onPreviewError() {
+            video.removeEventListener("error", onPreviewError);
+            if (!streamUrl) return;
+            video.src = streamUrl;
+            playPreviewFrom(video, duration);
+          }, { once: true });
+          video.src = previewUrl;
+          playPreviewFrom(video, 0);
+        } else {
+          video.src = streamUrl;
+          playPreviewFrom(video, duration);
+        }
+        clip.appendChild(video);
       });
       rowsEl.addEventListener("mouseout", function (e) {
         var clip = e.target.closest(".st-thumb-clip");
@@ -2296,7 +2329,21 @@
     bindSettingCb("st-cfg-details",             "autoCheckDetails");
     bindSettingCb("st-cfg-manual-fallback",       "manualFallbackOnFail");
     bindSettingCb("st-cfg-manual-fallback-title", "manualFallbackAllowTitle");
-    bindSettingCb("st-cfg-native-hover",          "nativeHoverPreview");
+    // Not a plain bindSettingCb: data-preview-url/-duration are baked into
+    // .st-thumb-clip's HTML at renderRow() time, based on nativeHoverPreview's
+    // value at that moment - toggling the checkbox alone doesn't retroactively
+    // add/remove that attribute on thumbnails already on screen, so hovering
+    // silently does nothing until the rows are rebuilt.
+    (function () {
+      var nativeHoverEl = document.getElementById("st-cfg-native-hover");
+      if (!nativeHoverEl) return;
+      nativeHoverEl.checked = !!pluginConfig.nativeHoverPreview;
+      nativeHoverEl.addEventListener("change", function () {
+        pluginConfig.nativeHoverPreview = nativeHoverEl.checked;
+        savePluginConfig();
+        buildAllRows();
+      });
+    })();
 
     // ── Live studio filter ───────────────────────────────────────────────────
     // Sliding pill behind the checked All/New/Existing label, repositioned
