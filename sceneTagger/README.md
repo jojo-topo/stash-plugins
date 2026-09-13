@@ -73,7 +73,7 @@ entry directly if nothing matches. No need to leave the panel or the page.
 
 Performer results (both in the search dropdown and once added to a scene)
 show a round avatar pulled from their existing Stash photo when they already
-have one - hover it for a larger preview, handy for telling apart
+have one - hover it for a larger preview, handy for telling apart 
 similarly-named performers before committing to one.
 
 ![Performer avatar hover preview](screenshots/performer-avatar-hover.png)
