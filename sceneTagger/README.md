@@ -62,13 +62,21 @@ field has its own checkbox - uncheck anything you don't want applied, edit
 the studio/performers/tags before committing. Nothing is written to Stash
 until you click **Apply**.
 
-![Field review panel](screenshots/manual-search-widgets.png)
+![Field review panel - studio search](screenshots/manual-search-widgets-studio.png)
+![Field review panel - performer search](screenshots/manual-search-widgets-performers.png)
 
 ### Search and create on the fly
 
 Performers, studios, and tags all have a live search box built into the
 panel - start typing to search the existing Stash database, or create a new
 entry directly if nothing matches. No need to leave the panel or the page.
+
+Performer results (both in the search dropdown and once added to a scene)
+show a round avatar pulled from their existing Stash photo when they already
+have one - hover it for a larger preview, handy for telling apart
+similarly-named performers before committing to one.
+
+![Performer avatar hover preview](screenshots/performer-avatar-hover.png)
 
 ### New-entity detection
 
@@ -131,12 +139,20 @@ Open the gear icon on the panel header for:
 - The scraper chain (drag to reorder, toggle scrapers on/off)
 - Auto-check defaults for new studios / performers / tags / details
 - Studio blacklist
-- Native hover preview (plays Stash's own generated preview clip on hover)
+- Hover preview (plays a preview clip on hover - Stash's own generated one
+  when a scene has one, otherwise the source video streamed directly, no
+  companion plugin or preview generation required)
 - "Use existing URL if available" toggle
 - Manual fallback on scrape failure (+ manual title sub-option)
 
-A separate button in the panel's title bar (not in this settings menu) toggles
-a compact floating panel mode.
+### Compact mode
+
+A separate button in the panel's title bar (not in the settings menu above)
+toggles a compact floating panel mode - a smaller, draggable window docked to
+a corner instead of the full-width bar, for when the full panel takes up too
+much space.
+
+![Compact floating panel mode](screenshots/compact-mode.png)
 
 ## Known limitations
 
