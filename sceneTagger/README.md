@@ -7,11 +7,18 @@ own **Scenes** tab. JavaScript only - no backend, no dependencies.
 
 ![Panel overview](screenshots/panel-overview.png)
 
-Built originally for scraping **rule34** and **rule34video** sources via
-community/URL-based scrapers - the kind of workflow Stash's stash-box-centric
-native tools (Scrape button, Identify task, Tagger page) aren't really built
-for. It isn't rule34-specific in how it works (any scene scraper can be added
-to the chain), that's just the itch it was built to scratch.
+This plugin was originally built around **rule34** and **rule34video**'s
+scraping logic - fragment/URL-based custom scrapers with their own quirks
+(filename ID matching, fallback between them, etc.). It grew into scraping
+many scenes in a row using several scrapers in a fallback chain, reviewing
+each result, and batch-applying them - all in one tool.
+
+Stash's native Tagger page already lets you review scraped results, but it's
+built around one scraper/source at a time; combining a multi-scraper
+fallback chain, inline review, and batch apply into a single workflow is
+what this plugin adds on top. It has since been adapted to work with
+stash-box sources too (StashDB, ThePornDB, etc.) - the rule34 origin shaped
+how it works, but it isn't limited to it.
 
 This is a personal tool, shared as-is because it turned out complete enough
 to be useful to others - not actively maintained for every environment or
@@ -128,6 +135,19 @@ up one studio's backlog without the global filter noise.
 Changing page, filter, or sort on `/scenes` refreshes the list in place -
 the panel never closes and reopens on its own, and rows already scraped in
 this session keep their result if they're still in view.
+
+### Live filtering after a bulk scrape
+
+Once several scenes are scraped, filter the list by **All / New / Existing**
+(whether the detected studio is new or already in your database) and by
+which scraper actually matched, to quickly focus on the scenes that need
+attention.
+
+![Filter: All](screenshots/filter-all.png)
+![Filter: New](screenshots/filter-new.png)
+![Filter: Existing](screenshots/filter-existing.png)
+![Filter by scraper - dropdown](screenshots/filter-by-scraper-1.png)
+![Filter by scraper - applied](screenshots/filter-by-scraper-2.png)
 
 ## Settings
 
