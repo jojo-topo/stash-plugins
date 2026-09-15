@@ -509,6 +509,7 @@
       var tids = res[2].filter(Boolean);
       if (pids.length) inp.performer_ids = pids;
       if (tids.length) inp.tag_ids       = tids;
+      if (state.rows[sceneID].markOrganized) inp.organized = true;
       var otherStudioIds = res[3].filter(Boolean);
 
       return gql("SceneUpdate", M_SU, { input: inp }).then(function (updateResult) {
@@ -542,6 +543,9 @@
     // Reconciled with the real scraper list on every load (see
     // reconcileScraperChain) - never empty once the scrapers are loaded.
     scraperChain:            [],
+    // If enabled, scenes are marked as organized by default when Applied
+    // (overridable per scene via the "Organized" row button).
+    autoMarkOrganized: false,
     // "auto" = fallback chain (scraperChain), "manual" = a single scraper
     // chosen via the header select (old behavior, kept for cases where
     // auto-fallback isn't wanted).
@@ -585,6 +589,7 @@
           if (cfg.manualFallbackOnFail     !== undefined) pluginConfig.manualFallbackOnFail     = !!cfg.manualFallbackOnFail;
           if (cfg.manualFallbackAllowTitle !== undefined) pluginConfig.manualFallbackAllowTitle = !!cfg.manualFallbackAllowTitle;
           if (cfg.nativeHoverPreview !== undefined) pluginConfig.nativeHoverPreview = !!cfg.nativeHoverPreview;
+          if (cfg.autoMarkOrganized  !== undefined) pluginConfig.autoMarkOrganized  = !!cfg.autoMarkOrganized;
           if (cfg.scraperChain !== undefined) {
             try {
               var parsed = typeof cfg.scraperChain === "string" ? JSON.parse(cfg.scraperChain) : cfg.scraperChain;
@@ -609,6 +614,16 @@
     });
     return gql("SetPluginConfig", M_SET_CONFIG, { input: toSave })
       .catch(function () {});
+  }
+
+  // Independent safety net from config.yml: writes the studio blacklist to
+  // a local JSON file (studioBlacklist_backup.json, see blacklistBackup.py)
+  // via a plugin task. Non-blocking, called only after a studioBlacklist
+  // change (not on every savePluginConfig()).
+  var M_RUN_BLACKLIST_BACKUP = 'mutation RunBlacklistBackup { runPluginTask(plugin_id: "sceneTagger", task_name: "Backup studio blacklist") }';
+  function backupBlacklist() {
+    gql("RunBlacklistBackup", M_RUN_BLACKLIST_BACKUP)
+      .catch(function (e) { console.error("[sceneTagger] blacklist backup failed:", e); });
   }
 
   function isBlacklisted(name) {
@@ -642,6 +657,7 @@
     scrapers:    [],
     manualScraperID: "",   // scraper chosen in manual mode
     studioFilter: "all",  // "all" | "new" | "existing"
+    multiStudioOnly: false,  // when true, cumulative AND with studioFilter: only rows with >=2 studio candidates
     scraperFilter: "all", // "all" | a scraperID (only scrapers with >=1 result are listed)
     currentPage: 1,
     totalPages:  1
@@ -1148,6 +1164,12 @@
             '<button class="st-btn st-btn-success" onclick="stApplyOne(\'' + esc(id) + '\')">Apply</button>' +
             (r.manualFallback ? '<button class="st-btn st-btn-ghost" onclick="stScrapeOne(\'' + esc(id) + '\')">Retry</button>' : '') +
             '<button class="st-btn st-btn-danger"  onclick="stSkipOne(\''  + esc(id) + '\')">Skip</button>' +
+            '<button class="st-btn ' + (r.markOrganized ? "st-btn-organized-on" : "st-btn-organized-off") + '" onclick="stToggleOrganized(\'' + esc(id) + '\')">' +
+              (r.markOrganized
+                ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="vertical-align:-2px;margin-right:4px"><path d="M20 6L9 17l-5-5"/></svg>'
+                : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><circle cx="12" cy="12" r="9"/></svg>') +
+              'Organized' +
+            '</button>' +
           '</div>' +
         '</div>';
     }
@@ -1238,6 +1260,7 @@
           if (pluginConfig.studioBlacklist.indexOf(n) === -1) {
             pluginConfig.studioBlacklist.push(n);
             savePluginConfig();
+            backupBlacklist();
           }
           // Re-render the row to remove the blacklisted artist
           renderRow(id);
@@ -1615,8 +1638,9 @@
   // Reload so the list stays live. Preserves the current selection when
   // it's still a valid option; falls back to "all" otherwise (e.g. Clear).
   function renderScraperFilterOptions() {
-    var sel = document.getElementById("st-scraper-filter");
-    if (!sel) return;
+    var list = document.getElementById("st-scraper-filter-list");
+    var btn  = document.getElementById("st-scraper-filter-btn");
+    if (!list || !btn) return;
     var seen = {};
     var options = [];
     state.scenes.forEach(function (scene) {
@@ -1630,19 +1654,31 @@
 
     var current = state.scraperFilter;
     var stillValid = current === "all" || seen[current];
-    sel.innerHTML = '<option value="all">All scrapers</option>' +
+    if (!stillValid) { state.scraperFilter = "all"; current = "all"; }
+
+    list.innerHTML =
+      '<div class="st-combo-option' + (current === "all" ? " st-combo-option-selected" : "") + '" role="option" data-id="all" data-name="All scrapers">All scrapers</div>' +
       options.map(function (o) {
-        return '<option value="' + esc(o.id) + '"' + (o.id === current ? " selected" : "") + '>' + esc(o.name) + '</option>';
+        return '<div class="st-combo-option' + (o.id === current ? " st-combo-option-selected" : "") + '" role="option" data-id="' + esc(o.id) + '" data-name="' + esc(o.name) + '">' + esc(o.name) + '</div>';
       }).join("");
-    if (!stillValid) {
-      state.scraperFilter = "all";
-      sel.value = "all";
-    }
+    var currentOpt = options.filter(function (o) { return o.id === current; })[0];
+    btn.textContent = current === "all" ? "All scrapers" : (currentOpt ? currentOpt.name : current);
+  }
+
+  // A row has "multiple studio candidates" when the scrape surfaced more
+  // than one candidate studio radio (data-artist set) for that row -
+  // regardless of which one is currently selected for apply.
+  function rowHasMultipleStudioCandidates(id) {
+    var row = document.getElementById("st-row-" + id);
+    if (!row) return false;
+    var candidateRadios = row.querySelectorAll('[data-cb="studio-radio"][data-artist]:not([data-artist=""])');
+    return candidateRadios.length > 1;
   }
 
   function applyStudioFilter() {
     var f = state.studioFilter;
     var sf = state.scraperFilter;
+    var multiOnly = state.multiStudioOnly;
     state.scenes.forEach(function(scene) {
       var el = document.getElementById("st-row-" + scene.id);
       if (!el) return;
@@ -1650,15 +1686,16 @@
       // Errors: no new/existing status since there's no scraped result to
       // classify - hidden under New/Existing, stay visible under All so
       // failures needing a retry aren't lost from view.
-      if (r && r.status === "error" && (f !== "all" || sf !== "all")) {
+      if (r && r.status === "error" && (f !== "all" || sf !== "all" || multiOnly)) {
         el.style.display = "none";
         return;
       }
       if (!r || r.status !== "scraped") {
-        el.style.display = (sf === "all") ? "" : "none";
+        el.style.display = (sf === "all" && !multiOnly) ? "" : "none";
         return;
       }
       if (sf !== "all" && r.matchedScraperID !== sf) { el.style.display = "none"; return; }
+      if (multiOnly && !rowHasMultipleStudioCandidates(scene.id)) { el.style.display = "none"; return; }
       if (f === "all") { el.style.display = ""; return; }
       var status = getRowStudioStatus(scene.id);
       if (f === "new")      el.style.display = (status === "new")      ? "" : "none";
@@ -1721,9 +1758,9 @@
       var wrapRect = container.getBoundingClientRect();
       var chipRect = avatar.closest(chipSelector).getBoundingClientRect();
       // Popped above the chip/item (like a tooltip), not on top of it - the
-      // preview's own fixed 120px height (see .st-perf-hover-preview) is the
+      // preview's own fixed 160px height (see .st-perf-hover-preview) is the
       // offset, plus a small gap.
-      preview.style.top  = (chipRect.top - wrapRect.top - 120 - 8) + "px";
+      preview.style.top  = (chipRect.top - wrapRect.top - 160 - 8) + "px";
       preview.style.left = (chipRect.left - wrapRect.left) + "px";
       preview.style.display = "block";
     });
@@ -1755,6 +1792,16 @@
     });
   }
 
+  // Auto-mark-organized (pluginConfig.autoMarkOrganized) only defaults to
+  // checked for scenes with an actual scraped studio - scenes with no
+  // scraped result at all (manual fallback, empty scraped object) or no
+  // studio match are left unchecked, requiring the user to activate
+  // "Organized" by hand for those two cases.
+  function applyOrganizedAutoDefault(r) {
+    var hasStudio = !!(r.scraped && r.scraped.studio && r.scraped.studio.name);
+    r.markOrganized = pluginConfig.autoMarkOrganized && hasStudio;
+  }
+
   // Marks a scrape failure on row r. If the "manual fill-in" mode is
   // enabled, treats the row as "scraped" with empty data (shows the usual
   // panel: studio/performers/tags/details all empty, ready to fill in by
@@ -1766,6 +1813,7 @@
       r.scraped = {};
       r.manualFallback = true;
       r.msg = msg;
+      applyOrganizedAutoDefault(r);
     } else {
       r.status = "error";
       r.msg = msg;
@@ -1782,7 +1830,7 @@
     scrapeOneEffective(id)
       .then(function (res) {
         if (!res.scraped) { handleScrapeFailure(r, "No result"); }
-        else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; }
+        else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; applyOrganizedAutoDefault(r); }
         renderRow(id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
         if (r.status === "scraped") { refreshStudioAliasBadges(id); fetchStoredPerformerImages(id); }
       })
@@ -1814,6 +1862,13 @@
     var r = state.rows[id];
     if (!r) return;
     r.status = "skipped"; renderRow(id); updatePageInfo();
+  };
+
+  window.stToggleOrganized = function (id) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.markOrganized = !r.markOrganized;
+    renderRow(id);
   };
 
   // ── Sequential Scrape All ──────────────────────────────────────────────────
@@ -1850,7 +1905,7 @@
       scrapeOneEffective(scene.id)
         .then(function (res) {
           if (!res.scraped) { handleScrapeFailure(r, "No result"); }
-          else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; }
+          else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; applyOrganizedAutoDefault(r); }
           renderRow(scene.id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
           if (r.status === "scraped") { refreshStudioAliasBadges(scene.id); fetchStoredPerformerImages(scene.id); }
           setTimeout(function () { next(i + 1); }, 700);
@@ -1882,7 +1937,23 @@
         return new Promise(function (resolve) { setTimeout(resolve, 300); });
       });
     });
-    seq.then(function () { updateStatus("All scenes applied"); });
+    seq.then(function () { updateStatus("All scenes applied"); updatePageInfo(); });
+  }
+
+  // ── Skip All ────────────────────────────────────────────────────────────────
+  // Same visible-rows scope as applyAll(): only scraped rows currently
+  // shown under the active filter combo (studio radio + multi-studio +
+  // scraper) get skipped, so e.g. "Multi-studio" + "Skip All" clears out
+  // just the ambiguous batch without touching the rest of the queue.
+  function skipAll() {
+    var todo = state.scenes.filter(function (scene) {
+      if ((state.rows[scene.id] || {}).status !== "scraped") return false;
+      var el = document.getElementById("st-row-" + scene.id);
+      return el && el.style.display !== "none";
+    });
+    if (!todo.length) return;
+    todo.forEach(function (scene) { window.stSkipOne(scene.id); });
+    updateStatus(todo.length + " scenes skipped");
   }
 
   // ── Status / progress ──────────────────────────────────────────────────────
@@ -1909,6 +1980,7 @@
       (scraped ? " — " + scraped + " pending" : "") +
       (errors  ? " — " + errors  + " errors"    : "");
     setApplyAllBtn(scraped === 0);
+    setSkipAllBtn(scraped === 0);
   }
 
   function setScrapeAllBtn(d) {
@@ -1917,6 +1989,7 @@
     if (drag) drag.classList.toggle("st-titlebar-active", d);
   }
   function setApplyAllBtn(d)  { var b = document.getElementById("st-btn-apply-all");  if (b) b.disabled = d; }
+  function setSkipAllBtn(d)   { var b = document.getElementById("st-btn-skip-all");   if (b) b.disabled = d; }
 
   function updatePageNav() {
     var prevBtn = document.getElementById("st-btn-page-prev");
@@ -2002,7 +2075,8 @@
         state.scenes = scenes;
         scenes.forEach(function (scene) {
           if (!state.rows[scene.id])
-            state.rows[scene.id] = { scene: scene, status: "idle", scraped: null, msg: "" };
+            state.rows[scene.id] = { scene: scene, status: "idle", scraped: null, msg: "", markOrganized: 
+            pluginConfig.autoMarkOrganized };
           else
             state.rows[scene.id].scene = scene;
         });
@@ -2043,43 +2117,57 @@
         '</div>' +
       '</div>' +
       '<div id="st-settings-panel" style="display:none">' +
-        '<div class="st-setting-row st-scraper-chain-row">' +
-          '<div class="st-blacklist-label">Scrapers (order = fallback priority)</div>' +
-          '<div id="st-scraper-chain"></div>' +
+        '<div class="st-setting-group">' +
+          '<div class="st-setting-section-title">Scraping</div>' +
+          '<div class="st-setting-row st-scraper-chain-row">' +
+            '<div class="st-blacklist-label">Scrapers (order = fallback priority)</div>' +
+            '<div id="st-scraper-chain"></div>' +
+          '</div>' +
+          '<div class="st-setting-subtitle">Fallback behavior</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-use-url"> Try scene\'s saved URL first</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-manual-fallback"> Manual fill-in when scraping fails (studio/performers/tags/details)</label>' +
+          '</div>' +
+          '<div class="st-setting-row st-setting-row-sub">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-manual-fallback-title"> Allow manual title</label>' +
+          '</div>' +
         '</div>' +
-        '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-studio"> New studios checked by default</label>' +
+        '<div class="st-setting-group">' +
+          '<div class="st-setting-section-title">Checked by default</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-studio"> Auto-check new studios</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-prioritize-existing"> Prefer existing studio (multi-studio)</label>' +
+          '</div>' +
+          // Row hidden in the public build: depends on the companion plugin
+          // skExtra-Multiple-Studios-Custom, not published separately.
+          // '<div class="st-setting-row">' +
+          //   '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
+          // '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-performer"> Auto-check new performers</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-tags"> Auto-check new tags</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-details"> Auto-check details</label>' +
+          '</div>' +
         '</div>' +
-        '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-prioritize-existing"> Prioritize the studio already in the database (multi-studio)</label>' +
+        '<div class="st-setting-group">' +
+          '<div class="st-setting-section-title">On apply</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-mark-organized"> Auto-organize on Apply</label>' +
+          '</div>' +
         '</div>' +
-        // "Other studios" (skExtra-Multiple-Studios-Custom) row hidden in this
-        // public build: the companion plugin it depends on isn't published
-        // yet, so the toggle would just confuse users who don't have it.
-        // Uncomment once that plugin is published separately.
-        // '<div class="st-setting-row">' +
-        //   '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
-        // '</div>' +
-        '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-performer"> New performers checked by default</label>' +
-        '</div>' +
-        '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-tags"> New tags checked by default</label>' +
-        '</div>' +
-        '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-details"> Details checked by default</label>' +
-        '</div>' +
-        '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-use-url"> Use the existing URL on the scene if available (before scraper/chain)</label>' +
-        '</div>' +
-        '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-manual-fallback"> Manual fill-in when scraping fails (studio/performers/tags/details)</label>' +
-        '</div>' +
-        '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-manual-fallback-title"> Also allow manual title entry</label>' +
-        '</div>' +
-        '<div class="st-setting-row">' +
-          '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Hover preview</label>' +
+        '<div class="st-setting-group">' +
+          '<div class="st-setting-section-title">Display</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Thumbnail hover preview</label>' +
+          '</div>' +
         '</div>' +
         '<div class="st-setting-row st-blacklist-row">' +
           '<div class="st-blacklist-label">Studio blacklist (VA)</div>' +
@@ -2093,25 +2181,52 @@
       '<div id="st-panel-header">' +
         '<button class="st-btn st-btn-primary"  id="st-btn-scrape-all">Scrape All</button>' +
         '<button class="st-btn st-btn-success"  id="st-btn-apply-all" disabled>Apply All</button>' +
+        '<button class="st-btn st-btn-danger"   id="st-btn-skip-all" disabled>Skip All</button>' +
         '<button class="st-btn st-btn-ghost"    id="st-btn-clear">Clear</button>' +
         '<button class="st-btn st-btn-ghost" id="st-btn-scraper-mode" title="Toggle between automatic fallback and manual choice">' +
           (pluginConfig.scraperMode === "manual" ? "Manual" : "Auto") +
         '</button>' +
-        '<select id="st-scraper-select-manual" style="display:' + (pluginConfig.scraperMode === "manual" ? "inline-block" : "none") + '">' +
-          scrapers.map(function (s) {
-            return '<option value="' + esc(s.id) + '"' + (s.id === state.manualScraperID ? " selected" : "") + '>' + esc(s.name) + '</option>';
-          }).join("") +
-        '</select>' +
+        // Custom combobox instead of a native <select> - Firefox styles a
+        // native select's popup from the element's own CSS, but Chrome
+        // ignores it and shows its generic OS-themed dropdown regardless
+        // (confirmed session 2026-09-13), so a plain <select> here looks
+        // inconsistent across browsers. #st-scraper-select-manual is kept
+        // as the wrapper's id so the Auto/Manual toggle's show/hide code
+        // doesn't need to change.
+        '<div class="st-combo" id="st-scraper-select-manual" style="display:' + (pluginConfig.scraperMode === "manual" ? "inline-flex" : "none") + '">' +
+          '<button type="button" class="st-combo-btn" id="st-scraper-combo-btn" aria-haspopup="listbox" aria-expanded="false">' +
+            esc((scrapers.filter(function (s) { return s.id === state.manualScraperID; })[0] || scrapers[0] || {}).name || "") +
+          '</button>' +
+          '<div class="st-combo-list" id="st-scraper-combo-list" role="listbox" style="display:none">' +
+            scrapers.map(function (s) {
+              return '<div class="st-combo-option' + (s.id === state.manualScraperID ? ' st-combo-option-selected' : '') + '" role="option" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + esc(s.name) + '</div>';
+            }).join("") +
+          '</div>' +
+        '</div>' +
         '<div class="st-filter-radios">' +
-          '<select id="st-scraper-filter" class="st-scraper-filter-select" title="Filter by scraper">' +
-            '<option value="all">All scrapers</option>' +
-          '</select>' +
+          // Same custom combobox as the manual scraper picker above, for the
+          // same reason (native <select> popups render inconsistently
+          // between Chrome and Firefox) - its option list is rebuilt live
+          // by renderScraperFilterOptions() as scraped results come in, so
+          // unlike the manual one this one's options aren't fixed at
+          // buildPanel() time.
+          '<div class="st-combo" id="st-scraper-filter">' +
+            '<button type="button" class="st-combo-btn st-scraper-filter-btn" id="st-scraper-filter-btn" aria-haspopup="listbox" aria-expanded="false" title="Filter by scraper">All scrapers</button>' +
+            '<div class="st-combo-list" id="st-scraper-filter-list" role="listbox" style="display:none">' +
+              '<div class="st-combo-option st-combo-option-selected" role="option" data-id="all">All scrapers</div>' +
+            '</div>' +
+          '</div>' +
           '<div class="st-filter-group">' +
             '<span class="st-filter-indicator"></span>' +
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="all" checked> All</label>' +
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="new"> New</label>' +
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="existing"> Existing</label>' +
           '</div>' +
+          '<label class="st-multi-studio-toggle" title="Only scenes with multiple detected studio candidates">' +
+            '<input type="checkbox" id="st-multi-studio-filter">' +
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16l8 4 8-4"/></svg>' +
+            'Multi-studio' +
+          '</label>' +
         '</div>' +
       '</div>' +
       '<div id="st-status-bar">' +
@@ -2154,6 +2269,20 @@
     // apart.
     var rowsEl = document.getElementById("st-rows");
     if (rowsEl) {
+      // Firefox caps how many <video> decoders can be active at once (Chrome
+      // is far more lenient) - just detaching the element with .remove() on
+      // mouseout leaves its decoder tied up until GC gets around to it,
+      // which isn't immediate. Scan/hover enough thumbnails in a row and the
+      // pool fills up: every hover after that silently does nothing, even
+      // on thumbnails that worked moments ago (confirmed session
+      // 2026-09-13). Explicitly pausing + clearing the source + calling
+      // load() releases the decoder immediately instead of waiting on GC.
+      function releasePreviewVideo(video) {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        video.remove();
+      }
       // Applies either seek-and-loop-from-10% (source stream, duration
       // known) or plain loop-from-0 (generated preview clip, already short)
       // to a <video> depending on whether a usable duration was passed.
@@ -2224,31 +2353,95 @@
         var clip = e.target.closest(".st-thumb-clip");
         if (!clip || (e.relatedTarget && clip.contains(e.relatedTarget))) return;
         var video = clip.querySelector(".st-thumb-preview-video");
-        if (video) video.remove();
+        if (video) releasePreviewVideo(video);
       });
     }
 
     // ── Manual / auto mode ──────────────────────────────────────────────────
     var modeBtn = document.getElementById("st-btn-scraper-mode");
-    var manualSelect = document.getElementById("st-scraper-select-manual");
-    if (manualSelect && !state.manualScraperID && manualSelect.options.length) {
-      state.manualScraperID = manualSelect.options[0].value;
-      manualSelect.value = state.manualScraperID;
+    var manualSelect = document.getElementById("st-scraper-select-manual"); // wrapper div, see buildPanel()
+    var comboBtn  = document.getElementById("st-scraper-combo-btn");
+    var comboList = document.getElementById("st-scraper-combo-list");
+    var comboOptions = comboList ? Array.from(comboList.querySelectorAll(".st-combo-option")) : [];
+    if (comboOptions.length && !state.manualScraperID) {
+      state.manualScraperID = comboOptions[0].getAttribute("data-id");
     }
     if (modeBtn) {
       modeBtn.addEventListener("click", function () {
         pluginConfig.scraperMode = pluginConfig.scraperMode === "manual" ? "auto" : "manual";
         savePluginConfig();
         modeBtn.textContent = pluginConfig.scraperMode === "manual" ? "Manual" : "Auto";
-        if (manualSelect) manualSelect.style.display = pluginConfig.scraperMode === "manual" ? "inline-block" : "none";
+        if (manualSelect) manualSelect.style.display = pluginConfig.scraperMode === "manual" ? "inline-flex" : "none";
       });
     }
-    if (manualSelect) {
-      manualSelect.addEventListener("change", function () { state.manualScraperID = manualSelect.value; });
+    // Custom combobox: replaces the native <select> so its dropdown looks
+    // the same on every browser (see the comment in buildPanel()) - a
+    // minimal but real listbox pattern (click, Enter/Space/arrows/Escape,
+    // click-outside-to-close), not just a styled click target.
+    if (comboBtn && comboList && comboOptions.length) {
+      var comboHighlight = -1;
+      function comboSetHighlight(idx) {
+        comboOptions.forEach(function (o) { o.classList.remove("st-combo-option-active"); });
+        comboHighlight = Math.max(0, Math.min(comboOptions.length - 1, idx));
+        var opt = comboOptions[comboHighlight];
+        opt.classList.add("st-combo-option-active");
+        opt.scrollIntoView({ block: "nearest" });
+      }
+      function comboOpen() {
+        comboList.style.display = "block";
+        comboBtn.setAttribute("aria-expanded", "true");
+        var selIdx = comboOptions.findIndex(function (o) { return o.getAttribute("data-id") === state.manualScraperID; });
+        comboSetHighlight(selIdx >= 0 ? selIdx : 0);
+      }
+      function comboClose() {
+        comboList.style.display = "none";
+        comboBtn.setAttribute("aria-expanded", "false");
+      }
+      function comboSelect(opt) {
+        state.manualScraperID = opt.getAttribute("data-id");
+        comboBtn.textContent = opt.getAttribute("data-name");
+        comboOptions.forEach(function (o) { o.classList.toggle("st-combo-option-selected", o === opt); });
+        comboClose();
+        comboBtn.focus();
+      }
+      comboBtn.addEventListener("click", function () {
+        comboList.style.display === "block" ? comboClose() : comboOpen();
+      });
+      comboBtn.addEventListener("keydown", function (e) {
+        if (comboList.style.display !== "block") {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            comboOpen();
+          }
+          return;
+        }
+        if (e.key === "ArrowDown") { e.preventDefault(); comboSetHighlight(comboHighlight + 1); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); comboSetHighlight(comboHighlight - 1); }
+        else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); comboSelect(comboOptions[comboHighlight]); }
+        else if (e.key === "Escape") { e.preventDefault(); comboClose(); comboBtn.focus(); }
+      });
+      comboList.addEventListener("click", function (e) {
+        var opt = e.target.closest(".st-combo-option");
+        if (opt) comboSelect(opt);
+      });
+      // Mouse and keyboard share the single "active" highlight instead of
+      // each having their own (hover via :hover, keyboard via a class) -
+      // moving the mouse over an option updates the same index arrow keys
+      // use, so only one row is ever highlighted at a time.
+      comboList.addEventListener("mousemove", function (e) {
+        var opt = e.target.closest(".st-combo-option");
+        if (!opt) return;
+        var idx = comboOptions.indexOf(opt);
+        if (idx !== -1 && idx !== comboHighlight) comboSetHighlight(idx);
+      });
+      document.addEventListener("click", function (e) {
+        if (comboList.style.display === "block" && !manualSelect.contains(e.target)) comboClose();
+      });
     }
 
     document.getElementById("st-btn-scrape-all").addEventListener("click", function () { if (!state.running) scrapeAll(); });
     document.getElementById("st-btn-apply-all").addEventListener("click", applyAll);
+    document.getElementById("st-btn-skip-all").addEventListener("click", skipAll);
     document.getElementById("st-btn-clear").addEventListener("click", function () {
       state.scenes.forEach(function (scene) {
         var r = state.rows[scene.id];
@@ -2334,6 +2527,7 @@
     bindSettingCb("st-cfg-performer",           "autoCheckPerformer");
     bindSettingCb("st-cfg-tags",                "autoCheckNewTags");
     bindSettingCb("st-cfg-details",             "autoCheckDetails");
+    bindSettingCb("st-cfg-mark-organized",      "autoMarkOrganized");
     bindSettingCb("st-cfg-manual-fallback",       "manualFallbackOnFail");
     bindSettingCb("st-cfg-manual-fallback-title", "manualFallbackAllowTitle");
     // Not a plain bindSettingCb: data-preview-url/-duration are baked into
@@ -2388,6 +2582,17 @@
     setTimeout(updateFilterIndicator, 0);
     setTimeout(updateFilterIndicator, 300);
 
+    // Cumulative "Multi-studio" checkbox: ANDs with All/New/Existing rather
+    // than joining that radio group, so both filters can apply together.
+    var multiStudioCb = document.getElementById("st-multi-studio-filter");
+    if (multiStudioCb) {
+      multiStudioCb.checked = state.multiStudioOnly;
+      multiStudioCb.addEventListener("change", function() {
+        state.multiStudioOnly = multiStudioCb.checked;
+        applyStudioFilter();
+      });
+    }
+
     // Drag-to-switch: press down anywhere in the segmented control and
     // slide across to another option without releasing, like a physical
     // toggle switch, instead of only supporting a plain click per option.
@@ -2414,12 +2619,75 @@
       document.addEventListener("mouseup", function () { filterDragging = false; });
     }
 
-    var scraperFilterSel = document.getElementById("st-scraper-filter");
-    if (scraperFilterSel) {
+    // Same click/keyboard/mousemove combobox behavior as the manual scraper
+    // picker above, but re-querying .st-combo-option elements live on every
+    // call instead of caching them once - this list's content is rebuilt by
+    // renderScraperFilterOptions() as new scrapers get matched during
+    // scraping, unlike the manual picker's fixed option set.
+    var scraperFilterWrap = document.getElementById("st-scraper-filter");
+    var filterBtn  = document.getElementById("st-scraper-filter-btn");
+    var filterList = document.getElementById("st-scraper-filter-list");
+    if (scraperFilterWrap && filterBtn && filterList) {
       renderScraperFilterOptions();
-      scraperFilterSel.addEventListener("change", function () {
-        state.scraperFilter = scraperFilterSel.value;
+      var filterHighlight = -1;
+      function filterOptions() { return Array.from(filterList.querySelectorAll(".st-combo-option")); }
+      function filterSetHighlight(idx) {
+        var opts = filterOptions();
+        if (!opts.length) return;
+        opts.forEach(function (o) { o.classList.remove("st-combo-option-active"); });
+        filterHighlight = Math.max(0, Math.min(opts.length - 1, idx));
+        var opt = opts[filterHighlight];
+        opt.classList.add("st-combo-option-active");
+        opt.scrollIntoView({ block: "nearest" });
+      }
+      function filterOpen() {
+        filterList.style.display = "block";
+        filterBtn.setAttribute("aria-expanded", "true");
+        var opts = filterOptions();
+        var selIdx = opts.findIndex(function (o) { return o.getAttribute("data-id") === state.scraperFilter; });
+        filterSetHighlight(selIdx >= 0 ? selIdx : 0);
+      }
+      function filterCloseList() {
+        filterList.style.display = "none";
+        filterBtn.setAttribute("aria-expanded", "false");
+      }
+      function filterSelect(opt) {
+        state.scraperFilter = opt.getAttribute("data-id");
+        filterBtn.textContent = opt.getAttribute("data-name");
+        filterOptions().forEach(function (o) { o.classList.toggle("st-combo-option-selected", o === opt); });
+        filterCloseList();
+        filterBtn.focus();
         applyStudioFilter();
+      }
+      filterBtn.addEventListener("click", function () {
+        filterList.style.display === "block" ? filterCloseList() : filterOpen();
+      });
+      filterBtn.addEventListener("keydown", function (e) {
+        if (filterList.style.display !== "block") {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            filterOpen();
+          }
+          return;
+        }
+        var opts = filterOptions();
+        if (e.key === "ArrowDown") { e.preventDefault(); filterSetHighlight(filterHighlight + 1); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); filterSetHighlight(filterHighlight - 1); }
+        else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (opts[filterHighlight]) filterSelect(opts[filterHighlight]); }
+        else if (e.key === "Escape") { e.preventDefault(); filterCloseList(); filterBtn.focus(); }
+      });
+      filterList.addEventListener("click", function (e) {
+        var opt = e.target.closest(".st-combo-option");
+        if (opt) filterSelect(opt);
+      });
+      filterList.addEventListener("mousemove", function (e) {
+        var opt = e.target.closest(".st-combo-option");
+        if (!opt) return;
+        var idx = filterOptions().indexOf(opt);
+        if (idx !== -1 && idx !== filterHighlight) filterSetHighlight(idx);
+      });
+      document.addEventListener("click", function (e) {
+        if (filterList.style.display === "block" && !scraperFilterWrap.contains(e.target)) filterCloseList();
       });
     }
 
@@ -2438,6 +2706,7 @@
           var n = btn.getAttribute("data-name");
           pluginConfig.studioBlacklist = pluginConfig.studioBlacklist.filter(function(s){ return s !== n; });
           savePluginConfig();
+          backupBlacklist();
           renderBlacklistChips();
         });
       });
@@ -2449,6 +2718,7 @@
       if (pluginConfig.studioBlacklist.indexOf(n) !== -1) return;
       pluginConfig.studioBlacklist.push(n);
       savePluginConfig();
+      backupBlacklist();
       renderBlacklistChips();
     }
 

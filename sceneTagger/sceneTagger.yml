@@ -1,7 +1,15 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.6.4"
+version: "1.7.0"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
+
+exec:
+  - C:\python310.6\python.exe
+  - "{pluginDir}/blacklistBackup.py"
+interface: raw
+tasks:
+  - name: "Backup studio blacklist"
+    description: "Writes a snapshot of the studio blacklist to studioBlacklist_backup.json (independent safety net from config.yml)."
 
 settings:
   autoCheckStudio:
@@ -60,6 +68,11 @@ settings:
   nativeHoverPreview:
     displayName: "Hover preview"
     description: "If enabled, hovering a thumbnail plays a preview - Stash's own generated preview clip if one exists, otherwise the source video streamed directly (seeked 10% in). No companion plugin required."
+    type: BOOLEAN
+
+  autoMarkOrganized:
+    displayName: "Mark scenes as organized on Apply"
+    description: "If enabled, scenes are marked as organized by default when applied (overridable per scene via the 'Organized' row button)."
     type: BOOLEAN
 
 ui:

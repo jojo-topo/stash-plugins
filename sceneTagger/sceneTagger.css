@@ -114,6 +114,29 @@
 
 .st-setting-row { padding: 5px 0; }
 
+.st-setting-group {
+  border-bottom: 1px solid #2e3440;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+.st-setting-section-title {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #616975;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.st-setting-subtitle {
+  font-size: 11px;
+  color: #7a8590;
+  margin: 4px 0;
+}
+.st-setting-row-sub .st-setting-label {
+  padding-left: 22px;
+  color: #616975;
+}
+
 .st-setting-label {
   display: flex;
   align-items: center;
@@ -151,21 +174,53 @@
   flex-shrink: 0;
 }
 
-#st-scraper-select-manual,
-#st-scraper-select {
+/* Custom combobox (replaces a native <select> so Chrome and Firefox render
+   an identical dropdown - Chrome ignores CSS on a native select's popup,
+   Firefox honors it, see the comment in buildPanel()). #st-scraper-select-manual
+   is the positioning-context wrapper (its display:inline-flex/none is set
+   inline, toggled by the Auto/Manual button). */
+.st-combo { position: relative; }
+.st-combo-btn {
   background: #252830;
   border: 1px solid #3b4252;
   border-radius: 8px;
   color: #d8dee9;
   padding: 5px 10px;
   font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-#st-scraper-select-manual:hover,
-#st-scraper-select:hover { border-color: #4a6070; }
-#st-scraper-select-manual:focus,
-#st-scraper-select:focus { outline: none; border-color: #88c0d0; box-shadow: 0 0 0 3px #88c0d022; }
+.st-combo-btn:hover { border-color: #4a6070; }
+.st-combo-btn:focus { outline: none; border-color: #88c0d0; box-shadow: 0 0 0 3px #88c0d022; }
+.st-combo-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #1a1d23;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  box-shadow: 0 12px 28px -8px rgba(0,0,0,.6);
+  z-index: 200;
+  padding: 4px;
+}
+.st-combo-option {
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #b0bcc8;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* No separate :hover rule on purpose - mouse movement drives the same
+   .st-combo-option-active highlight arrow keys use (see the mousemove
+   listener), so there's only ever one highlighted row, not a hover one
+   and a keyboard one landing on different options at once. */
+.st-combo-option-active { background: #2e3f55; color: #a5cfe6; }
+.st-combo-option-selected { color: #88c0d0; font-weight: 600; }
 
 .st-btn {
   padding: 6px 16px;
@@ -185,6 +240,8 @@
 .st-btn-ghost    { background: transparent; border: 1px solid #3b4252; color: #81878f; }
 .st-btn-ghost:hover:not(:disabled)    { border-color: #88c0d0; color: #d8dee9; background: #88c0d014; }
 .st-btn-danger   { background: transparent; border: 1px solid #bf616a55; color: #d3838a; }
+.st-btn-organized-on  { background: #3f7ea3; color: #eef6fb; }
+.st-btn-organized-off { background: transparent; border: 1px solid #3b4252; color: #616975; }
 .st-btn-danger:hover:not(:disabled)   { background: #bf616a1e; border-color: #bf616a; color: #e5a0a6; }
 
 /* ── Status bar ── */
@@ -914,8 +971,8 @@
   display: none;
   position: absolute;
   left: calc(100% + 8px);
-  width: 90px;
-  height: 120px;
+  width: 120px;
+  height: 160px;
   object-fit: cover;
   object-position: top;
   border-radius: 8px;
@@ -1216,29 +1273,57 @@
   pointer-events: none;
 }
 
-/* Same visual language as #st-scraper-select(-manual) — rectangle pill,
-   not the rounded-track pill used for the All/New/Existing segmented
-   control right next to it. Two different controls that happened to look
-   similar before (both plain rectangles) shouldn't diverge just because
-   one got restyled and the other didn't. */
-.st-scraper-filter-select {
-  -webkit-appearance: none;
-  appearance: none;
-  margin: 0;
-  align-self: center;
-  box-sizing: border-box;
-  background: #252830;
-  border: 1px solid #3b4252;
-  border-radius: 8px;
-  color: #d8dee9;
-  padding: 5px 10px;
-  font-size: 13px;
+/* "Multi-studio" cumulative toggle: sits outside .st-filter-group (it ANDs
+   with the All/New/Existing radio track rather than joining it, so it
+   can't be a 4th radio segment). Styled as a standalone filled chip that
+   lights up in the same accent as the sliding pill when checked, instead
+   of the segmented control's hidden-radio + shared-background treatment
+   (there's no sibling to slide a shared pill between here). */
+.st-multi-studio-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  line-height: 1;
+  color: #8892a0;
+  background: transparent;
+  border: 1px solid #262b35;
+  border-radius: 999px;
   cursor: pointer;
-  max-width: 160px;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  user-select: none;
+  white-space: nowrap;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
 }
-.st-scraper-filter-select:hover { border-color: #4a6070; }
-.st-scraper-filter-select:focus { outline: none; border-color: #88c0d0; box-shadow: 0 0 0 3px #88c0d022; }
+.st-multi-studio-toggle:hover { color: #d8dee9; }
+.st-multi-studio-toggle svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.st-multi-studio-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0; height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+.st-multi-studio-toggle:has(input:checked) {
+  color: #a5cfe6;
+  background: #88c0d026;
+  border-color: #88c0d040;
+}
+
+/* .st-combo-btn covers the visual language; this just caps the width so a
+   long scraper name doesn't push the All/New/Existing segmented control
+   next to it out of the header. */
+.st-scraper-filter-btn {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── Compact mode button (titlebar) ── */
 #st-titlebar-compact {
@@ -1285,8 +1370,9 @@
 #st-panel.st-compact #st-settings-panel { flex-shrink: unset; }
 
 #st-panel.st-compact #st-panel-header { padding: 9px 14px; border-radius: 0; }
-#st-panel.st-compact #st-scraper-select-manual,
+#st-panel.st-compact .st-combo-btn,
 #st-panel.st-compact #st-scraper-select { padding: 3px 7px; font-size: 12px; }
+#st-panel.st-compact .st-combo-option { padding: 4px 8px; font-size: 12px; }
 #st-panel.st-compact .st-btn { padding: 4px 11px; font-size: 12px; border-radius: 4px; }
 
 #st-panel.st-compact #st-status-bar { padding: 5px 14px; font-size: 11px; }
