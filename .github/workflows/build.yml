@@ -1,12 +1,14 @@
 name: Build plugin package
 
-# Runs whenever sceneTagger's actual source files change on master - NOT
-# when index.yml or the zip itself change, so the bot's own commit below
+# Runs whenever sceneTagger's actual source files change on master or test -
+# NOT when index.yml or the zip itself change, so the bot's own commit below
 # never re-triggers this workflow (no infinite loop, [skip ci] kept anyway
-# as a belt-and-suspenders safety net).
+# as a belt-and-suspenders safety net). "test" is a separate preview branch
+# with its own index.yml/zip, used to validate changes via Stash's real
+# Add Source install flow before merging into master (production).
 on:
   push:
-    branches: [master]
+    branches: [master, test]
     paths:
       - "sceneTagger/sceneTagger.yml"
       - "sceneTagger/sceneTagger.js"
