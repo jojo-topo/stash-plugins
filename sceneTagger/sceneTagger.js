@@ -34,13 +34,31 @@
   // ── Scrapers ───────────────────────────────────────────────────────────────
 
   function getSceneScrapers() {
-    return gql("ListScrapers", "query ListScrapers{listScrapers(types:[SCENE]){id name}}")
-      .then(function (d) { return d.listScrapers || []; });
+    // scene.supported_scrapes tells us which YAML scrapers implement a
+    // name/query-based search (SceneByName / ScrapeSingleSceneInput.query)
+    // vs only FRAGMENT/URL - confirmed via introspection (session
+    // 2026-09-16) that several community scrapers do (AniDB, JAVDatabase,
+    // Pornhub, Rule34Video, Rule34VideoFromID on this instance). Used by
+    // isSearchCapable() below to offer "Search title" beyond stash-box only.
+    return gql("ListScrapers", "query ListScrapers{listScrapers(types:[SCENE]){id name scene{supported_scrapes}}}")
+      .then(function (d) {
+        return (d.listScrapers || []).map(function (s) {
+          var supports = (s.scene && s.scene.supported_scrapes) || [];
+          return { id: s.id, name: s.name, supportsName: supports.indexOf("NAME") !== -1 };
+        });
+      });
   }
 
   // Prefix used to distinguish a stash-box "scraper" (id = prefixed
   // endpoint) from a regular YAML scraper (id = raw scraper_id).
   var STASHBOX_PREFIX = "stashbox:";
+
+  // A scraper can be used with "Search title" (query-based search) if it's
+  // a stash-box (always query-capable) or a YAML scraper that declared NAME
+  // support above - no longer stash-box only (session 2026-09-16).
+  function isSearchCapable(s) {
+    return s.id.indexOf(STASHBOX_PREFIX) === 0 || !!s.supportsName;
+  }
 
   function getStashBoxes() {
     return gql("GetStashBoxes", "query GetStashBoxes{configuration{general{stashBoxes{name endpoint}}}}")
@@ -74,6 +92,26 @@
     }).then(function (d) {
       var r = d.scrapeSingleScene;
       return Array.isArray(r) ? (r[0] || null) : r;
+    });
+  }
+
+  // Search-by-title against a single stash-box: same Q_SCRAPE query as
+  // scrapeSingleScene, but with input.query instead of input.scene_id -
+  // returns the full candidate list (not just [0]) since the whole point
+  // here is to let the user pick among several results. Confirmed via
+  // introspection (session 2026-09-16) that this is the same mechanism
+  // Stash's own "Scene Scrape Query" dialog (the magnifying-glass icon next
+  // to "Scrape with...") uses - no separate query exists for this.
+  function scrapeSingleSceneByQuery(scraperID, query) {
+    var source = scraperID.indexOf(STASHBOX_PREFIX) === 0
+      ? { stash_box_endpoint: scraperID.slice(STASHBOX_PREFIX.length) }
+      : { scraper_id: scraperID };
+    return gql("ScrapeSingleScene", Q_SCRAPE, {
+      source: source,
+      input:  { query: query }
+    }).then(function (d) {
+      var r = d.scrapeSingleScene;
+      return Array.isArray(r) ? r : (r ? [r] : []);
     });
   }
 
@@ -187,7 +225,7 @@
   // races that were impossible to fully eliminate (see history of attempts).
   // ────────────────────────────────────────────────────────────────────────
 
-  var Q_FIND_BY_IDS = "query FindScenesByIds($ids:[ID!]){findScenes(ids:$ids){count scenes{id title urls date code details director organized paths{screenshot preview stream}files{path basename duration}studio{id name}performers{id name}tags{id name}}}}";
+  var Q_FIND_BY_IDS = "query FindScenesByIds($ids:[ID!]){findScenes(ids:$ids){count scenes{id title urls date code details director organized paths{screenshot preview stream}files{path basename duration}studio{id name image_path}performers{id name image_path}tags{id name}}}}";
 
   // IDs of the scenes visible in the native grid, in display order.
   function getVisibleSceneIdsInOrder() {
@@ -270,6 +308,7 @@
   var Q_FP_SEARCH       = "query FPS($n:String!){findPerformers(performer_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name image_path}}}";
   var Q_FP_SEARCH_ALIAS = "query FPSA($n:String!){findPerformers(performer_filter:{aliases:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name image_path}}}";
   var Q_FP_IMAGE        = "query FPImg($id:ID!){findPerformer(id:$id){id image_path}}";
+  var Q_STUDIO_IMAGE    = "query StudioImg($id:ID!){findStudio(id:$id){id image_path}}";
   var Q_FTAG_SEARCH     = "query FTagS($n:String!){findTags(tag_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){tags{id name}}}";
   var M_CP = "mutation CP($n:String!,$disambiguation:String,$urls:[String!],$gender:GenderEnum,$birthdate:String,$ethnicity:String,$country:String,$eye_color:String,$height_cm:Int,$measurements:String,$fake_tits:String,$penis_length:Float,$circumcised:CircumcisedEnum,$career_start:String,$career_end:String,$tattoos:String,$piercings:String,$alias_list:[String!],$image:String,$details:String,$death_date:String,$hair_color:String,$weight:Int){performerCreate(input:{name:$n,disambiguation:$disambiguation,urls:$urls,gender:$gender,birthdate:$birthdate,ethnicity:$ethnicity,country:$country,eye_color:$eye_color,height_cm:$height_cm,measurements:$measurements,fake_tits:$fake_tits,penis_length:$penis_length,circumcised:$circumcised,career_start:$career_start,career_end:$career_end,tattoos:$tattoos,piercings:$piercings,alias_list:$alias_list,image:$image,details:$details,death_date:$death_date,hair_color:$hair_color,weight:$weight}){id}}";
   var Q_FT = "query FT($n:String!){findTags(tag_filter:{name:{value:$n,modifier:EQUALS}},filter:{per_page:1}){tags{id}}}";
@@ -568,7 +607,11 @@
     // (scene.paths.stream, seeked to 10% in) - fully self-contained, no
     // generated preview clip and no companion plugin (videoHoverPreview)
     // required or hooked into.
-    nativeHoverPreview:        false
+    nativeHoverPreview:        false,
+    // If enabled, hides the Auto/Manual scraper-mode toggle (and manual
+    // scraper picker) on the single-scene panel (st-panel-solo) - some
+    // users never touch it there and prefer the extra vertical space.
+    hideSceneModeToggle:       false
   };
 
   function loadPluginConfig() {
@@ -590,6 +633,7 @@
           if (cfg.manualFallbackAllowTitle !== undefined) pluginConfig.manualFallbackAllowTitle = !!cfg.manualFallbackAllowTitle;
           if (cfg.nativeHoverPreview !== undefined) pluginConfig.nativeHoverPreview = !!cfg.nativeHoverPreview;
           if (cfg.autoMarkOrganized  !== undefined) pluginConfig.autoMarkOrganized  = !!cfg.autoMarkOrganized;
+          if (cfg.hideSceneModeToggle !== undefined) pluginConfig.hideSceneModeToggle = !!cfg.hideSceneModeToggle;
           if (cfg.scraperChain !== undefined) {
             try {
               var parsed = typeof cfg.scraperChain === "string" ? JSON.parse(cfg.scraperChain) : cfg.scraperChain;
@@ -747,7 +791,15 @@
       var manualTitleVal = manualTitleEl ? manualTitleEl.value.trim() : (r.manualTitle || "");
       if (manualTitleVal) filtered.title = manualTitleVal;
     }
-    if (cb('[data-cb="date"]')       && scraped.date)        filtered.date      = scraped.date;
+    // Date: solo mode has the custom calendar widget (see renderRow() /
+    // buildDateFieldHTML()) - its value lives in row state, not a form
+    // element. The mass list keeps the plain checkbox over the raw
+    // scraped value.
+    if (row.querySelector(".st-date-field")) {
+      if (r.dateEditValue) filtered.date = r.dateEditValue;
+    } else if (cb('[data-cb="date"]') && scraped.date) {
+      filtered.date = scraped.date;
+    }
     if (cb('[data-cb="code"]')       && scraped.code)        filtered.code      = scraped.code;
     if (cb('[data-cb="director"]')   && scraped.director)    filtered.director  = scraped.director;
     // Performers: checked scraped ones + manual additions
@@ -765,13 +817,35 @@
       selectedPerfs.push({ stored_id: el.getAttribute("data-perf-id") || null, name: el.getAttribute("data-perf-name") });
     });
     if (selectedPerfs.length) filtered.performers = selectedPerfs;
-    if (cb('[data-cb="urls"]')       && scraped.urls)        filtered.urls      = scraped.urls;
-    if (cb('[data-cb="cover"]')      && scraped.image)       filtered.image     = scraped.image;
+    // URLs: solo mode has the combined editable stack (see renderRow()) -
+    // whatever's left in it (existing + new + manually added, minus
+    // anything removed) is what gets applied. Mass list keeps the plain
+    // checkbox over the raw scraped array.
+    if (r.urlEditList && r.urlEditList.length) {
+      filtered.urls = r.urlEditList.map(function (u) { return u.value; });
+    } else if (cb('[data-cb="urls"]') && scraped.urls) {
+      filtered.urls = scraped.urls;
+    }
+    // Cover: solo mode picks between existing/scraped by click (see
+    // renderRow()) - "existing" means don't touch the current cover.
+    if (row.querySelector(".st-cover-options")) {
+      if (r.coverChoice === "scraped" && scraped.image) filtered.image = scraped.image;
+    } else if (cb('[data-cb="cover"]') && scraped.image) {
+      filtered.image = scraped.image;
+    }
 
-    // Details: apply the full original details if checked
-    var detailsCb = row.querySelector('[data-cb="details"]');
-    if (detailsCb && detailsCb.checked && scraped.details) {
-      filtered.details = scraped.details.replace(/\[(\w+)\]/g, "");
+    // Details: solo mode has an always-editable textarea (see renderRow())
+    // read directly so in-progress edits are picked up even without a
+    // blur; the mass list keeps the plain checkbox over the raw scraped
+    // value.
+    var detailsEditEl = row.querySelector(".st-details-edit");
+    if (detailsEditEl) {
+      filtered.details = detailsEditEl.value;
+    } else {
+      var detailsCb = row.querySelector('[data-cb="details"]');
+      if (detailsCb && detailsCb.checked && scraped.details) {
+        filtered.details = scraped.details.replace(/\[(\w+)\]/g, "");
+      }
     }
 
     // Studio: priority to the studio override (manual search)
@@ -829,7 +903,143 @@
     });
     if (selectedTags.length) filtered.tags = selectedTags;
 
+    // Always keep whatever's already on the scene - performer_ids/tag_ids
+    // on sceneUpdate REPLACE the list rather than add to it, so without
+    // this, applying a scrape that simply doesn't mention an existing
+    // performer/tag would silently delete it. The "Already on this scene"
+    // pills shown in the UI aren't checkboxes (see renderRow) - they're
+    // always kept, merged in here by ID instead. `name` is included
+    // alongside `stored_id` because applyScrapedData()'s resolve step
+    // treats any entry with no `name` as unusable and drops it (see
+    // p_perfs/p_tags there), even when stored_id is set.
+    var existingPerfIds = (filtered.performers || []).map(function (p) { return p.stored_id; }).filter(Boolean);
+    (r.scene.performers || []).forEach(function (p) {
+      if (existingPerfIds.indexOf(p.id) === -1) {
+        filtered.performers = (filtered.performers || []).concat([{ stored_id: p.id, name: p.name }]);
+        existingPerfIds.push(p.id);
+      }
+    });
+    var existingTagIds = (filtered.tags || []).map(function (t) { return t.stored_id; }).filter(Boolean);
+    (r.scene.tags || []).forEach(function (t) {
+      if (existingTagIds.indexOf(t.id) === -1) {
+        filtered.tags = (filtered.tags || []).concat([{ stored_id: t.id, name: t.name }]);
+        existingTagIds.push(t.id);
+      }
+    });
+
     return filtered;
+  }
+
+  // Section icons (Studio/Performers/Tags/Details/URLs) - only actually
+  // visible in solo mode (hidden by default via CSS, see .st-section-icon
+  // in sceneTagger.css), where each field group becomes its own card and
+  // needs a visual anchor. Rendered unconditionally here rather than only
+  // building them in solo, since it's cheap and keeps renderRow() from
+  // needing to know which mode it's running in.
+  var ST_STUDIO_LOGO_PLACEHOLDER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 21V10a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v11"/></svg>';
+
+  var ST_SECTION_ICONS = {
+    studio: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/>',
+    date: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/>',
+    performers: '<circle cx="9" cy="7" r="3.2"/><path d="M2.5 20c0-4 3-6.5 6.5-6.5S15.5 16 15.5 20"/><circle cx="17" cy="8" r="2.6"/><path d="M14.8 13.3c2.6.4 4.7 2.7 4.7 6.2"/>',
+    tags: '<path d="M20.6 12.3L12.7 4.4a2 2 0 0 0-1.4-.6H5a2 2 0 0 0-2 2v6.3c0 .5.2 1 .6 1.4l7.9 7.9c.8.8 2 .8 2.8 0l6.3-6.3c.8-.8.8-2.1 0-2.8z"/><circle cx="7.5" cy="7.5" r="1"/>',
+    details: '<path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/>',
+    urls: '<path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.5-1.5"/>',
+    cover: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>'
+  };
+  function sectionIcon(name) {
+    return '<span class="st-section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' + ST_SECTION_ICONS[name] + '</svg></span>';
+  }
+
+  // ── Custom date picker (solo mode only) ────────────────────────────────────
+  //
+  // A native <input type="date"> was tried first (session 2026-09-16) but
+  // its calendar popup is rendered by the browser/OS and can't be styled
+  // to match the plugin - this builds the whole thing (display button +
+  // popover month grid) from scratch instead, driven by row state
+  // (r.dateEditValue, r.dateCalendarMonth, r.dateCalendarOpen).
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  var ST_MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+  function shiftMonthISO(monthISO, dir) {
+    var parts = monthISO.split("-");
+    var y = parseInt(parts[0], 10), m = parseInt(parts[1], 10) + dir;
+    if (m < 1) { m = 12; y--; } else if (m > 12) { m = 1; y++; }
+    return y + "-" + pad2(m);
+  }
+
+  function buildDateCalendarHTML(monthISO, selectedISO) {
+    var parts = monthISO.split("-");
+    var year = parseInt(parts[0], 10), month = parseInt(parts[1], 10); // 1-12
+    var first = new Date(year, month - 1, 1);
+    var startDow = (first.getDay() + 6) % 7; // Mon=0..Sun=6 (was Sun=0..Sat=6)
+    var daysInMonth = new Date(year, month, 0).getDate();
+    var daysInPrevMonth = new Date(year, month - 1, 0).getDate();
+    var todayISO = new Date().toISOString().slice(0, 10);
+
+    var cells = "";
+    for (var i = startDow - 1; i >= 0; i--) {
+      cells += '<span class="st-date-cell st-date-muted">' + (daysInPrevMonth - i) + '</span>';
+    }
+    for (var d = 1; d <= daysInMonth; d++) {
+      var iso = year + "-" + pad2(month) + "-" + pad2(d);
+      var cls = "st-date-cell";
+      if (iso === selectedISO) cls += " st-date-selected";
+      if (iso === todayISO) cls += " st-date-today";
+      cells += '<span class="' + cls + '" data-iso="' + iso + '">' + d + '</span>';
+    }
+    var trailing = (7 - ((startDow + daysInMonth) % 7)) % 7;
+    for (var d2 = 1; d2 <= trailing; d2++) {
+      cells += '<span class="st-date-cell st-date-muted">' + d2 + '</span>';
+    }
+
+    return (
+      '<div class="st-date-pop-head">' +
+        '<button type="button" class="st-date-pop-nav" data-dir="-1">&#8249;</button>' +
+        '<span class="st-date-pop-month">' + ST_MONTH_NAMES[month - 1] + ' ' + year + '</span>' +
+        '<button type="button" class="st-date-pop-nav" data-dir="1">&#8250;</button>' +
+      '</div>' +
+      '<div class="st-date-grid">' +
+        '<span class="st-date-dow">Mo</span><span class="st-date-dow">Tu</span><span class="st-date-dow">We</span>' +
+        '<span class="st-date-dow">Th</span><span class="st-date-dow">Fr</span><span class="st-date-dow">Sa</span><span class="st-date-dow">Su</span>' +
+        cells +
+      '</div>' +
+      '<div class="st-date-pop-foot">' +
+        '<button type="button" class="st-date-pop-link" data-action="clear">Clear</button>' +
+        '<button type="button" class="st-date-pop-link" data-action="today">Today</button>' +
+      '</div>'
+    );
+  }
+
+  function buildDateFieldHTML(id, r) {
+    var displayText = r.dateEditValue ? esc(r.dateEditValue) : "Select a date";
+    var monthISO = r.dateCalendarMonth || (r.dateEditValue ? r.dateEditValue.slice(0, 7) : new Date().toISOString().slice(0, 7));
+    r.dateCalendarMonth = monthISO; // persisted so nav has a stable base
+    return (
+      '<div class="st-date-field">' +
+        '<button type="button" class="st-date-display" onclick="stDateToggle(\'' + esc(id) + '\')">' +
+          '<span>' + displayText + '</span>' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 3v3M16 3v3"/></svg>' +
+        '</button>' +
+        (r.dateCalendarOpen ? '<div class="st-date-popover">' + buildDateCalendarHTML(monthISO, r.dateEditValue) + '</div>' : '') +
+      '</div>'
+    );
+  }
+
+  var _dateOutsideClickWired = false;
+  function wireDateOutsideClickOnce() {
+    if (_dateOutsideClickWired) return;
+    _dateOutsideClickWired = true;
+    document.addEventListener("click", function (e) {
+      if (e.target.closest(".st-date-field")) return;
+      var touched = false;
+      Object.keys(state.rows).forEach(function (rid) {
+        if (state.rows[rid].dateCalendarOpen) { state.rows[rid].dateCalendarOpen = false; touched = true; }
+      });
+      if (touched) Object.keys(state.rows).forEach(function (rid) { renderRow(rid); });
+    });
   }
 
   // ── Rendering a row ────────────────────────────────────────────────────────
@@ -887,18 +1097,35 @@
         );
       }
 
-      // ── Scraper-used badge (fallback): visible only if it isn't the 1st
-      // enabled scraper in the chain, so as not to clutter the normal case
+      // ── Scraper-used badge (fallback, or search-by-title): visible when
+      // it isn't the 1st enabled scraper in the chain (normal fallback
+      // case), OR whenever the result came from title search - that's
+      // never the "obvious" case so it's always worth flagging.
       var enabledChain = pluginConfig.scraperChain.filter(function (c) { return c.enabled; });
       var firstEnabled = enabledChain.length ? enabledChain[0].id : null;
-      if (pluginConfig.scraperMode === "auto" && r.matchedScraperName && enabledChain.length > 1 && r.matchedScraperID !== firstEnabled) {
+      var showFallbackHint = r.viaTitleSearch ||
+        (pluginConfig.scraperMode === "auto" && r.matchedScraperName && enabledChain.length > 1 && r.matchedScraperID !== firstEnabled);
+      if (showFallbackHint && r.matchedScraperName) {
         fields.push(
           '<div class="st-inline-field st-scraper-match-hint">' +
             '<span class="st-label-static"></span>' +
-            '<span>found via <strong>' + esc(r.matchedScraperName) + '</strong> (fallback)</span>' +
+            '<span>found via <strong>' + esc(r.matchedScraperName) + '</strong>' + (r.viaTitleSearch ? '' : ' (fallback)') + '</span>' +
           '</div>'
         );
       }
+
+      // Solo mode (opened from a single scene page, see st-panel-solo) gets
+      // the richer card/existing-vs-new layout below; the mass-scrape list
+      // keeps the original compact rendering - a dense list of many rows
+      // needs scanability, not per-field cards (confirmed regression
+      // session 2026-09-16: the richer layout, applied everywhere at
+      // first, made the list panel unusably tall/cluttered). Declared here,
+      // before its first use (Cover) - it used to live down by Studio,
+      // after Title/Cover already referenced it, so `var` hoisting silently
+      // made it `undefined` there and Cover always fell back to the mass-
+      // list markup even in solo (confirmed session 2026-09-16).
+      var panelElForMode = document.getElementById(PANEL_ID);
+      var isSolo = !!(panelElForMode && panelElForMode.classList.contains("st-panel-solo"));
 
       // ── Title
       if (scraped.title) {
@@ -910,12 +1137,39 @@
         );
       }
 
-      // ── Cover
-      if (scraped.image) {
+      // ── Cover - solo mode: click one of two thumbnails (existing vs
+      // scraped) side by side instead of a single checkbox+preview -
+      // the selected one gets a highlight ring. Mass list keeps the
+      // original checkbox - see isSolo.
+      if (!isSolo) {
+        if (scraped.image) {
+          fields.push(
+            '<div class="st-inline-field">' +
+              '<label class="st-inline-label"><input type="checkbox" data-cb="cover" checked> Cover</label>' +
+              '<img class="st-cover-preview" src="' + esc(scraped.image) + '" alt="cover">' +
+            '</div>'
+          );
+        }
+      } else if (scraped.image || thumb) {
+        if (r.coverChoice === undefined) {
+          r.coverChoice = scraped.image ? "scraped" : "existing";
+        }
+        var coverExistingHTML = thumb
+          ? '<button type="button" class="st-cover-option' + (r.coverChoice === "existing" ? " st-cover-selected" : "") + '" onclick="stPickCover(\'' + esc(id) + '\',\'existing\')">' +
+              '<img src="' + esc(thumb) + '" alt="existing cover">' +
+              '<span class="st-cover-caption">Already on this scene</span>' +
+            '</button>'
+          : '<div class="st-cover-option st-cover-empty"><span class="st-split-empty">No existing thumbnail</span></div>';
+        var coverScrapedHTML = scraped.image
+          ? '<button type="button" class="st-cover-option' + (r.coverChoice === "scraped" ? " st-cover-selected" : "") + '" onclick="stPickCover(\'' + esc(id) + '\',\'scraped\')">' +
+              '<img src="' + esc(scraped.image) + '" alt="scraped cover">' +
+              '<span class="st-cover-caption st-new">New from scrape</span>' +
+            '</button>'
+          : '';
         fields.push(
-          '<div class="st-inline-field">' +
-            '<label class="st-inline-label"><input type="checkbox" data-cb="cover" checked> Cover</label>' +
-            '<img class="st-cover-preview" src="' + esc(scraped.image) + '" alt="cover">' +
+          '<div class="st-inline-field st-inline-cover">' +
+            '<span class="st-inline-label st-label-static">' + sectionIcon("cover") + 'Cover</span>' +
+            '<div class="st-cover-options">' + coverExistingHTML + coverScrapedHTML + '</div>' +
           '</div>'
         );
       }
@@ -958,6 +1212,45 @@
           '<span class="st-studio-selected" style="display:none"></span>' +
         '</div>';
 
+      // ── Stacked existing-vs-new wrapper (logo reserved zone, not forced
+      // square - object-fit:contain lets a wide/rectangular studio logo
+      // show in full instead of being cropped). Purely visual: the actual
+      // selection markup (radio/checkbox/search, all data-cb attributes)
+      // is untouched below, just wrapped - getCheckedScraped() keeps
+      // working exactly as before.
+      function logoZoneHTML(imagePath, extraClass) {
+        var cls = "st-studio-logo-zone" + (extraClass ? " " + extraClass : "");
+        return imagePath
+          ? '<div class="' + cls + '"><img src="' + esc(imagePath) + '"></div>'
+          : '<div class="' + cls + ' st-studio-logo-empty">' + ST_STUDIO_LOGO_PLACEHOLDER_SVG + '</div>';
+      }
+      var existingStudioRowHTML =
+        '<div class="st-studio-stack-row">' +
+          '<div class="st-studio-left">' +
+            '<span class="st-existing-caption">Already on this scene</span>' +
+            '<span class="st-studio-name-plain">' + (scene.studio && scene.studio.name ? esc(scene.studio.name) : '(none)') + '</span>' +
+          '</div>' +
+          logoZoneHTML(scene.studio && scene.studio.image_path) +
+        '</div>';
+      var newStudioLogoHTML = logoZoneHTML(scraped.studio && scraped.studio.image);
+      // Its own row/section (solo mode only) instead of being squeezed
+      // under "New from scrape" - a manually searched studio isn't the
+      // same candidate as the auto-scraped one and shouldn't read like it
+      // is. No logo fetched while typing search results (would mean a
+      // GraphQL round-trip per keystroke/result) - only once a studio is
+      // actually picked, fetched on click (see the search-results click
+      // handler below) and dropped into this zone by its
+      // .st-studio-manual-logo class.
+      var manualStudioRowHTML =
+        '<div class="st-studio-stack-row">' +
+          '<div class="st-studio-left st-studio-manual-left">' +
+            '<span class="st-existing-caption">Manually added</span>' +
+            studioSearchWidget +
+            '<span class="st-split-empty st-studio-manual-empty">No studio added manually</span>' +
+          '</div>' +
+          logoZoneHTML(null, "st-studio-manual-logo") +
+        '</div>';
+
       if (artists.length > 1) {
         // Multiple non-blacklisted artists → radio buttons
         var radioName = "st-studio-radio-" + id;
@@ -991,15 +1284,33 @@
           '<input type="radio" name="' + esc(radioName) + '" data-cb="studio-radio" data-artist=""' + radioNoneChecked + '> ' +
           '<span class="st-selectable">None</span>' +
         '</label>';
-        fields.push(
-          '<div class="st-inline-field st-inline-artists">' +
-            '<span class="st-inline-label st-label-static">Studio</span>' +
-            '<div>' +
-              '<div class="st-radio-group">' + radioNone + radioItems + '</div>' +
-              studioSearchWidget +
-            '</div>' +
-          '</div>'
-        );
+        var studioMultiRadioHTML = '<div class="st-radio-group">' + radioNone + radioItems + '</div>';
+        var studioMultiContentHTML = studioMultiRadioHTML + studioSearchWidget;
+        if (isSolo) {
+          fields.push(
+            '<div class="st-inline-field st-inline-artists">' +
+              '<span class="st-inline-label st-label-static">' + sectionIcon("studio") + 'Studio</span>' +
+              '<div class="st-studio-stack">' +
+                existingStudioRowHTML +
+                '<div class="st-studio-stack-row">' +
+                  '<div class="st-studio-left">' +
+                    '<span class="st-existing-caption st-new">New from scrape</span>' +
+                    studioMultiRadioHTML +
+                  '</div>' +
+                  newStudioLogoHTML +
+                '</div>' +
+                manualStudioRowHTML +
+              '</div>' +
+            '</div>'
+          );
+        } else {
+          fields.push(
+            '<div class="st-inline-field st-inline-artists">' +
+              '<span class="st-inline-label st-label-static">Studio</span>' +
+              '<div>' + studioMultiContentHTML + '</div>' +
+            '</div>'
+          );
+        }
       } else if (artists.length === 1) {
         // A single artist (non-blacklisted or fallback) → checkbox
         var soloArtistObj = artists[0];
@@ -1007,22 +1318,52 @@
         var soloIsNew    = !soloArtistObj.stored_id;
         var soloChecked  = soloIsNew ? pluginConfig.autoCheckStudio : true;
         var soloIsBl     = isBlacklisted(soloArtist);
+        var studioSoloChipOnlyHTML =
+          '<span class="st-chip st-chip-studio' + (soloIsBl ? ' st-chip-blacklisted' : '') + '">' +
+            '<span class="st-selectable">' + esc(soloArtist) + '</span>' +
+            (soloIsNew ? ' <span class="st-new-badge">new</span>' : '') +
+            (soloIsBl  ? ' <span class="st-bl-badge" title="Blacklisted but the only one available">⚠</span>' : '') +
+          '</span>';
+        var studioSoloChipHTML = studioSoloChipOnlyHTML + studioSearchWidget;
+        if (isSolo) {
+          fields.push(
+            '<div class="st-inline-field st-inline-artists">' +
+              '<span class="st-inline-label st-label-static">' + sectionIcon("studio") + 'Studio</span>' +
+              '<div class="st-studio-stack">' +
+                existingStudioRowHTML +
+                '<div class="st-studio-stack-row">' +
+                  '<div class="st-studio-left">' +
+                    '<label class="st-existing-caption st-new" style="cursor:pointer;"><input type="checkbox" data-cb="studio" data-artist-stored="' + (soloArtistObj.stored_id || '') + '"' + (soloChecked ? ' checked' : '') + '> New from scrape</label>' +
+                    studioSoloChipOnlyHTML +
+                  '</div>' +
+                  newStudioLogoHTML +
+                '</div>' +
+                manualStudioRowHTML +
+              '</div>' +
+            '</div>'
+          );
+        } else {
+          fields.push(
+            '<div class="st-inline-field st-inline-artists">' +
+              '<label class="st-inline-label"><input type="checkbox" data-cb="studio" data-artist-stored="' + (soloArtistObj.stored_id || '') + '"' + (soloChecked ? ' checked' : '') + '> Studio</label>' +
+              '<div>' + studioSoloChipHTML + '</div>' +
+            '</div>'
+          );
+        }
+      } else if (isSolo) {
+        // No scraped studio → existing + manually-added only, no "New
+        // from scrape" row since there's no candidate to show there.
         fields.push(
           '<div class="st-inline-field st-inline-artists">' +
-            '<label class="st-inline-label"><input type="checkbox" data-cb="studio" data-artist-stored="' + (soloArtistObj.stored_id || '') + '"' + (soloChecked ? ' checked' : '') + '> Studio</label>' +
-            '<div>' +
-              '<span class="st-chip st-chip-studio' + (soloIsBl ? ' st-chip-blacklisted' : '') + '">' +
-                '<span class="st-selectable">' + esc(soloArtist) + '</span>' +
-                (soloIsNew ? ' <span class="st-new-badge">new</span>' : '') +
-                (soloIsBl  ? ' <span class="st-bl-badge" title="Blacklisted but the only one available">⚠</span>' : '') +
-              '</span>' +
-              (!soloIsBl ? '' : '') +
-              studioSearchWidget +
+            '<span class="st-inline-label st-label-static">' + sectionIcon("studio") + 'Studio</span>' +
+            '<div class="st-studio-stack">' +
+              existingStudioRowHTML +
+              manualStudioRowHTML +
             '</div>' +
           '</div>'
         );
       } else {
-        // No scraped studio → just the search
+        // No scraped studio → just the search (mass-list layout)
         fields.push(
           '<div class="st-inline-field st-inline-artists">' +
             '<span class="st-inline-label st-label-static">Studio</span>' +
@@ -1031,12 +1372,42 @@
         );
       }
 
-      // ── Date
-      if (scraped.date) {
+      // ── Date - solo mode gets its own card, editable via the custom
+      // calendar widget (buildDateFieldHTML), with the existing-vs-new
+      // split when the two differ. The mass list keeps the original plain
+      // checkbox+chip - see isSolo.
+      if (!isSolo) {
+        if (scraped.date) {
+          fields.push(
+            '<div class="st-inline-field">' +
+              '<label class="st-inline-label"><input type="checkbox" data-cb="date" checked> Date</label>' +
+              '<span class="st-chip st-chip-date">' + esc(scraped.date) + '</span>' +
+            '</div>'
+          );
+        }
+      } else {
+        var existingDateText = (scene.date || "").trim();
+        var scrapedDateText = (scraped.date || "").trim();
+        var hasNewDate = !!scrapedDateText && scrapedDateText !== existingDateText;
+        if (r.dateEditValue === undefined) {
+          r.dateEditValue = hasNewDate ? scrapedDateText : existingDateText;
+        }
+        var dateExistingColHTML = hasNewDate
+          ? '<div class="st-details-col">' +
+              '<span class="st-existing-caption">Already on this scene</span>' +
+              '<div class="st-details-readonly">' + (existingDateText ? esc(existingDateText) : '<span class="st-details-empty">(empty)</span>') + '</div>' +
+            '</div>'
+          : "";
         fields.push(
-          '<div class="st-inline-field">' +
-            '<label class="st-inline-label"><input type="checkbox" data-cb="date" checked> Date</label>' +
-            '<span class="st-chip st-chip-date">' + esc(scraped.date) + '</span>' +
+          '<div class="st-inline-field st-inline-date">' +
+            '<span class="st-inline-label st-label-static">' + sectionIcon("date") + 'Date</span>' +
+            '<div class="st-details-wrap' + (hasNewDate ? ' st-details-split' : '') + '">' +
+              dateExistingColHTML +
+              '<div class="st-details-col">' +
+                (hasNewDate ? '<span class="st-existing-caption st-new">New from scrape (editable)</span>' : '') +
+                buildDateFieldHTML(id, r) +
+              '</div>' +
+            '</div>' +
           '</div>'
         );
       }
@@ -1061,21 +1432,6 @@
         );
       }
 
-      // ── Individual performers + search bar (always shown)
-      var perfItemsHTML = "";
-      if (scraped.performers && scraped.performers.length) {
-        perfItemsHTML = scraped.performers.map(function (p, i) {
-          var isNew = !p.stored_id;
-          var perfChecked = isNew ? pluginConfig.autoCheckPerformer : true;
-          return '<label class="st-perf-item' + (isNew ? ' st-perf-new' : '') + '">' +
-            '<input type="checkbox" data-cb="performer" data-idx="' + i + '" ' + (perfChecked ? 'checked' : '') + '>' +
-            (p.storedImage ? '<img class="st-perf-chip-avatar" src="' + esc(p.storedImage) + '">' : '') +
-            '<span class="st-perf-name">' + esc(p.name) + '</span>' +
-            (isNew ? '<span class="st-new-badge">new</span>' : '') +
-          '</label>';
-        }).join("");
-      }
-
       var perfSearchWidget =
         '<div class="st-perf-search-wrap">' +
           '<input type="text" class="st-perf-search-input" placeholder="Search for or add a performer..." autocomplete="off">' +
@@ -1083,36 +1439,99 @@
         '</div>' +
         '<div class="st-perfs-added"></div>';
 
-      var perfsLabel = scraped.performers && scraped.performers.length
-        ? '<label><input type="checkbox" data-cb="perfs-all" checked> Performers (' + scraped.performers.length + ')</label>'
-        : '<span>Performers</span>';
+      if (isSolo) {
+        // ── Already on this scene (kept as-is, not checkboxes - see the
+        // merge step in getCheckedScraped()) vs new from the scrape.
+        var existingPerfsHTML = (scene.performers && scene.performers.length)
+          ? '<div class="st-existing-pills st-existing-pills-perf">' + scene.performers.map(function (p) {
+              return '<span class="st-existing-pill st-existing-pill-perf">' +
+                (p.image_path ? '<img class="st-perf-chip-avatar" src="' + esc(p.image_path) + '">' : '') +
+                '<span class="st-perf-name">' + esc(p.name) + '</span>' +
+              '</span>';
+            }).join("") + '</div>'
+          : "";
+        var existingPerfIdSet = {};
+        (scene.performers || []).forEach(function (p) { existingPerfIdSet[String(p.id)] = true; });
 
-      fields.push(
-        '<div class="st-inline-field st-inline-performers">' +
-          '<div class="st-inline-label">' + perfsLabel + '</div>' +
-          '<div class="st-perfs-right">' +
-            (perfItemsHTML ? '<div class="st-perfs-grid">' + perfItemsHTML + '</div>' : '') +
-            perfSearchWidget +
-          '</div>' +
-        '</div>'
-      );
+        var perfItemsHTML = "";
+        if (scraped.performers && scraped.performers.length) {
+          perfItemsHTML = scraped.performers.map(function (p, i) {
+            // Already shown (and already kept) in existingPerfsHTML above -
+            // no need for a second, redundant checkbox for the same performer.
+            if (p.stored_id && existingPerfIdSet[String(p.stored_id)]) return "";
+            var isNew = !p.stored_id;
+            var perfChecked = isNew ? pluginConfig.autoCheckPerformer : true;
+            return '<label class="st-perf-item' + (isNew ? ' st-perf-new' : '') + '">' +
+              '<input type="checkbox" data-cb="performer" data-idx="' + i + '" ' + (perfChecked ? 'checked' : '') + '>' +
+              (p.storedImage ? '<img class="st-perf-chip-avatar" src="' + esc(p.storedImage) + '">' : '') +
+              '<span class="st-perf-name">' + esc(p.name) + '</span>' +
+              (isNew ? '<span class="st-new-badge">new</span>' : '') +
+            '</label>';
+          }).join("");
+        }
+
+        var newPerfCount = (scraped.performers || []).filter(function (p) {
+          return !(p.stored_id && existingPerfIdSet[String(p.stored_id)]);
+        }).length;
+        var existingPerfCount = (scene.performers || []).length;
+        var perfsCountText = existingPerfCount || newPerfCount
+          ? existingPerfCount + ' existant' + (existingPerfCount !== 1 ? 's' : '') +
+            (newPerfCount ? ' &middot; ' + newPerfCount + ' nouveau' + (newPerfCount !== 1 ? 'x' : '') : '')
+          : '';
+        var perfsLabel = newPerfCount
+          ? '<label><input type="checkbox" data-cb="perfs-all" checked> Performers' + (perfsCountText ? ' <span class="st-count-hint">(' + perfsCountText + ')</span>' : '') + '</label>'
+          : '<span>Performers' + (perfsCountText ? ' <span class="st-count-hint">(' + perfsCountText + ')</span>' : '') + '</span>';
+
+        fields.push(
+          '<div class="st-inline-field st-inline-performers">' +
+            '<div class="st-inline-label">' + sectionIcon("performers") + perfsLabel + '</div>' +
+            '<div class="st-split-cols">' +
+              '<div class="st-split-col">' +
+                '<span class="st-existing-caption">Already on this scene</span>' +
+                (existingPerfsHTML || '<span class="st-split-empty">None</span>') +
+              '</div>' +
+              '<div class="st-split-col">' +
+                '<span class="st-existing-caption st-new">New from scrape</span>' +
+                (perfItemsHTML ? '<div class="st-perfs-grid">' + perfItemsHTML + '</div>' : '<span class="st-split-empty">None found</span>') +
+                perfSearchWidget +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      } else {
+        // ── Mass-list layout: original compact grid, no existing/new
+        // split - getCheckedScraped() still silently keeps whatever's
+        // already on the scene regardless (see its merge step), this is
+        // purely about what's SHOWN here.
+        var perfItemsHTMLOld = "";
+        if (scraped.performers && scraped.performers.length) {
+          perfItemsHTMLOld = scraped.performers.map(function (p, i) {
+            var isNew = !p.stored_id;
+            var perfChecked = isNew ? pluginConfig.autoCheckPerformer : true;
+            return '<label class="st-perf-item' + (isNew ? ' st-perf-new' : '') + '">' +
+              '<input type="checkbox" data-cb="performer" data-idx="' + i + '" ' + (perfChecked ? 'checked' : '') + '>' +
+              (p.storedImage ? '<img class="st-perf-chip-avatar" src="' + esc(p.storedImage) + '">' : '') +
+              '<span class="st-perf-name">' + esc(p.name) + '</span>' +
+              (isNew ? '<span class="st-new-badge">new</span>' : '') +
+            '</label>';
+          }).join("");
+        }
+        var perfsLabelOld = scraped.performers && scraped.performers.length
+          ? '<label><input type="checkbox" data-cb="perfs-all" checked> Performers (' + scraped.performers.length + ')</label>'
+          : '<span>Performers</span>';
+        fields.push(
+          '<div class="st-inline-field st-inline-performers">' +
+            '<div class="st-inline-label">' + perfsLabelOld + '</div>' +
+            '<div class="st-perfs-right">' +
+              (perfItemsHTMLOld ? '<div class="st-perfs-grid">' + perfItemsHTMLOld + '</div>' : '') +
+              perfSearchWidget +
+            '</div>' +
+          '</div>'
+        );
+      }
 
       // ── Tags (scraped + manually added via search/create)
       {
-        var tagItems = (scraped.tags || []).map(function (t, i) {
-          var isNew = !t.stored_id;
-          var tagChecked = isNew ? pluginConfig.autoCheckNewTags : true;
-          return '<label class="st-tag-item' + (isNew ? ' st-tag-new' : '') + '">' +
-            '<input type="checkbox" data-cb="tag" data-idx="' + i + '" ' + (tagChecked ? 'checked' : '') + '>' +
-            '<span class="st-selectable">' + esc(t.name) + '</span>' +
-            (isNew ? '<span class="st-new-badge">new</span>' : '') +
-          '</label>';
-        }).join("");
-
-        var tagsLabel = scraped.tags && scraped.tags.length
-          ? '<label><input type="checkbox" data-cb="tags-all" checked> Tags (' + scraped.tags.length + ')</label>'
-          : '<span>Tags</span>';
-
         var tagSearchWidget =
           '<div class="st-tag-search-wrap">' +
             '<input type="text" class="st-tag-search-input" placeholder="Search for or add a tag..." autocomplete="off">' +
@@ -1120,39 +1539,165 @@
           '</div>' +
           '<div class="st-tags-added"></div>';
 
+        if (isSolo) {
+          var existingTagsHTML = (scene.tags && scene.tags.length)
+            ? '<div class="st-existing-pills">' + scene.tags.map(function (t) {
+                return '<span class="st-existing-pill">' + esc(t.name) + '</span>';
+              }).join("") + '</div>'
+            : "";
+          var existingTagIdSet = {};
+          (scene.tags || []).forEach(function (t) { existingTagIdSet[String(t.id)] = true; });
+
+          var tagItems = (scraped.tags || []).map(function (t, i) {
+            // Already shown (and already kept) in existingTagsHTML above.
+            if (t.stored_id && existingTagIdSet[String(t.stored_id)]) return "";
+            var isNew = !t.stored_id;
+            var tagChecked = isNew ? pluginConfig.autoCheckNewTags : true;
+            return '<label class="st-tag-item' + (isNew ? ' st-tag-new' : '') + '">' +
+              '<input type="checkbox" data-cb="tag" data-idx="' + i + '" ' + (tagChecked ? 'checked' : '') + '>' +
+              '<span class="st-selectable">' + esc(t.name) + '</span>' +
+              (isNew ? '<span class="st-new-badge">new</span>' : '') +
+            '</label>';
+          }).join("");
+
+          var newTagCount = (scraped.tags || []).filter(function (t) {
+            return !(t.stored_id && existingTagIdSet[String(t.stored_id)]);
+          }).length;
+          var existingTagCount = (scene.tags || []).length;
+          var tagsCountText = existingTagCount || newTagCount
+            ? existingTagCount + ' existant' + (existingTagCount !== 1 ? 's' : '') +
+              (newTagCount ? ' &middot; ' + newTagCount + ' nouveau' + (newTagCount !== 1 ? 'x' : '') : '')
+            : '';
+          var tagsLabel = newTagCount
+            ? '<label><input type="checkbox" data-cb="tags-all" checked> Tags' + (tagsCountText ? ' <span class="st-count-hint">(' + tagsCountText + ')</span>' : '') + '</label>'
+            : '<span>Tags' + (tagsCountText ? ' <span class="st-count-hint">(' + tagsCountText + ')</span>' : '') + '</span>';
+
+          fields.push(
+            '<div class="st-inline-field st-inline-tags">' +
+              '<div class="st-inline-label">' + sectionIcon("tags") + tagsLabel + '</div>' +
+              '<div class="st-split-cols">' +
+                '<div class="st-split-col">' +
+                  '<span class="st-existing-caption">Already on this scene</span>' +
+                  (existingTagsHTML || '<span class="st-split-empty">None</span>') +
+                '</div>' +
+                '<div class="st-split-col">' +
+                  '<span class="st-existing-caption st-new">New from scrape</span>' +
+                  (tagItems ? '<div class="st-tags-grid">' + tagItems + '</div>' : '<span class="st-split-empty">None found</span>') +
+                  tagSearchWidget +
+                '</div>' +
+              '</div>' +
+            '</div>'
+          );
+        } else {
+          // ── Mass-list layout: original compact grid, no existing/new
+          // split (see the same note on Performers above).
+          var tagItemsOld = (scraped.tags || []).map(function (t, i) {
+            var isNew = !t.stored_id;
+            var tagChecked = isNew ? pluginConfig.autoCheckNewTags : true;
+            return '<label class="st-tag-item' + (isNew ? ' st-tag-new' : '') + '">' +
+              '<input type="checkbox" data-cb="tag" data-idx="' + i + '" ' + (tagChecked ? 'checked' : '') + '>' +
+              '<span class="st-selectable">' + esc(t.name) + '</span>' +
+              (isNew ? '<span class="st-new-badge">new</span>' : '') +
+            '</label>';
+          }).join("");
+          var tagsLabelOld = scraped.tags && scraped.tags.length
+            ? '<label><input type="checkbox" data-cb="tags-all" checked> Tags (' + scraped.tags.length + ')</label>'
+            : '<span>Tags</span>';
+          fields.push(
+            '<div class="st-inline-field st-inline-tags">' +
+              '<div class="st-inline-label">' + tagsLabelOld + '</div>' +
+              (tagItemsOld ? '<div class="st-tags-grid">' + tagItemsOld + '</div>' : '') +
+              tagSearchWidget +
+            '</div>'
+          );
+        }
+      }
+
+      // ── Details - solo mode: always editable, pre-filled with whatever's
+      // best available, split into "Already on this scene" (read-only) /
+      // "New from scrape (editable)" only when the two genuinely differ.
+      // Mass list keeps the original checkbox+chip preview - see isSolo.
+      if (!isSolo) {
+        if (scraped.details) {
+          var detailsParsedForDisplay = parseDetailsArtists(scraped.details);
+          var hasRealContent = !!detailsParsedForDisplay.rest;
+          var detailsChecked = pluginConfig.autoCheckDetails ? true : hasRealContent;
+          var detailsShort = scraped.details.length > 80 ? scraped.details.substring(0, 80) + "…" : scraped.details;
+          fields.push(
+            '<div class="st-inline-field">' +
+              '<label class="st-inline-label"><input type="checkbox" data-cb="details"' + (detailsChecked ? ' checked' : '') + '> Details</label>' +
+              '<span class="st-chip st-chip-details" title="' + esc(scraped.details) + '">' + esc(detailsShort) + '</span>' +
+            '</div>'
+          );
+        }
+      } else {
+        var scrapedDetailsClean = scraped.details ? scraped.details.replace(/\[(\w+)\]/g, "").trim() : "";
+        var existingDetailsText = (scene.details || "").trim();
+        var hasNewDetails = !!scrapedDetailsClean && scrapedDetailsClean !== existingDetailsText;
+        if (r.detailsEditValue === undefined) {
+          r.detailsEditValue = hasNewDetails ? scrapedDetailsClean : existingDetailsText;
+        }
+        var detailsExistingColHTML = hasNewDetails
+          ? '<div class="st-details-col">' +
+              '<span class="st-existing-caption">Already on this scene</span>' +
+              '<div class="st-details-readonly">' + (existingDetailsText ? esc(existingDetailsText) : '<span class="st-details-empty">(empty)</span>') + '</div>' +
+            '</div>'
+          : "";
         fields.push(
-          '<div class="st-inline-field st-inline-tags">' +
-            '<div class="st-inline-label">' + tagsLabel + '</div>' +
-            (tagItems ? '<div class="st-tags-grid">' + tagItems + '</div>' : '') +
-            tagSearchWidget +
+          '<div class="st-inline-field st-inline-details">' +
+            '<span class="st-inline-label st-label-static">' + sectionIcon("details") + 'Details</span>' +
+            '<div class="st-details-wrap' + (hasNewDetails ? ' st-details-split' : '') + '">' +
+              detailsExistingColHTML +
+              '<div class="st-details-col">' +
+                (hasNewDetails ? '<span class="st-existing-caption st-new">New from scrape (editable)</span>' : '') +
+                '<textarea class="st-details-edit" placeholder="Details...">' + esc(r.detailsEditValue) + '</textarea>' +
+              '</div>' +
+            '</div>' +
           '</div>'
         );
       }
 
-      // ── Details
-      if (scraped.details) {
-        var detailsParsedForDisplay = parseDetailsArtists(scraped.details);
-        var hasRealContent = !!detailsParsedForDisplay.rest;
-        // Checked if: real content AND (autoCheckDetails OR hasRealContent)
-        var detailsChecked = pluginConfig.autoCheckDetails ? true : hasRealContent;
-        var detailsShort = scraped.details.length > 80 ? scraped.details.substring(0, 80) + "…" : scraped.details;
-        fields.push(
-          '<div class="st-inline-field">' +
-            '<label class="st-inline-label"><input type="checkbox" data-cb="details"' + (detailsChecked ? ' checked' : '') + '> Details</label>' +
-            '<span class="st-chip st-chip-details" title="' + esc(scraped.details) + '">' + esc(detailsShort) + '</span>' +
-          '</div>'
-        );
-      }
-
-      // ── URLs
-      if (scraped.urls && scraped.urls.length) {
-        var urlChips = scraped.urls.map(function (u) {
-          return '<a class="st-chip st-chip-url" href="' + esc(u) + '" target="_blank" rel="noopener" title="' + esc(u) + '">' + esc(u) + '</a>';
+      // ── URLs - solo mode: a single combined, always-additive editable
+      // stack (existing + new from the scrape, deduped), each removable
+      // via its own button, plus an input to add one more. Mass list keeps
+      // the original checkbox+chips preview - see isSolo.
+      if (!isSolo) {
+        if (scraped.urls && scraped.urls.length) {
+          var urlChips = scraped.urls.map(function (u) {
+            return '<a class="st-chip st-chip-url" href="' + esc(u) + '" target="_blank" rel="noopener" title="' + esc(u) + '">' + esc(u) + '</a>';
+          }).join("");
+          fields.push(
+            '<div class="st-inline-field st-inline-urls">' +
+              '<label class="st-inline-label"><input type="checkbox" data-cb="urls" checked> URLs</label>' +
+              '<div class="st-inline-chips">' + urlChips + '</div>' +
+            '</div>'
+          );
+        }
+      } else {
+        if (r.urlEditList === undefined) {
+          var seenUrls = {};
+          r.urlEditList = [];
+          (scene.urls || []).forEach(function (u) {
+            if (u && !seenUrls[u]) { seenUrls[u] = true; r.urlEditList.push({ value: u, isNew: false }); }
+          });
+          (scraped.urls || []).forEach(function (u) {
+            if (u && !seenUrls[u]) { seenUrls[u] = true; r.urlEditList.push({ value: u, isNew: true }); }
+          });
+        }
+        var urlRowsHTML = r.urlEditList.map(function (u, i) {
+          return '<div class="st-url-row' + (u.isNew ? ' st-url-row-new' : '') + '">' +
+            '<span class="st-url-link" title="' + esc(u.value) + '">' + esc(u.value) + '</span>' +
+            (u.isNew ? '<span class="st-url-badge-new">new</span>' : '') +
+            '<button class="st-url-remove" onclick="stRemoveUrl(\'' + esc(id) + '\',' + i + ')" title="Remove">&#10005;</button>' +
+          '</div>';
         }).join("");
         fields.push(
           '<div class="st-inline-field st-inline-urls">' +
-            '<label class="st-inline-label"><input type="checkbox" data-cb="urls" checked> URLs</label>' +
-            '<div class="st-inline-chips">' + urlChips + '</div>' +
+            '<span class="st-inline-label st-label-static">' + sectionIcon("urls") + 'URLs</span>' +
+            '<div class="st-url-list-wrap">' +
+              (urlRowsHTML ? '<div class="st-url-list">' + urlRowsHTML + '</div>' : '') +
+              '<input type="text" class="st-url-add-input" placeholder="Add a URL...">' +
+            '</div>' +
           '</div>'
         );
       }
@@ -1174,15 +1719,23 @@
         '</div>';
     }
 
+    // "Search title" is offered when at least one search-capable scraper is
+    // configured - any stash-box, plus any YAML scraper that declares NAME
+    // support (see isSearchCapable()).
+    var hasStashBox = state.scrapers.some(isSearchCapable);
+    var searchTitleBtnHTML = hasStashBox
+      ? '<button class="st-btn st-btn-ghost" onclick="stToggleTitleSearch(\'' + esc(id) + '\')">' + (r.titleSearchOpen ? "Cancel search" : "Search title") + '</button>'
+      : "";
+
     var rightHTML = "";
     if (status === "idle" || status === "skipped") {
-      rightHTML = '<div class="st-row-btn"><button class="st-btn st-btn-primary" onclick="stScrapeOne(\'' + esc(id) + '\')">Scrape</button></div>';
+      rightHTML = '<div class="st-row-btn"><button class="st-btn st-btn-primary" onclick="stScrapeOne(\'' + esc(id) + '\')">Scrape</button>' + searchTitleBtnHTML + '</div>';
     } else if (status === "scraping" || status === "applying") {
       rightHTML = '<div class="st-row-btn"><span class="st-spinner"></span></div>';
     } else if (status === "done") {
       rightHTML = '<div class="st-row-btn"><span class="st-done-icon">&#10003;</span></div>';
     } else if (status === "error") {
-      rightHTML = '<div class="st-row-btn"><button class="st-btn st-btn-ghost" onclick="stScrapeOne(\'' + esc(id) + '\')">Retry</button></div>';
+      rightHTML = '<div class="st-row-btn"><button class="st-btn st-btn-ghost" onclick="stScrapeOne(\'' + esc(id) + '\')">Retry</button>' + searchTitleBtnHTML + '</div>';
     }
 
     var sceneUrl = window.location.origin + "/scenes/" + id;
@@ -1194,6 +1747,58 @@
       manualUrlHTML = '<div class="st-manual-url-wrap">' +
         '<input type="text" class="st-manual-url-input" placeholder="URL (optional)" value="' + esc(r.manualUrl || "") + '">' +
       '</div>';
+    }
+
+    // ── "Search title" panel (fallback for when fragment/hash scraping
+    // finds nothing - query-based search against any search-capable
+    // scraper (stash-box or NAME-capable YAML, see isSearchCapable()),
+    // returns a candidate list to pick from instead of a single
+    // auto-matched result).
+    var titleSearchHTML = "";
+    if (r.titleSearchOpen) {
+      var stashBoxes = state.scrapers.filter(isSearchCapable);
+      var tsSelectedBoxID = r.titleSearchScraperID || (stashBoxes[0] && stashBoxes[0].id) || "";
+      var tsQuery = r.titleSearchQuery != null ? r.titleSearchQuery : (scene.title || fname);
+
+      var tsBoxOptionsHTML = stashBoxes.map(function (b) {
+        return '<option value="' + esc(b.id) + '"' + (b.id === tsSelectedBoxID ? ' selected' : '') + '>' + esc(b.name) + '</option>';
+      }).join("");
+
+      var tsResultsHTML = "";
+      if (r.titleSearchLoading) {
+        tsResultsHTML = '<div class="st-ts-status"><span class="st-spinner"></span></div>';
+      } else if (r.titleSearchError) {
+        tsResultsHTML = '<div class="st-ts-status st-ts-error">' + esc(r.titleSearchError) + '</div>';
+      } else if (r.titleSearchResults) {
+        if (!r.titleSearchResults.length) {
+          tsResultsHTML = '<div class="st-ts-status">No results</div>';
+        } else {
+          tsResultsHTML = '<div class="st-ts-results">' + r.titleSearchResults.map(function (cand, idx) {
+            var studioName = cand.studio && cand.studio.name ? cand.studio.name : "";
+            var studioIsBl = studioName && isBlacklisted(studioName);
+            var studioBadgeHTML = studioName
+              ? '<span class="' + (studioIsBl ? 'st-ts-studio-bl' : 'st-ts-studio-ok') + '">' + esc(studioName) + (studioIsBl ? ' &#9888; blacklisted' : '') + '</span>'
+              : "";
+            return '<div class="st-ts-result" onclick="stPickTitleResult(\'' + esc(id) + '\',' + idx + ')">' +
+              (cand.image ? '<img class="st-ts-thumb" src="' + esc(cand.image) + '">' : '<div class="st-ts-thumb"></div>') +
+              '<div class="st-ts-info">' +
+                '<div class="st-ts-title">' + esc(cand.title || "(no title)") + '</div>' +
+                '<div class="st-ts-meta">' + (cand.date ? esc(cand.date) + ' &middot; ' : '') + studioBadgeHTML + '</div>' +
+              '</div>' +
+            '</div>';
+          }).join("") + '</div>';
+        }
+      }
+
+      titleSearchHTML =
+        '<div class="st-title-search">' +
+          (stashBoxes.length > 1 ? '<select class="st-ts-source">' + tsBoxOptionsHTML + '</select>' : '') +
+          '<div class="st-ts-search-row">' +
+            '<input type="text" class="st-ts-input" value="' + esc(tsQuery) + '">' +
+            '<button class="st-btn st-btn-primary" onclick="stRunTitleSearch(\'' + esc(id) + '\')">Search</button>' +
+          '</div>' +
+          tsResultsHTML +
+        '</div>';
     }
 
     el.innerHTML =
@@ -1233,7 +1838,8 @@
         '</div>' +
         rightHTML +
       '</div>' +
-      inlineHTML;
+      inlineHTML +
+      titleSearchHTML;
 
     var manualUrlInput = el.querySelector(".st-manual-url-input");
     if (manualUrlInput) {
@@ -1242,11 +1848,72 @@
       });
     }
 
+    var tsInput = el.querySelector(".st-ts-input");
+    if (tsInput) {
+      tsInput.addEventListener("input", function () {
+        r.titleSearchQuery = tsInput.value;
+      });
+      // Enter runs the search directly, same as clicking "Search".
+      tsInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); window.stRunTitleSearch(id); }
+      });
+    }
+    var tsSource = el.querySelector(".st-ts-source");
+    if (tsSource) {
+      tsSource.addEventListener("change", function () {
+        r.titleSearchScraperID = tsSource.value;
+      });
+    }
+
     var manualTitleInput = el.querySelector(".st-manual-title-input");
     if (manualTitleInput) {
       manualTitleInput.addEventListener("input", function () {
         r.manualTitle = manualTitleInput.value.trim();
       });
+    }
+
+    var detailsEdit = el.querySelector(".st-details-edit");
+    if (detailsEdit) {
+      detailsEdit.addEventListener("input", function () {
+        r.detailsEditValue = detailsEdit.value;
+      });
+    }
+
+    var dateField = el.querySelector(".st-date-field");
+    if (dateField) {
+      wireDateOutsideClickOnce();
+      dateField.querySelectorAll(".st-date-pop-nav").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          window.stDateNav(id, parseInt(btn.getAttribute("data-dir"), 10));
+        });
+      });
+      dateField.querySelectorAll(".st-date-cell[data-iso]").forEach(function (cell) {
+        cell.addEventListener("click", function (e) {
+          e.stopPropagation();
+          window.stDatePick(id, cell.getAttribute("data-iso"));
+        });
+      });
+      var dateClearBtn = dateField.querySelector('[data-action="clear"]');
+      if (dateClearBtn) dateClearBtn.addEventListener("click", function (e) { e.stopPropagation(); window.stDateClear(id); });
+      var dateTodayBtn = dateField.querySelector('[data-action="today"]');
+      if (dateTodayBtn) dateTodayBtn.addEventListener("click", function (e) { e.stopPropagation(); window.stDateToday(id); });
+    }
+
+    var urlAddInput = el.querySelector(".st-url-add-input");
+    if (urlAddInput) {
+      var commitUrlAdd = function () {
+        var v = urlAddInput.value.trim();
+        if (!v) return;
+        r.urlEditList = r.urlEditList || [];
+        r.urlEditList.push({ value: v, isNew: false });
+        urlAddInput.value = "";
+        renderRow(id);
+      };
+      urlAddInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); commitUrlAdd(); }
+      });
+      urlAddInput.addEventListener("blur", commitUrlAdd);
     }
 
     // ── Blacklist buttons on the artist radios ─────────────────────────────
@@ -1346,6 +2013,18 @@
           var wrapRect = perfSearchResults.parentNode.getBoundingClientRect();
           var itemRect = item.getBoundingClientRect();
           perfHoverPreview.style.top = (itemRect.top - wrapRect.top) + "px";
+          // Default spot is to the right of the wrap (CSS left: calc(100% +
+          // 8px)) - but the "New from scrape" search box sits near the
+          // panel's right edge, so that default pushes the 120px preview
+          // off the viewport entirely (confirmed session 2026-09-16). Flip
+          // to the left side of the wrap instead whenever the right side
+          // doesn't fit on screen.
+          var previewW = 120, gap = 8;
+          if (wrapRect.right + gap + previewW > window.innerWidth) {
+            perfHoverPreview.style.left = (-(previewW + gap)) + "px";
+          } else {
+            perfHoverPreview.style.left = "calc(100% + " + gap + "px)";
+          }
           perfHoverPreview.style.display = "block";
         });
         perfSearchResults.addEventListener("mouseleave", function () {
@@ -1403,6 +2082,12 @@
       // mechanics are identical either way).
       var perfsGrid = el.querySelector(".st-perfs-grid");
       if (perfsGrid) wireAvatarHoverPreview(perfsGrid, ".st-perf-item");
+
+      // Same preview again for the "Already on this scene" pills (left
+      // column) - now carrying the same round avatar since they also
+      // fetch image_path (see existingPerfsHTML above).
+      var existingPerfsEl = el.querySelector(".st-existing-pills-perf");
+      if (existingPerfsEl) wireAvatarHoverPreview(existingPerfsEl, ".st-existing-pill-perf");
     }
 
     // ── Live tag search ─────────────────────────────────────────────────────
@@ -1485,6 +2170,7 @@
       var searchResults = el.querySelector('.st-studio-search-results');
       var overrideInput = el.querySelector('[data-cb="studio-override"]');
       var selectedSpan  = el.querySelector('.st-studio-selected');
+      var manualEmptyHint = el.querySelector('.st-studio-manual-empty');
 
       if (searchInput && searchResults && overrideInput) {
         var searchTimer = null;
@@ -1517,9 +2203,12 @@
           // Store the override
           overrideInput.value = sname;
           overrideInput.setAttribute("data-studio-id", sid);
-          // Show the selected studio
-          selectedSpan.textContent = "→ " + sname;
-          selectedSpan.style.display = "inline";
+          // Show the selected studio as a bordered chip + remove (✕),
+          // matching the "Already on this scene"/"New from scrape" rows
+          // instead of the old plain "→ name" link.
+          selectedSpan.innerHTML = esc(sname) + ' <span class="st-studio-selected-x">&#10005;</span>';
+          selectedSpan.style.display = "inline-flex";
+          if (manualEmptyHint) manualEmptyHint.style.display = "none";
           // Uncheck the radios and the original studio checkbox
           el.querySelectorAll('[data-cb="studio-radio"]').forEach(function (r) { r.checked = false; });
           var studioOrigCb = el.querySelector('[data-cb="studio"]');
@@ -1528,6 +2217,25 @@
           searchResults.style.display = "none";
           searchResults.innerHTML = "";
           searchInput.value = "";
+          // Fetch the picked studio's own logo (only now, on click - not
+          // per keystroke/result while typing) and drop it into the
+          // reserved zone next to "Manually added".
+          var manualLogoZone = el.querySelector(".st-studio-manual-logo");
+          if (manualLogoZone) {
+            if (sid) {
+              gql("StudioImg", Q_STUDIO_IMAGE, { id: sid }).then(function (d) {
+                var img = d.findStudio && d.findStudio.image_path;
+                if (img) {
+                  manualLogoZone.classList.remove("st-studio-logo-empty");
+                  manualLogoZone.innerHTML = '<img src="' + esc(img) + '">';
+                }
+              }).catch(function () {});
+            } else {
+              // "+ Create ..." path - brand new studio, no image yet.
+              manualLogoZone.classList.add("st-studio-logo-empty");
+              manualLogoZone.innerHTML = ST_STUDIO_LOGO_PLACEHOLDER_SVG;
+            }
+          }
         });
 
         // Close on click elsewhere
@@ -1544,6 +2252,12 @@
             overrideInput.value = "";
             overrideInput.setAttribute("data-studio-id", "");
             selectedSpan.style.display = "none";
+            if (manualEmptyHint) manualEmptyHint.style.display = "";
+            var manualLogoZone = el.querySelector(".st-studio-manual-logo");
+            if (manualLogoZone) {
+              manualLogoZone.classList.add("st-studio-logo-empty");
+              manualLogoZone.innerHTML = ST_STUDIO_LOGO_PLACEHOLDER_SVG;
+            }
           });
         }
       }
@@ -1761,7 +2475,17 @@
       // preview's own fixed 160px height (see .st-perf-hover-preview) is the
       // offset, plus a small gap.
       preview.style.top  = (chipRect.top - wrapRect.top - 160 - 8) + "px";
-      preview.style.left = (chipRect.left - wrapRect.left) + "px";
+      // Clamped to the viewport horizontally - a chip near the panel's
+      // right edge would otherwise push the 120px-wide preview off screen
+      // (same issue as the search-dropdown preview, confirmed session
+      // 2026-09-16).
+      var previewW = 120, margin = 8;
+      var desiredLeftViewport = chipRect.left;
+      if (desiredLeftViewport + previewW + margin > window.innerWidth) {
+        desiredLeftViewport = window.innerWidth - previewW - margin;
+      }
+      if (desiredLeftViewport < margin) desiredLeftViewport = margin;
+      preview.style.left = (desiredLeftViewport - wrapRect.left) + "px";
       preview.style.display = "block";
     });
     container.addEventListener("mouseleave", function () {
@@ -1820,10 +2544,77 @@
     }
   }
 
+  // ── Search title (query-based: stash-box or NAME-capable YAML scraper) ────
+
+  window.stToggleTitleSearch = function (id) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.titleSearchOpen = !r.titleSearchOpen;
+    if (r.titleSearchOpen) {
+      r.titleSearchResults = null;
+      r.titleSearchError = "";
+      // The input's displayed default (scene title, falls back to
+      // filename) is only a DOM attribute until the user actually types -
+      // without writing it into r here too, stRunTitleSearch() sees an
+      // empty r.titleSearchQuery and bails out on a totally untouched
+      // field (confirmed session 2026-09-16: clicking Search did nothing).
+      if (!r.titleSearchQuery) r.titleSearchQuery = r.scene.title || getFilename(r.scene);
+    }
+    renderRow(id);
+  };
+
+  window.stRunTitleSearch = function (id) {
+    var r = state.rows[id];
+    if (!r || !r.titleSearchOpen) return;
+    var stashBoxes = state.scrapers.filter(isSearchCapable);
+    var scraperID = r.titleSearchScraperID || (stashBoxes[0] && stashBoxes[0].id) || "";
+    var query = (r.titleSearchQuery || "").trim();
+    if (!scraperID || !query) return;
+
+    r.titleSearchLoading = true; r.titleSearchError = ""; r.titleSearchResults = null;
+    renderRow(id);
+
+    scrapeSingleSceneByQuery(scraperID, query)
+      .then(function (results) {
+        r.titleSearchLoading = false;
+        r.titleSearchResults = results;
+        renderRow(id);
+      })
+      .catch(function (err) {
+        r.titleSearchLoading = false;
+        r.titleSearchError = err.message || String(err);
+        renderRow(id);
+      });
+  };
+
+  // Picking a candidate from the title-search list behaves exactly like a
+  // successful fragment scrape (same r.scraped shape, same renderRow()
+  // fields/apply flow) - only the "found via" hint differs.
+  window.stPickTitleResult = function (id, idx) {
+    var r = state.rows[id];
+    if (!r || !r.titleSearchResults || !r.titleSearchResults[idx]) return;
+    var candidate = r.titleSearchResults[idx];
+    var stashBoxes = state.scrapers.filter(isSearchCapable);
+    var box = stashBoxes.filter(function (s) { return s.id === r.titleSearchScraperID; })[0] || stashBoxes[0];
+
+    r.status = "scraped";
+    r.scraped = candidate;
+    r.matchedScraperID = box ? box.id : r.titleSearchScraperID;
+    r.matchedScraperName = (box ? box.name : "Search") + " (search by title)";
+    r.viaTitleSearch = true;
+    r.manualFallback = false;
+    r.titleSearchOpen = false;
+    r.titleSearchResults = null;
+    applyOrganizedAutoDefault(r);
+
+    renderRow(id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
+    refreshStudioAliasBadges(id); fetchStoredPerformerImages(id);
+  };
+
   window.stScrapeOne = function (id) {
     var r = state.rows[id];
     if (!r) return;
-    r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false;
+    r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false; r.viaTitleSearch = false;
     renderRow(id);
     updateStatus("Scraping " + getFilename(r.scene) + "...");
 
@@ -1871,6 +2662,63 @@
     renderRow(id);
   };
 
+  window.stRemoveUrl = function (id, idx) {
+    var r = state.rows[id];
+    if (!r || !r.urlEditList) return;
+    r.urlEditList.splice(idx, 1);
+    renderRow(id);
+  };
+
+  window.stPickCover = function (id, choice) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.coverChoice = choice;
+    renderRow(id);
+  };
+
+  // ── Custom date picker handlers ─────────────────────────────────────────
+
+  window.stDateToggle = function (id) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.dateCalendarOpen = !r.dateCalendarOpen;
+    renderRow(id);
+  };
+
+  window.stDateNav = function (id, dir) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.dateCalendarMonth = shiftMonthISO(r.dateCalendarMonth || new Date().toISOString().slice(0, 7), dir);
+    renderRow(id);
+  };
+
+  window.stDatePick = function (id, iso) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.dateEditValue = iso;
+    r.dateCalendarMonth = iso.slice(0, 7);
+    r.dateCalendarOpen = false;
+    renderRow(id);
+  };
+
+  window.stDateClear = function (id) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.dateEditValue = "";
+    r.dateCalendarOpen = false;
+    renderRow(id);
+  };
+
+  window.stDateToday = function (id) {
+    var r = state.rows[id];
+    if (!r) return;
+    var iso = new Date().toISOString().slice(0, 10);
+    r.dateEditValue = iso;
+    r.dateCalendarMonth = iso.slice(0, 7);
+    r.dateCalendarOpen = false;
+    renderRow(id);
+  };
+
   // ── Sequential Scrape All ──────────────────────────────────────────────────
 
   function scrapeAll() {
@@ -1899,7 +2747,7 @@
 
       updateProgress(i, todo.length);
       updateStatus("Scraping " + (i + 1) + "/" + todo.length + " : " + getFilename(scene));
-      r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false;
+      r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false; r.viaTitleSearch = false;
       renderRow(scene.id);
 
       scrapeOneEffective(scene.id)
@@ -2093,6 +2941,30 @@
     });
   }
 
+  // Same as loadScenes() but for a single scene fetched by ID instead of
+  // reading the native grid - used by the scene-detail-page entry point
+  // (see injectSceneButton() below), which has no grid to read from.
+  function loadSingleScene(sceneID) {
+    updateStatus("Loading scene...");
+    return gql("FindScenesByIds", Q_FIND_BY_IDS, { ids: [String(sceneID)] }).then(function (d) {
+      var scenes = ((d.findScenes || {}).scenes || []);
+      state.scenes = scenes;
+      scenes.forEach(function (scene) {
+        if (!state.rows[scene.id])
+          state.rows[scene.id] = { scene: scene, status: "idle", scraped: null, msg: "", markOrganized:
+          pluginConfig.autoMarkOrganized };
+        else
+          state.rows[scene.id].scene = scene;
+      });
+      buildAllRows();
+      state.currentPage = 1; state.totalPages = 1;
+      updatePageNav();
+      updateStatus(scenes.length ? "Ready" : "Scene not found");
+    }).catch(function (err) {
+      updateStatus("Loading error: " + err.message);
+    });
+  }
+
   // ── Build the panel ────────────────────────────────────────────────────────
 
   function buildPanel(scrapers) {
@@ -2142,11 +3014,9 @@
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-prioritize-existing"> Prefer existing studio (multi-studio)</label>' +
           '</div>' +
-          // Row hidden in the public build: depends on the companion plugin
-          // skExtra-Multiple-Studios-Custom, not published separately.
-          // '<div class="st-setting-row">' +
-          //   '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
-          // '</div>' +
+          '<div class="st-setting-row">' +
+            //   '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
+          '</div>' +
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-performer"> Auto-check new performers</label>' +
           '</div>' +
@@ -2167,6 +3037,9 @@
           '<div class="st-setting-section-title">Display</div>' +
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Thumbnail hover preview</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-scene-mode"> Hide Auto/Manual toggle on scene page</label>' +
           '</div>' +
         '</div>' +
         '<div class="st-setting-row st-blacklist-row">' +
@@ -2471,11 +3344,25 @@
       });
     }
 
-    // Compact mode button
+    // Compact mode button - meaningless in solo mode (a single scene is
+    // already "compact") and actively destructive there: it used to
+    // overwrite panelEl.className wholesale, silently stripping the
+    // "st-panel-solo" class and reverting the docked single-scene panel
+    // back into the full-width mass-scrape layout mid-session (confirmed
+    // session 2026-09-16, screenshot showed the "Scrape All/Apply All/..."
+    // header reappearing and the content overflowing past the panel once
+    // solo's own max-height rules no longer applied). Hidden entirely
+    // instead of trying to make toggling behave in solo - there's nothing
+    // useful for it to toggle between there.
     var compactBtn = document.getElementById("st-titlebar-compact");
     if (compactBtn) {
+      // Solo mode isn't applied yet at this point (attachPanelEvents() runs
+      // right after building the panel, before openPanelForScene() adds the
+      // "st-panel-solo" class) - hiding this button for solo is done there
+      // instead, right after that class is added.
       if (pluginConfig.compactMode) compactBtn.style.color = "rgba(var(--accent-rgb,94,129,172),1)";
       compactBtn.addEventListener("click", function () {
+        if (document.getElementById(PANEL_ID).classList.contains("st-panel-solo")) return;
         pluginConfig.compactMode = !pluginConfig.compactMode;
         savePluginConfig();
         var panelEl = document.getElementById(PANEL_ID);
@@ -2543,6 +3430,21 @@
         pluginConfig.nativeHoverPreview = nativeHoverEl.checked;
         savePluginConfig();
         buildAllRows();
+      });
+    })();
+
+    // Hide Auto/Manual toggle (scene page only) - takes effect immediately
+    // via a class on #st-panel rather than needing a rebuild, since the
+    // toggle itself lives in the (still-mounted, just CSS-hidden) header.
+    (function () {
+      var hideModeEl = document.getElementById("st-cfg-hide-scene-mode");
+      if (!hideModeEl) return;
+      hideModeEl.checked = !!pluginConfig.hideSceneModeToggle;
+      hideModeEl.addEventListener("change", function () {
+        pluginConfig.hideSceneModeToggle = hideModeEl.checked;
+        savePluginConfig();
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl) panelEl.classList.toggle("st-hide-scene-mode-toggle", pluginConfig.hideSceneModeToggle);
       });
     })();
 
@@ -2957,5 +3859,166 @@
     if (!pageQualifiesForPanel(window.location.pathname)) return;
     setup();
   }).observe(document.body, { childList: true, subtree: true });
+
+  // ── Injection: single scene page (Edit tab toolbar) ────────────────────────
+  //
+  // Adds a small "sceneTagger" button between Delete and "Scrape with..." on
+  // a scene's Edit tab - opens the SAME panel used on the scene list, just
+  // pre-loaded with this one scene as its only row. Reuses the existing
+  // scrape / search-title / blacklist / apply logic (renderRow() etc.)
+  // as-is instead of a separate UI (decision from session 2026-09-16).
+  // Found by button text rather than a class name - Stash's Edit toolbar
+  // markup/classes aren't a stable target, and "Scrape with..." is the one
+  // anchor guaranteed to exist right where this button should sit.
+
+  var SCENE_BTN_ID = "st-scene-btn";
+
+  function getCurrentSceneID(pathname) {
+    var m = pathname.match(/^\/scenes\/(\d+)/);
+    return m ? m[1] : null;
+  }
+
+  function openPanelForScene(sceneID) {
+    var sp = state.scrapers.length > 0
+      ? Promise.resolve(state.scrapers)
+      : Promise.all([getSceneScrapers(), getStashBoxes()]).then(function (results) {
+          var s = results[0].concat(results[1]);
+          state.scrapers = s;
+          return s;
+        });
+    sp.then(function (scrapers) {
+      if (!scrapers.length) scrapers = [{ id: "", name: "No scene scraper" }];
+      loadPluginConfig().then(function () {
+        reconcileScraperChain();
+        if (!document.getElementById(PANEL_ID)) {
+          var panel = buildPanel(scrapers);
+          document.body.appendChild(panel);
+          attachPanelEvents();
+        }
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl) {
+          panelEl.classList.add("st-panel-solo");
+          panelEl.classList.toggle("st-hide-scene-mode-toggle", !!pluginConfig.hideSceneModeToggle);
+          var titleEl = document.getElementById("st-titlebar-drag");
+          if (titleEl) titleEl.textContent = "Scrape scene";
+          // Meaningless in solo (a single scene is already "compact") and
+          // was actively destructive there - see the comment in
+          // attachPanelEvents() on why the toggle itself is now a no-op in
+          // solo too (this hides the button; that guards the case where
+          // the panel/button already existed from a previous solo open).
+          var compactBtn = document.getElementById("st-titlebar-compact");
+          if (compactBtn) compactBtn.style.display = "none";
+        }
+        if (!state.visible) {
+          state.visible = true;
+          if (panelEl) panelEl.style.display = "";
+        }
+        loadSingleScene(sceneID);
+      });
+    });
+  }
+
+  function injectSceneButton() {
+    if (document.getElementById(SCENE_BTN_ID)) return;
+    var buttons = document.querySelectorAll("button");
+    var scrapeBtn = null;
+    for (var i = 0; i < buttons.length; i++) {
+      // Native text is "Scrape with…" (real U+2026 ellipsis, not three
+      // dots) - matched loosely (startsWith "Scrape with") so a future
+      // Stash wording tweak on the trailing character doesn't silently
+      // break this again the same way.
+      if ((buttons[i].textContent || "").trim().indexOf("Scrape with") === 0) { scrapeBtn = buttons[i]; break; }
+    }
+    if (!scrapeBtn || !scrapeBtn.parentNode) return;
+
+    var btn = document.createElement("button");
+    btn.id = SCENE_BTN_ID;
+    btn.type = "button";
+    btn.className = "btn btn-secondary st-scene-btn";
+    btn.textContent = "sceneTagger";
+    btn.addEventListener("click", function () {
+      var sceneID = getCurrentSceneID(window.location.pathname);
+      if (sceneID) openPanelForScene(sceneID);
+    });
+    scrapeBtn.parentNode.insertBefore(btn, scrapeBtn);
+  }
+
+  // ── Icone Sparkles dans la .scene-toolbar (sous la vignette video) -
+  // meme pattern d'injection DOM que sceneUrlDisplay (pas de patch React,
+  // juste un groupe ajoute en fin de toolbar). Inline SVG (pas d'emoji,
+  // cf. regle CLAUDE.md) - icone "sparkles" choisie par Sina parmi 5
+  // options presentees en maquette (session 2026-09-16).
+  var TOOLBAR_BTN_GROUP_ID = "st-toolbar-btn-group";
+  var ST_SPARKLES_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" width="16" height="16">' +
+    '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.287 1.288L3 12l5.8 1.9a2 2 0 0 1 1.288 1.287L12 21l1.9-5.8a2 2 0 0 1 1.287-1.288L21 12l-5.8-1.9a2 2 0 0 1-1.288-1.287Z"/>' +
+    '</svg>';
+
+  function injectToolbarButton() {
+    var toolbar = document.querySelector(".scene-toolbar");
+    if (!toolbar) return;
+
+    var group = document.getElementById(TOOLBAR_BTN_GROUP_ID);
+    if (!group) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "minimal btn btn-secondary";
+      btn.title = "Scene Tagger";
+      btn.innerHTML = ST_SPARKLES_SVG;
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var sceneID = getCurrentSceneID(window.location.pathname);
+        if (sceneID) openPanelForScene(sceneID);
+      });
+      group = document.createElement("span");
+      group.id = TOOLBAR_BTN_GROUP_ID;
+      group.className = "scene-toolbar-group";
+      group.appendChild(btn);
+    }
+
+    // Positionnee juste apres le groupe du bouton favori (coeur, plugin
+    // tiers AdvancedRatingHeartFix - classe "adv-favourite-btn", lui-meme
+    // ajoute dans le MEME groupe que la pastille rating/tag-count -> on
+    // cible donc le groupe du coeur, pas un groupe dedie). Ce bouton
+    // apparait de facon asynchrone, souvent APRES le premier passage de
+    // sceneButtonTick (meme piege de course que documente dans
+    // CLAUDE.md/refract-cards-Custom) - repositionne a chaque tick tant
+    // que la position n'est pas encore correcte, au lieu de ne le faire
+    // qu'une fois a la creation. Fallback en fin de toolbar si le coeur
+    // est absent (plugin desactive).
+    var favBtn = toolbar.querySelector(".adv-favourite-btn, #adv-favourite-trigger");
+    var favGroup = favBtn ? favBtn.closest(".scene-toolbar-group") : null;
+    if (favGroup && favGroup.parentNode === toolbar) {
+      if (group.previousElementSibling !== favGroup) {
+        favGroup.parentNode.insertBefore(group, favGroup.nextSibling);
+      }
+    } else if (!group.parentNode) {
+      toolbar.appendChild(group);
+    }
+  }
+
+  function sceneButtonTick() {
+    var onScenePage = !!getCurrentSceneID(window.location.pathname);
+    if (!onScenePage) {
+      var existing = document.getElementById(SCENE_BTN_ID);
+      if (existing) existing.remove();
+      var existingToolbarGroup = document.getElementById(TOOLBAR_BTN_GROUP_ID);
+      if (existingToolbarGroup) existingToolbarGroup.remove();
+      return;
+    }
+    injectSceneButton();
+    injectToolbarButton();
+  }
+
+  window.PluginApi.Event.addEventListener("stash:location", function () { setTimeout(sceneButtonTick, 150); });
+  setTimeout(sceneButtonTick, 800);
+
+  // Same pitfall as the listing button above: switching Details <-> Edit on
+  // a scene page remounts the toolbar without firing "stash:location" (no
+  // URL change) - without this the button would only appear after a real
+  // navigation. Near-zero cost once present (bails out immediately above).
+  new MutationObserver(function () { sceneButtonTick(); })
+    .observe(document.body, { childList: true, subtree: true });
 
 })();

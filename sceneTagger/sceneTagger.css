@@ -7,6 +7,385 @@
    rather than per-component. */
 #st-panel label { margin-bottom: 0; }
 
+/* Solo mode: opened from a single scene page's Edit toolbar (st-scene-btn)
+   instead of the /scenes list - same panel/state/row logic, just the
+   mass-scrape chrome (Scrape All/Apply All/Skip All/filters/pagination)
+   hidden since there's only ever the one row to act on. Smaller, docked
+   near the button that opened it instead of spanning the viewport. */
+#st-panel.st-panel-solo {
+  left: auto;
+  right: 16px;
+  top: 90px;
+  bottom: 16px; /* explicit, not just inherited from the base rule - see
+    the overflow bug this caused, session 2026-09-16, comment below */
+  width: 620px;
+  min-width: 0;
+  max-height: calc(100vh - 106px);
+}
+#st-panel.st-panel-solo #st-status-bar,
+#st-panel.st-panel-solo #st-panel-footer {
+  display: none;
+}
+/* Header itself stays (not hidden wholesale like status-bar/footer): the
+   Auto/Manual scraper toggle + manual-scraper picker live in it, and solo
+   still needs them - without a visible way to switch off "Manual" mode
+   or change which single scraper it points at, a scene stuck on the
+   wrong one (confirmed session 2026-09-16: a scene left on "Manual" +
+   the wrong scraper had no way to fix it from this panel) silently fails
+   forever. Only the bulk-list-specific controls (Scrape All/Apply All/
+   Skip All/Clear, the scraper/studio filters - none of which mean
+   anything for a single scene) are hidden individually instead. */
+#st-panel.st-panel-solo #st-panel-header {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+#st-panel.st-panel-solo #st-btn-scrape-all,
+#st-panel.st-panel-solo #st-btn-apply-all,
+#st-panel.st-panel-solo #st-btn-skip-all,
+#st-panel.st-panel-solo #st-btn-clear,
+#st-panel.st-panel-solo .st-filter-radios {
+  display: none;
+}
+/* Settings > Display > "Hide Auto/Manual toggle on scene page" - some
+   users never touch it there and prefer the extra vertical space back. */
+#st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-btn-scraper-mode,
+#st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-scraper-select-manual {
+  display: none !important;
+}
+/* With both of the above hidden, #st-panel-header is empty in solo mode
+   (every other button in it is already hidden by the rules above) - hide
+   the whole bar too instead of leaving a dead empty strip. */
+#st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-panel-header {
+  display: none !important;
+}
+/* #st-rows is already `flex:1 1 0; min-height:0` in the base rule, which
+   is what actually makes it scroll instead of growing the panel past the
+   viewport (position:fixed panels don't get a page scrollbar) - this
+   override only replaces the base rule's specific vh formula (tuned for
+   the header/status-bar/footer this mode hides), not the flex behavior
+   itself. */
+#st-panel.st-panel-solo #st-rows {
+  max-height: none;
+}
+
+/* Only one row to show, so instead of the list layout (thumb on the left,
+   fields squeezed to its right - built for scanning many rows at once)
+   this becomes a centered "profile" layout: big thumbnail centered up top,
+   filename/buttons centered under it, fields below at full width (nothing
+   to align under a side thumb anymore, so no padding-left offset). */
+#st-panel.st-panel-solo .st-row-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 22px 20px;
+  gap: 12px;
+}
+#st-panel.st-panel-solo .st-thumb-clip {
+  width: 320px;
+  height: 180px;
+}
+#st-panel.st-panel-solo .st-row-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+#st-panel.st-panel-solo .st-filename {
+  font-size: 15px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#st-panel.st-panel-solo .st-row-btn {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+/* Matches the row-btn button width (108px, see .st-row-btn .st-btn) so
+   "URL (optional)" lines up with Scrape/Search title stacked below it
+   instead of the base 320px max-width. */
+#st-panel.st-panel-solo .st-manual-url-wrap {
+  max-width: 108px;
+  margin-left: auto;
+  margin-right: auto;
+}
+#st-panel.st-panel-solo .st-inline-results,
+#st-panel.st-panel-solo .st-title-search {
+  padding-left: 20px;
+  text-align: left;
+}
+#st-panel.st-panel-solo .st-ts-result {
+  grid-template-columns: 260px 1fr;
+  padding: 10px 12px;
+  gap: 14px;
+}
+#st-panel.st-panel-solo .st-ts-thumb {
+  width: 260px;
+}
+#st-panel.st-panel-solo .st-ts-title {
+  font-size: 14px;
+}
+/* Search title results list: let it use the panel's remaining height down
+   to the bottom of the window instead of capping at a fixed 340px - the
+   x4 thumbnail size above needs the room, and this list is normally the
+   only thing showing once "Search title" is open. Same calc(100vh - Npx)
+   pattern as the panel's own height rules (session 2026-09-16). */
+#st-panel.st-panel-solo .st-ts-results {
+  max-height: calc(100vh - 260px);
+}
+#st-panel.st-panel-solo .st-ts-meta {
+  font-size: 12px;
+}
+
+/* Each field group becomes its own card (background/border/padding)
+   instead of a plain row in a flat stack - the actual visual ask this
+   whole solo mode redesign was for (session 2026-09-16). Section icons
+   (hidden everywhere else, see .st-section-icon) turn on here too. */
+#st-panel.st-panel-solo .st-inline-artists,
+#st-panel.st-panel-solo .st-inline-performers,
+#st-panel.st-panel-solo .st-inline-tags,
+#st-panel.st-panel-solo .st-inline-details,
+#st-panel.st-panel-solo .st-inline-urls,
+#st-panel.st-panel-solo .st-inline-date,
+#st-panel.st-panel-solo .st-inline-cover {
+  background: #20262f;
+  border: 1px solid #2c3542;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+#st-panel.st-panel-solo .st-inline-artists .st-inline-label,
+#st-panel.st-panel-solo .st-inline-performers .st-inline-label,
+#st-panel.st-panel-solo .st-inline-tags .st-inline-label,
+#st-panel.st-panel-solo .st-inline-details .st-inline-label,
+#st-panel.st-panel-solo .st-inline-urls .st-inline-label,
+#st-panel.st-panel-solo .st-inline-date .st-inline-label,
+#st-panel.st-panel-solo .st-inline-cover .st-inline-label {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #e4e7eb;
+  text-transform: none;
+  letter-spacing: normal;
+  margin-bottom: 13px;
+  min-width: 0;
+}
+#st-panel.st-panel-solo .st-section-icon { display: flex; }
+
+/* .st-inline-field's base `align-items:flex-start` makes flex children
+   shrink to their own content width instead of filling the card - once a
+   card is 580px+ wide (solo panel) that leaves a big empty strip on the
+   right of Studio/Details/URLs instead of them using the space (session
+   2026-09-16 screenshot). Stretch instead, so their content areas take
+   the card's full width. */
+#st-panel.st-panel-solo .st-inline-artists,
+#st-panel.st-panel-solo .st-inline-details,
+#st-panel.st-panel-solo .st-inline-urls,
+#st-panel.st-panel-solo .st-inline-date,
+#st-panel.st-panel-solo .st-inline-cover,
+#st-panel.st-panel-solo .st-inline-performers,
+#st-panel.st-panel-solo .st-inline-tags {
+  align-items: stretch;
+}
+#st-panel.st-panel-solo .st-studio-stack-row {
+  justify-content: center;
+  gap: 28px;
+}
+#st-panel.st-panel-solo .st-studio-left {
+  align-items: center;
+  text-align: center;
+}
+#st-panel.st-panel-solo .st-studio-logo-zone {
+  width: 150px;
+  height: 84px;
+}
+#st-panel.st-panel-solo .st-details-edit {
+  min-height: 90px;
+  font-size: 13px;
+}
+#st-panel.st-panel-solo .st-url-add-input,
+#st-panel.st-panel-solo .st-url-row {
+  font-size: 13px;
+}
+
+/* ── Apply row: Apply grows to take most of the width, Skip/Organized
+   stay their normal compact size and end up on the right since they
+   follow it in DOM order. */
+#st-panel.st-panel-solo .st-inline-actions .st-btn-success {
+  flex: 1;
+  padding: 11px 0;
+  font-size: 13.5px;
+}
+
+/* ── Golden "new" treatment for tags/URLs in solo mode - restored per
+   user preference (session 2026-09-16), scoped to solo only since the
+   mass list keeps its own original .st-tag-new/.st-url-row-new colors
+   (reddish-brown) unchanged. Exact values lifted from the original
+   approved mockup (scrape-scene-restructure.html .pill-new/.badge) -
+   an earlier pass here accidentally used the mockup's BADGE color
+   (#3a2f13) as the PILL background, one step too bright; the pill itself
+   is darker (#241d12) with the badge layered brighter on top of it. */
+#st-panel.st-panel-solo .st-tag-item.st-tag-new {
+  background: #241d12;
+  border-color: #4a3a1f;
+  color: #e0c896;
+}
+#st-panel.st-panel-solo .st-tag-item.st-tag-new input[type="checkbox"] {
+  accent-color: #e0a63e;
+}
+#st-panel.st-panel-solo .st-tag-item.st-tag-new .st-new-badge {
+  background: #3a2f13;
+  color: #e0a63e;
+}
+#st-panel.st-panel-solo .st-url-row.st-url-row-new {
+  background: #241d12;
+  border-color: #4a3a1f;
+}
+#st-panel.st-panel-solo .st-url-row.st-url-row-new .st-url-link {
+  color: #e0c896;
+}
+#st-panel.st-panel-solo .st-url-badge-new {
+  background: #3a2f13;
+  color: #e0a63e;
+}
+
+/* ── Manually-added studio chip (solo mode) - a bordered pill with its
+   own ✕, matching the "Already on this scene"/"New from scrape" rows,
+   instead of the mass-list's plain "→ name" link (still shared/unchanged
+   there). Clicking anywhere on the chip still removes it (unchanged
+   behavior), the ✕ is visual, not a separate hit target. */
+#st-panel.st-panel-solo .st-studio-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid #3f7ea3;
+  border-radius: 9px;
+  color: #8fc8e6;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 7px 12px;
+}
+#st-panel.st-panel-solo .st-studio-selected:hover {
+  background: #3a2020;
+  border-color: #bf616a;
+  color: #bf616a;
+}
+#st-panel.st-panel-solo .st-studio-selected-x {
+  font-size: 11px;
+  opacity: 0.8;
+}
+#st-panel.st-panel-solo .st-studio-search-wrap {
+  max-width: 190px;
+  width: 100%;
+}
+#st-panel.st-panel-solo .st-studio-search-input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Fixed width (not just max-width) on the "Manually added" row's left
+   column, so it doesn't reflow/resize between its two states (empty
+   search input vs the picked-studio chip) - each state's own content is
+   narrower than the other's, and without a fixed width the column would
+   shrink-to-fit whichever is currently showing (confirmed session
+   2026-09-16: the search bar visibly changed size when a studio was
+   picked). */
+#st-panel.st-panel-solo .st-studio-manual-left {
+  width: 190px;
+}
+
+/* ── Cover: click one of two thumbnails (existing vs scraped) side by
+   side instead of a checkbox+preview - the chosen one gets a highlight
+   ring, matching the "pick a candidate" feel of Studio/Performers/Tags. */
+#st-panel.st-panel-solo .st-cover-options {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+#st-panel.st-panel-solo .st-cover-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+#st-panel.st-panel-solo .st-cover-option img {
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 9px;
+  border: 2px solid #2c3542;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+#st-panel.st-panel-solo .st-cover-option:hover img {
+  border-color: #4a6070;
+}
+#st-panel.st-panel-solo .st-cover-option.st-cover-selected img {
+  border-color: #5e81ac;
+  box-shadow: 0 0 0 3px #5e81ac33;
+}
+#st-panel.st-panel-solo .st-cover-caption {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5c6773;
+}
+#st-panel.st-panel-solo .st-cover-caption.st-new { color: #d0a868; }
+#st-panel.st-panel-solo .st-cover-option.st-cover-selected .st-cover-caption {
+  color: #88c0d0;
+}
+#st-panel.st-panel-solo .st-cover-empty {
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  border: 2px dashed #2c3542;
+}
+
+/* Other simple fields (Title/Date/Code/Director) stay lighter-weight rows
+   rather than full cards - just given a bit more breathing room to match
+   the card rhythm above instead of sitting flush against it. */
+#st-panel.st-panel-solo .st-inline-field:not(.st-inline-artists):not(.st-inline-performers):not(.st-inline-tags):not(.st-inline-details):not(.st-inline-urls):not(.st-inline-date):not(.st-inline-cover) {
+  padding: 4px 2px;
+}
+/* Only the checkbox-less "found via" hint gets centered - a checkbox+chip
+   row (Title/Code/Director) centered as one group visually detaches the
+   checkbox from the card's left edge, which read as "misplaced" rather
+   than tidy (confirmed session 2026-09-16). Those keep their natural
+   left alignment; just the hint text is centered on its own. */
+#st-panel.st-panel-solo .st-scraper-match-hint {
+  justify-content: center;
+}
+/* The row's leading .st-label-static spacer (82px min-width, normally
+   reserved to line up with the checkbox column of other rows) still
+   counts toward the centered group's width here, since this row has no
+   checkbox to line up with - throws the text off-center vs the thumbnail
+   above it. Collapsed to 0 for this specific hint only. */
+#st-panel.st-panel-solo .st-scraper-match-hint .st-label-static {
+  min-width: 0;
+  width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* .st-state-scraped/.st-state-done etc tint the row background (green for
+   "scraped", visible whenever NOT hovered - :hover's own background
+   otherwise masks it) to help scanning a long list. In solo mode there's
+   only ever the one row, so that tint just reads as "the whole panel is
+   green" instead of information - neutralised back to the panel's own
+   background. */
+#st-panel.st-panel-solo .st-row {
+  background: transparent;
+}
+
 #st-panel {
   position: fixed;
   top: 130px;
@@ -239,6 +618,17 @@
 .st-btn-success:hover:not(:disabled)  { background: #5a9049; box-shadow: 0 4px 14px -4px #4c7a3e66; }
 .st-btn-ghost    { background: transparent; border: 1px solid #3b4252; color: #81878f; }
 .st-btn-ghost:hover:not(:disabled)    { border-color: #88c0d0; color: #d8dee9; background: #88c0d014; }
+
+/* Scene-detail-page entry button (Edit toolbar, injected next to native
+   Stash buttons) - a distinct accent color so it doesn't get mistaken for
+   a native Save/Delete/Scrape control while still using their same
+   sizing/shape (inherits .btn from Bootstrap). */
+.st-scene-btn {
+  background: #4c3d78 !important;
+  border-color: #6a55a8 !important;
+  color: #e5defc !important;
+}
+.st-scene-btn:hover { background: #5c4a92 !important; }
 .st-btn-danger   { background: transparent; border: 1px solid #bf616a55; color: #d3838a; }
 .st-btn-organized-on  { background: #3f7ea3; color: #eef6fb; }
 .st-btn-organized-off { background: transparent; border: 1px solid #3b4252; color: #616975; }
@@ -399,7 +789,95 @@
 .st-manual-url-input:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
 .st-manual-url-input::placeholder { color: #4e5560; }
 
-.st-row-btn { flex-shrink: 0; }
+.st-row-btn { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+/* Scrape/Search title (and Retry, same slot) share one fixed width instead
+   of shrinking to their own text ("Scrape" vs "Search title" otherwise
+   read as mismatched, session 2026-09-16) - wide enough for the longer
+   label. */
+.st-row-btn .st-btn { width: 108px; text-align: center; }
+
+/* ── Search title (query-based, stash-box only) ── */
+.st-title-search {
+  padding: 0 16px 14px 190px; /* matches .st-inline-results: 160px thumb + 14px gap + 16px padding */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* shrink-to-content instead of stretching full
+    width, so .st-ts-source below can be given the row's own content width
+    (input + gap + button) and actually line up with it (session
+    2026-09-16 - previously both were 100% of the container, which is
+    wider than the input+button row actually renders). */
+  gap: 8px;
+}
+.st-ts-source, .st-ts-input {
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 6px 9px;
+  font-size: 12px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.st-ts-source:focus, .st-ts-input:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
+.st-ts-search-row { display: flex; gap: 8px; }
+.st-ts-search-row .st-ts-input { flex: none; width: 340px; }
+/* Matches the search row's own width (340px input + 8px gap + ~72px
+   Search button) so the source dropdown stops at the same right edge as
+   the Search button below it instead of spanning the full panel width. */
+.st-ts-source { width: 420px; max-width: 100%; }
+
+.st-ts-status { font-size: 12px; color: #4e5560; padding: 4px 0; }
+.st-ts-status.st-ts-error { color: #9a4040; }
+
+.st-ts-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.st-ts-result {
+  display: grid;
+  grid-template-columns: 128px 1fr;
+  gap: 10px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  padding: 7px 9px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.st-ts-result:hover { background: #232936; border-color: #3f7ea3; }
+.st-ts-thumb {
+  width: 128px;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #13151a;
+}
+.st-ts-info { min-width: 0; }
+.st-ts-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #d8dee9;
+  line-height: 1.3;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.st-ts-meta { font-size: 11px; color: #7a828d; margin-top: 3px; }
+.st-ts-studio-ok {
+  font-size: 10.5px; font-weight: 600;
+  background: #1e3025; color: #a3be8c;
+  border-radius: 999px; padding: 1px 7px;
+}
+.st-ts-studio-bl {
+  font-size: 10.5px; font-weight: 600;
+  background: #3a2f13; color: #d2aa50;
+  border-radius: 999px; padding: 1px 7px;
+}
 
 .st-spinner {
   display: inline-block;
@@ -439,7 +917,7 @@
   gap: 10px;
 }
 
-.st-inline-tags, .st-inline-performers, .st-inline-artists, .st-inline-urls {
+.st-inline-tags, .st-inline-performers, .st-inline-artists, .st-inline-urls, .st-inline-details, .st-inline-date, .st-inline-cover {
   flex-direction: column;
   gap: 5px;
 }
@@ -565,6 +1043,341 @@
 }
 .st-tag-item:has(input:checked):hover { background: #679c5b; border-color: #679c5b; }
 .st-tag-item:has(input:checked) input[type="checkbox"] { accent-color: #eaf5e6; }
+
+/* ── "Already on this scene" (existing performers/tags, kept as-is on
+   Apply - see the merge step in getCheckedScraped()). Deliberately NOT
+   styled like .st-tag-item/.st-perf-item (no checkbox, not clickable) -
+   these aren't a choice to make, they're already there. */
+.st-existing-block {
+  margin-bottom: 6px;
+}
+.st-existing-caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4e5560;
+  margin-bottom: 6px;
+}
+.st-existing-caption::before {
+  content: "";
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.st-split-empty {
+  font-size: 11px;
+  font-style: italic;
+  color: #4e5560;
+}
+
+/* ── Section icon (Studio/Performers/Tags/Details/URLs) - hidden in the
+   dense mass-scrape list, shown only in solo mode where each field group
+   becomes its own card (see .st-panel-solo rules further down). */
+.st-section-icon {
+  display: none;
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  background: #1a2028;
+  color: #88c0d0;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 9px;
+}
+.st-section-icon svg { width: 14px; height: 14px; }
+
+/* ── Two-column existing/new split (Performers, Tags) ── */
+.st-split-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.st-split-col { min-width: 0; }
+.st-existing-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  position: relative; /* positioning context for wireAvatarHoverPreview, see .st-perfs-grid above */
+}
+.st-existing-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: #1a1d23;
+  border: 1px solid #2e3440;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #616975;
+}
+/* Performer pills only: same round avatar treatment as the search-added
+   chips (.st-perf-added-chip) - padding tightened on the avatar side so
+   the circle sits flush with the pill's rounded edge instead of floating
+   inside uniform padding. Absent gracefully for pills with no image_path
+   (tags reuse .st-existing-pill too and never carry an avatar). */
+.st-existing-pill-perf:has(.st-perf-chip-avatar) {
+  padding: 3px 12px 3px 3px;
+}
+.st-existing-pill-perf .st-perf-chip-avatar {
+  width: 34px;
+  height: 34px;
+}
+/* Stacked one-per-row instead of wrapped inline, like the "New from
+   scrape" checkbox list next to it - reads better at the larger avatar
+   size above (session 2026-09-16, confirmed regression: wrapped rows of
+   34px avatars looked cramped/misaligned side by side). */
+.st-existing-pills-perf {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.st-existing-caption.st-new { color: #d0a868; }
+.st-count-hint { color: #616975; font-weight: 400; }
+
+/* ── Studio: stacked existing/new rows with a reserved logo zone.
+   object-fit:contain (not cover) so a wide/rectangular studio logo shows
+   in full instead of being cropped into a square. */
+.st-studio-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.st-studio-stack-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.st-studio-stack-row + .st-studio-stack-row {
+  padding-top: 10px;
+  border-top: 1px solid #262b33;
+}
+.st-studio-left {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.st-studio-name-plain { font-size: 13px; color: #7a828d; }
+.st-studio-logo-zone {
+  flex-shrink: 0;
+  width: 120px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.st-studio-logo-zone img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.st-studio-logo-zone.st-studio-logo-empty { color: #2e3440; }
+.st-studio-logo-zone.st-studio-logo-empty svg { width: 22px; height: 22px; }
+
+/* ── Details: always-editable, split into read-only existing + editable
+   new when the two differ. */
+.st-details-wrap { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.st-details-wrap.st-details-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.st-details-col { display: flex; flex-direction: column; gap: 4px; }
+.st-details-readonly {
+  font-size: 12px;
+  color: #7a828d;
+  background: #181c22;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+.st-details-empty { font-style: italic; color: #4e5560; }
+.st-details-edit {
+  width: 100%;
+  min-height: 60px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.st-details-edit:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
+.st-details-edit::placeholder { color: #4e5560; }
+
+/* ── Custom date picker - a native <input type="date">'s calendar popup
+   can't be restyled (browser/OS-rendered), so this is built from scratch
+   to match the plugin instead. */
+.st-date-field {
+  position: relative;
+  max-width: 220px;
+}
+.st-date-display {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 8px 11px;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.st-date-display:hover { border-color: #3f7ea3; }
+.st-date-display svg { width: 14px; height: 14px; color: #7a828d; flex-shrink: 0; }
+.st-date-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  width: 250px;
+  background: #1a2028;
+  border: 1px solid #313b48;
+  border-radius: 10px;
+  box-shadow: 0 16px 36px -14px rgba(0,0,0,0.7);
+  padding: 12px;
+}
+.st-date-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.st-date-pop-nav {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid #2e3440;
+  background: #1e2229;
+  color: #8b95a3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+}
+.st-date-pop-nav:hover { border-color: #5e81ac; color: #d8dee9; }
+.st-date-pop-month { font-size: 12.5px; font-weight: 650; color: #e4e7eb; }
+.st-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.st-date-dow {
+  font-size: 9px;
+  font-weight: 700;
+  color: #5c6773;
+  text-align: center;
+  padding-bottom: 4px;
+  text-transform: uppercase;
+}
+.st-date-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
+  border-radius: 6px;
+  color: #c3cad3;
+  cursor: pointer;
+}
+.st-date-cell:hover { background: #232a34; }
+.st-date-cell.st-date-muted { color: #3a4048; }
+.st-date-cell.st-date-selected { background: #5e81ac; color: #eceff4; font-weight: 700; }
+.st-date-cell.st-date-today { border: 1px solid #88c0d0; }
+.st-date-pop-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid #2c3542;
+}
+.st-date-pop-link {
+  font-size: 11px;
+  font-weight: 600;
+  color: #88c0d0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.st-date-pop-link:hover { text-decoration: underline; }
+
+/* ── URLs: combined removable stack + add row (see the merge note in
+   getCheckedScraped() - never a silent full replace). */
+.st-url-list-wrap { flex: 1; min-width: 0; }
+.st-url-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 7px; }
+.st-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  padding: 6px 6px 6px 11px;
+}
+.st-url-row.st-url-row-new { border-color: #4a3a1f; background: #201a10; }
+.st-url-link {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: #8fc8e6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-url-badge-new {
+  font-size: 9px;
+  font-weight: 700;
+  background: #3a2f13;
+  color: #d2aa50;
+  padding: 1px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.st-url-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #9a5a5a;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, color 0.1s;
+}
+.st-url-remove:hover { background: #3a2020; color: #d3838a; }
+.st-url-add-input {
+  width: 100%;
+  background: #1a2028;
+  border: 1px dashed #313b48;
+  border-radius: 8px;
+  color: #8b95a3;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, border-style 0.15s;
+}
+.st-url-add-input::placeholder { color: #4e5560; }
+.st-url-add-input:focus { border-style: solid; border-color: #5e81ac; }
 
 /* ── Individual performers ── */
 .st-perf-item {
@@ -1400,6 +2213,10 @@
 #st-panel.st-compact .st-inline-results {
   padding: 0 12px 10px 81px; /* aligned with .st-row-info (60px thumb + 9px gap + 12px padding) */
   gap: 5px;
+}
+#st-panel.st-compact .st-title-search {
+  padding: 0 12px 10px 81px;
+  gap: 6px;
 }
 #st-panel.st-compact .st-inline-field { gap: 8px; }
 #st-panel.st-compact .st-inline-tags,
