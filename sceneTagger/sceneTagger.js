@@ -4251,10 +4251,11 @@
     var toolbar = document.querySelector(".scene-toolbar");
     if (!toolbar) return;
 
-    var group = document.getElementById(TOOLBAR_BTN_GROUP_ID);
-    if (!group) {
-      var btn = document.createElement("button");
+    var btn = document.getElementById(TOOLBAR_BTN_GROUP_ID);
+    if (!btn) {
+      btn = document.createElement("button");
       btn.type = "button";
+      btn.id = TOOLBAR_BTN_GROUP_ID;
       btn.className = "minimal btn btn-secondary st-toolbar-badge-btn";
       btn.title = "Scene Tagger";
       btn.innerHTML = '<span class="st-toolbar-badge">ST</span>';
@@ -4263,30 +4264,30 @@
         var sceneID = getCurrentSceneID(window.location.pathname);
         if (sceneID) openPanelForScene(sceneID);
       });
-      group = document.createElement("span");
-      group.id = TOOLBAR_BTN_GROUP_ID;
-      group.className = "scene-toolbar-group";
-      group.appendChild(btn);
     }
 
-    // Positionnee juste apres le groupe du bouton favori (coeur, plugin
-    // tiers AdvancedRatingHeartFix - classe "adv-favourite-btn", lui-meme
-    // ajoute dans le MEME groupe que la pastille rating/tag-count -> on
-    // cible donc le groupe du coeur, pas un groupe dedie). Ce bouton
-    // apparait de facon asynchrone, souvent APRES le premier passage de
-    // sceneButtonTick (meme piege de course que documente dans
-    // CLAUDE.md/refract-cards-Custom) - repositionne a chaque tick tant
-    // que la position n'est pas encore correcte, au lieu de ne le faire
-    // qu'une fois a la creation. Fallback en fin de toolbar si le coeur
-    // est absent (plugin desactive).
-    var favBtn = toolbar.querySelector(".adv-favourite-btn, #adv-favourite-trigger");
-    var favGroup = favBtn ? favBtn.closest(".scene-toolbar-group") : null;
-    if (favGroup && favGroup.parentNode === toolbar) {
-      if (group.previousElementSibling !== favGroup) {
-        favGroup.parentNode.insertBefore(group, favGroup.nextSibling);
+    // Anchor priority: right after the Advanced Rating plugin's button
+    // (#adv-rating-trigger) when that companion plugin is installed, else
+    // right after Stash's own native rating control (.rating-number),
+    // which always exists regardless of which companion plugins are
+    // active - both live inside the SAME .scene-toolbar-group as the
+    // rating stars, so "ST" is inserted as a bare sibling there instead of
+    // as its own top-level group (previous approach anchored on the
+    // favourite/heart button from AdvancedRatingHeartFix, which isn't
+    // installed on every instance - confirmed missing on 9999, session
+    // 2026-09-17 - and its "append at the very end" fallback pushed "ST"
+    // past every native icon and the "..." menu). Falls back to
+    // toolbar.firstChild only if neither anchor is found at all.
+    var advRating = toolbar.querySelector("#adv-rating-trigger");
+    var nativeRating = toolbar.querySelector(".rating-number");
+    var anchor = advRating || nativeRating;
+
+    if (anchor && anchor.parentNode) {
+      if (btn.parentNode !== anchor.parentNode || btn.previousElementSibling !== anchor) {
+        anchor.parentNode.insertBefore(btn, anchor.nextSibling);
       }
-    } else if (!group.parentNode) {
-      toolbar.appendChild(group);
+    } else if (btn.parentNode !== toolbar || toolbar.firstElementChild !== btn) {
+      toolbar.insertBefore(btn, toolbar.firstChild);
     }
   }
 
