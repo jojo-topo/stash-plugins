@@ -2656,18 +2656,44 @@
     var stashBoxes = state.scrapers.filter(isSearchCapable);
     var box = stashBoxes.filter(function (s) { return s.id === r.titleSearchScraperID; })[0] || stashBoxes[0];
 
-    r.status = "scraped";
-    r.scraped = candidate;
-    r.matchedScraperID = box ? box.id : r.titleSearchScraperID;
-    r.matchedScraperName = (box ? box.name : "Search") + " (search by title)";
-    r.viaTitleSearch = true;
-    r.manualFallback = false;
-    r.titleSearchOpen = false;
-    r.titleSearchResults = null;
-    applyOrganizedAutoDefault(r);
+    function finish(scraped) {
+      r.status = "scraped";
+      r.scraped = scraped;
+      r.matchedScraperID = box ? box.id : r.titleSearchScraperID;
+      r.matchedScraperName = (box ? box.name : "Search") + " (search by title)";
+      r.viaTitleSearch = true;
+      r.manualFallback = false;
+      r.titleSearchOpen = false;
+      r.titleSearchResults = null;
+      applyOrganizedAutoDefault(r);
 
-    renderRow(id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
-    refreshStudioAliasBadges(id); fetchStoredPerformerImages(id);
+      renderRow(id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
+      refreshStudioAliasBadges(id); fetchStoredPerformerImages(id);
+    }
+
+    // A candidate from search-by-title (SceneByName) is only a lightweight
+    // fragment (title/url/image/studio for Pornhub - see sceneSearch in its
+    // .yml, no tags/performers there). Stash's own scrape dialog completes
+    // it with a second fetch of the real scene page (sceneByQueryFragment)
+    // before showing the result - without this, Tags/Performers stay empty
+    // here even though the exact same scraper fills them fine on a normal
+    // URL/scene_id scrape (confirmed session 2026-09-17, Pornhub). Re-fetch
+    // via the candidate's own URL and merge, falling back to the raw
+    // candidate if that fails or the candidate has no URL.
+    var url = candidate.urls && candidate.urls[0];
+    if (!url) { finish(candidate); return; }
+
+    scrapeSceneURL(url)
+      .then(function (full) {
+        if (!isUsableScrapedResult(full)) { finish(candidate); return; }
+        // Candidate fields (e.g. Image from the search thumb) win when the
+        // full fetch left them empty.
+        var merged = {};
+        for (var k in candidate) merged[k] = candidate[k];
+        for (var k2 in full) { if (full[k2] !== null && full[k2] !== undefined && !(Array.isArray(full[k2]) && !full[k2].length)) merged[k2] = full[k2]; }
+        finish(merged);
+      })
+      .catch(function () { finish(candidate); });
   };
 
   window.stScrapeOne = function (id) {
