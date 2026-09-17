@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.8.0"
+version: "1.9.0"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -66,6 +66,51 @@ settings:
     displayName: "Hover preview"
     description: "If enabled, hovering a thumbnail plays a preview - Stash's own generated preview clip if one exists, otherwise the source video streamed directly (seeked 10% in). No companion plugin required."
     type: BOOLEAN
+
+  enableScrubControlsGrid:
+    displayName: "Enable scrub controls - mass scrape panel"
+    description: "If enabled, scrolling the mouse wheel over a hovered thumbnail in the mass scrape panel (list of scenes) seeks through the preview instead of just letting it loop - useful to check who appears throughout the scene before adding performers."
+    type: BOOLEAN
+
+  enableScrubControlsSolo:
+    displayName: "Enable scrub controls - Scrape Scene popup"
+    description: "Same as above, but for the single-scene 'Scrape Scene' popup (opened from a scene page) rather than the mass scrape panel."
+    type: BOOLEAN
+
+  scrubStepSlow:
+    displayName: "Scrub step - slow (%)"
+    description: "Percentage of the video's total duration moved by an isolated/slow wheel scroll. Default 1."
+    type: NUMBER
+
+  scrubStepNormal:
+    displayName: "Scrub step - normal (%)"
+    description: "Percentage of the video's total duration moved by a wheel scroll at a moderate pace. Default 3."
+    type: NUMBER
+
+  scrubStepFast:
+    displayName: "Scrub step - fast (%)"
+    description: "Percentage of the video's total duration moved by rapid, closely-spaced wheel scrolls. Default 6."
+    type: NUMBER
+
+  scrubMaxVelocityMultiplier:
+    displayName: "Scrub max acceleration (x)"
+    description: "Maximum multiplier applied to the scrub step when scrolling continuously in the same direction. Resets immediately on direction change or after a short pause. Default 3."
+    type: NUMBER
+
+  scrubBarVisible:
+    displayName: "Show scrub progress bar"
+    description: "If enabled, a thin clickable/draggable progress bar is shown at the bottom of the hovered thumbnail to seek directly with the mouse."
+    type: BOOLEAN
+
+  enableKeyboardSeek:
+    displayName: "Keyboard seek (arrow keys)"
+    description: "If enabled, the left/right arrow keys seek the preview backward/forward while a thumbnail is hovered."
+    type: BOOLEAN
+
+  keyboardSeekStep:
+    displayName: "Keyboard seek step (seconds)"
+    description: "Seconds moved backward/forward per arrow key press. Default 5."
+    type: NUMBER
 
   autoMarkOrganized:
     displayName: "Mark scenes as organized on Apply"

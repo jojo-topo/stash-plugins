@@ -608,10 +608,37 @@
     // generated preview clip and no companion plugin (videoHoverPreview)
     // required or hooked into.
     nativeHoverPreview:        false,
+    // If enabled, scrolling the mouse wheel over a hovered thumbnail seeks
+    // through the preview instead of just letting it loop. Split in two so
+    // the mass scrape panel and the single-scene "Scrape Scene" popup can
+    // be toggled independently (e.g. wanted while mass-tagging but not
+    // while quickly re-scraping a single scene, or vice versa).
+    enableScrubControlsGrid:   false,
+    enableScrubControlsSolo:   false,
+    // Scrub step sizes, as a percentage of the video's total duration
+    // (not a fixed number of seconds) - keeps the step proportional whether
+    // the scene is 15 seconds or 20 minutes long.
+    scrubStepSlow:             1,
+    scrubStepNormal:           3,
+    scrubStepFast:             6,
+    // Max multiplier applied to the step when scrolling continuously in the
+    // same direction (resets on direction change or after a short pause).
+    scrubMaxVelocityMultiplier: 3,
+    // Thin clickable/draggable progress bar at the bottom of the thumbnail.
+    scrubBarVisible:           false,
+    // Left/right arrow keys seek while a thumbnail is hovered.
+    enableKeyboardSeek:        false,
+    keyboardSeekStep:          5,
     // If enabled, hides the Auto/Manual scraper-mode toggle (and manual
     // scraper picker) on the single-scene panel (st-panel-solo) - some
     // users never touch it there and prefer the extra vertical space.
-    hideSceneModeToggle:       false
+    hideSceneModeToggle:       false,
+    // If enabled, the "ST" badge button in the scene-page toolbar (next to
+    // the favourite/heart button, see injectToolbarButton()) is not shown.
+    hideToolbarButton:         false,
+    // If enabled, the "sceneTagger" button injected next to "Scrape
+    // with..." on the scene Edit tab (see injectSceneButton()) is not shown.
+    hideEditButton:            false
   };
 
   function loadPluginConfig() {
@@ -632,8 +659,19 @@
           if (cfg.manualFallbackOnFail     !== undefined) pluginConfig.manualFallbackOnFail     = !!cfg.manualFallbackOnFail;
           if (cfg.manualFallbackAllowTitle !== undefined) pluginConfig.manualFallbackAllowTitle = !!cfg.manualFallbackAllowTitle;
           if (cfg.nativeHoverPreview !== undefined) pluginConfig.nativeHoverPreview = !!cfg.nativeHoverPreview;
+          if (cfg.enableScrubControlsGrid !== undefined) pluginConfig.enableScrubControlsGrid = !!cfg.enableScrubControlsGrid;
+          if (cfg.enableScrubControlsSolo !== undefined) pluginConfig.enableScrubControlsSolo = !!cfg.enableScrubControlsSolo;
+          if (typeof cfg.scrubStepSlow === "number") pluginConfig.scrubStepSlow = cfg.scrubStepSlow;
+          if (typeof cfg.scrubStepNormal === "number") pluginConfig.scrubStepNormal = cfg.scrubStepNormal;
+          if (typeof cfg.scrubStepFast === "number") pluginConfig.scrubStepFast = cfg.scrubStepFast;
+          if (typeof cfg.scrubMaxVelocityMultiplier === "number") pluginConfig.scrubMaxVelocityMultiplier = cfg.scrubMaxVelocityMultiplier;
+          if (cfg.scrubBarVisible !== undefined) pluginConfig.scrubBarVisible = !!cfg.scrubBarVisible;
+          if (cfg.enableKeyboardSeek !== undefined) pluginConfig.enableKeyboardSeek = !!cfg.enableKeyboardSeek;
+          if (typeof cfg.keyboardSeekStep === "number") pluginConfig.keyboardSeekStep = cfg.keyboardSeekStep;
           if (cfg.autoMarkOrganized  !== undefined) pluginConfig.autoMarkOrganized  = !!cfg.autoMarkOrganized;
           if (cfg.hideSceneModeToggle !== undefined) pluginConfig.hideSceneModeToggle = !!cfg.hideSceneModeToggle;
+          if (cfg.hideToolbarButton !== undefined) pluginConfig.hideToolbarButton = !!cfg.hideToolbarButton;
+          if (cfg.hideEditButton !== undefined) pluginConfig.hideEditButton = !!cfg.hideEditButton;
           if (cfg.scraperChain !== undefined) {
             try {
               var parsed = typeof cfg.scraperChain === "string" ? JSON.parse(cfg.scraperChain) : cfg.scraperChain;
@@ -1056,6 +1094,24 @@
 
     el.className = "st-row st-state-" + status;
 
+    // Solo mode's floating "re-scrape" button (bottom-right of the panel,
+    // see buildPanel()) - only relevant once this row is "done", and only
+    // in solo mode (the mass-list has its own Retry/Skip-all controls).
+    var refreshBtn = document.getElementById("st-solo-refresh-btn");
+    if (refreshBtn) {
+      var panelElForRefresh = document.getElementById(PANEL_ID);
+      var isSoloForRefresh = !!(panelElForRefresh && panelElForRefresh.classList.contains("st-panel-solo"));
+      refreshBtn.style.display = (isSoloForRefresh && status === "done") ? "flex" : "none";
+      // Same behavior as the mass-list's own "Reload" button (#st-btn-reload,
+      // hidden in solo mode) - a full page reload, not a re-scrape - per
+      // Sina's clarification (session 2026-09-16: "je veux dire le refresh
+      // de la scène comme sur sceneTagger").
+      refreshBtn.onclick = function () {
+        try { sessionStorage.setItem(REOPEN_FLAG, "1"); } catch (e) {}
+        window.location.reload();
+      };
+    }
+
     var thumb  = getThumb(scene);
     var fname  = getFilename(scene);
     var r34url = getR34URL(scene);
@@ -1475,8 +1531,8 @@
         }).length;
         var existingPerfCount = (scene.performers || []).length;
         var perfsCountText = existingPerfCount || newPerfCount
-          ? existingPerfCount + ' existant' + (existingPerfCount !== 1 ? 's' : '') +
-            (newPerfCount ? ' &middot; ' + newPerfCount + ' nouveau' + (newPerfCount !== 1 ? 'x' : '') : '')
+          ? existingPerfCount + ' existing' +
+            (newPerfCount ? ' &middot; ' + newPerfCount + ' new' : '')
           : '';
         var perfsLabel = newPerfCount
           ? '<label><input type="checkbox" data-cb="perfs-all" checked> Performers' + (perfsCountText ? ' <span class="st-count-hint">(' + perfsCountText + ')</span>' : '') + '</label>'
@@ -1565,8 +1621,8 @@
           }).length;
           var existingTagCount = (scene.tags || []).length;
           var tagsCountText = existingTagCount || newTagCount
-            ? existingTagCount + ' existant' + (existingTagCount !== 1 ? 's' : '') +
-              (newTagCount ? ' &middot; ' + newTagCount + ' nouveau' + (newTagCount !== 1 ? 'x' : '') : '')
+            ? existingTagCount + ' existing' +
+              (newTagCount ? ' &middot; ' + newTagCount + ' new' : '')
             : '';
           var tagsLabel = newTagCount
             ? '<label><input type="checkbox" data-cb="tags-all" checked> Tags' + (tagsCountText ? ' <span class="st-count-hint">(' + tagsCountText + ')</span>' : '') + '</label>'
@@ -2004,26 +2060,28 @@
           if (!perfHoverPreview) {
             perfHoverPreview = document.createElement("img");
             perfHoverPreview.className = "st-perf-hover-preview";
-            perfSearchResults.parentNode.appendChild(perfHoverPreview);
+            // Appended to document.body (not the wrap) and positioned via
+            // fixed viewport coordinates - the wrap sits inside #st-rows,
+            // which has overflow-x:hidden for its own scroll behavior and
+            // was silently clipping this preview whenever it extended past
+            // the row's bounds, independent of the panel's dragged
+            // position (confirmed session 2026-09-16).
+            document.body.appendChild(perfHoverPreview);
           }
           perfHoverPreview.src = img;
-          // Positioned against the wrap (.st-perf-search-wrap, position:relative),
-          // not against perfSearchResults itself, since the preview is a sibling
-          // of the dropdown rather than a child of it.
           var wrapRect = perfSearchResults.parentNode.getBoundingClientRect();
           var itemRect = item.getBoundingClientRect();
-          perfHoverPreview.style.top = (itemRect.top - wrapRect.top) + "px";
-          // Default spot is to the right of the wrap (CSS left: calc(100% +
-          // 8px)) - but the "New from scrape" search box sits near the
-          // panel's right edge, so that default pushes the 120px preview
-          // off the viewport entirely (confirmed session 2026-09-16). Flip
-          // to the left side of the wrap instead whenever the right side
-          // doesn't fit on screen.
+          perfHoverPreview.style.top = itemRect.top + "px";
+          // Default spot is to the right of the wrap - but the "New from
+          // scrape" search box sits near the panel's right edge, so that
+          // default pushes the 120px preview off the viewport entirely.
+          // Flip to the left side of the wrap instead whenever the right
+          // side doesn't fit on screen.
           var previewW = 120, gap = 8;
           if (wrapRect.right + gap + previewW > window.innerWidth) {
-            perfHoverPreview.style.left = (-(previewW + gap)) + "px";
+            perfHoverPreview.style.left = (wrapRect.left - previewW - gap) + "px";
           } else {
-            perfHoverPreview.style.left = "calc(100% + " + gap + "px)";
+            perfHoverPreview.style.left = (wrapRect.right + gap) + "px";
           }
           perfHoverPreview.style.display = "block";
         });
@@ -2466,26 +2524,27 @@
       if (!preview) {
         preview = document.createElement("img");
         preview.className = "st-perf-hover-preview";
-        container.appendChild(preview);
+        // Appended to document.body, not the container - the container
+        // sits inside #st-rows, which has overflow-x:hidden for its own
+        // scroll behavior. A position:absolute preview nested in there got
+        // silently clipped whenever it extended past the row's bounds,
+        // regardless of the panel's dragged position (confirmed session
+        // 2026-09-16). position:fixed + body-level placement (viewport
+        // coordinates, no ancestor to clip against) avoids that entirely.
+        document.body.appendChild(preview);
       }
       preview.src = avatar.src;
-      var wrapRect = container.getBoundingClientRect();
       var chipRect = avatar.closest(chipSelector).getBoundingClientRect();
-      // Popped above the chip/item (like a tooltip), not on top of it - the
-      // preview's own fixed 160px height (see .st-perf-hover-preview) is the
-      // offset, plus a small gap.
-      preview.style.top  = (chipRect.top - wrapRect.top - 160 - 8) + "px";
+      var previewW = 120, previewH = 160, margin = 8;
+      // Popped above the chip/item (like a tooltip), not on top of it.
+      var top = chipRect.top - previewH - margin;
       // Clamped to the viewport horizontally - a chip near the panel's
-      // right edge would otherwise push the 120px-wide preview off screen
-      // (same issue as the search-dropdown preview, confirmed session
-      // 2026-09-16).
-      var previewW = 120, margin = 8;
-      var desiredLeftViewport = chipRect.left;
-      if (desiredLeftViewport + previewW + margin > window.innerWidth) {
-        desiredLeftViewport = window.innerWidth - previewW - margin;
-      }
-      if (desiredLeftViewport < margin) desiredLeftViewport = margin;
-      preview.style.left = (desiredLeftViewport - wrapRect.left) + "px";
+      // right edge would otherwise push the preview off screen.
+      var left = chipRect.left;
+      if (left + previewW + margin > window.innerWidth) left = window.innerWidth - previewW - margin;
+      if (left < margin) left = margin;
+      preview.style.top  = top + "px";
+      preview.style.left = left + "px";
       preview.style.display = "block";
     });
     container.addEventListener("mouseleave", function () {
@@ -3014,9 +3073,12 @@
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-prioritize-existing"> Prefer existing studio (multi-studio)</label>' +
           '</div>' +
-          '<div class="st-setting-row">' +
-            //   '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
-          '</div>' +
+          // Hidden in the public build: depends on the companion plugin
+          // skExtra-Multiple-Studios-Custom, which isn't published. Uncomment
+          // if that plugin is ever published separately.
+          // '<div class="st-setting-row">' +
+          //   '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
+          // '</div>' +
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-performer"> Auto-check new performers</label>' +
           '</div>' +
@@ -3038,8 +3100,45 @@
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Thumbnail hover preview</label>' +
           '</div>' +
+          '<div class="st-setting-row st-setting-row-sub">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scrub-enable-grid"> Enable scrub controls - mass scrape panel</label>' +
+          '</div>' +
+          '<div class="st-setting-row st-setting-row-sub">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scrub-enable-solo"> Enable scrub controls - Scrape Scene popup</label>' +
+          '</div>' +
+          '<div class="st-setting-row st-setting-row-sub">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scrub-bar"> Show scrub progress bar</label>' +
+          '</div>' +
+          '<div class="st-setting-row st-setting-row-sub">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-keyboard-seek"> Keyboard seek (arrow keys)</label>' +
+          '</div>' +
+          '<div class="st-setting-disclosure" id="st-scrub-adv-toggle">' +
+            '<span class="st-setting-disclosure-chevron">&#9656;</span>' +
+            '<span class="st-setting-disclosure-label">Advanced scrub settings (step %, acceleration...)</span>' +
+          '</div>' +
+          '<div class="st-setting-adv-box" id="st-scrub-adv-box" style="display:none">' +
+            '<div class="st-setting-row-inline">' +
+              '<label class="st-setting-label-inline">Scroll step %: ' +
+                '<input type="number" id="st-cfg-scrub-slow" min="0" step="0.5" style="width:48px"> slow / ' +
+                '<input type="number" id="st-cfg-scrub-normal" min="0" step="0.5" style="width:48px"> normal / ' +
+                '<input type="number" id="st-cfg-scrub-fast" min="0" step="0.5" style="width:48px"> fast' +
+              '</label>' +
+            '</div>' +
+            '<div class="st-setting-row-inline">' +
+              '<label class="st-setting-label-inline">Max acceleration (x): <input type="number" id="st-cfg-scrub-max-mult" min="1" step="0.5" style="width:48px"></label>' +
+            '</div>' +
+            '<div class="st-setting-row-inline">' +
+              '<label class="st-setting-label-inline">Keyboard seek step (s): <input type="number" id="st-cfg-keyboard-seek-step" min="1" step="1" style="width:48px"></label>' +
+            '</div>' +
+          '</div>' +
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-scene-mode"> Hide Auto/Manual toggle on scene page</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-toolbar-btn"> Hide "ST" button in scene toolbar</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-edit-btn"> Hide "sceneTagger" button on scene Edit tab</label>' +
           '</div>' +
         '</div>' +
         '<div class="st-setting-row st-blacklist-row">' +
@@ -3107,6 +3206,15 @@
         '<div id="st-progress-wrap"><div id="st-progress-bar"></div></div>' +
       '</div>' +
       '<div id="st-rows"></div>' +
+      // Solo mode only (see CSS): once the single row is "done" (Applied),
+      // #st-rows shrinks to its compact done-state content and leaves a
+      // big empty area below it (the panel keeps its own height) - this
+      // floating button re-scrapes without having to Reload the whole
+      // panel. Hidden by default, shown/wired per-row in renderRow().
+      '<button type="button" id="st-solo-refresh-btn" class="st-btn st-btn-ghost" title="Reload" style="display:none">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">' +
+        '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>' +
+      '</button>' +
       '<div id="st-panel-footer">' +
         '<div id="st-resize-handle" title="Resize" style="display:' + (pluginConfig.compactMode ? 'none' : 'flex') + '">' +
           '<svg viewBox="0 0 9 9"><path d="M1 8 L8 1M1 5 L5 1M4 8 L8 4"/></svg>' +
@@ -3151,10 +3259,120 @@
       // 2026-09-13). Explicitly pausing + clearing the source + calling
       // load() releases the decoder immediately instead of waiting on GC.
       function releasePreviewVideo(video) {
+        if (video._scrubCleanup) video._scrubCleanup();
         video.pause();
         video.removeAttribute("src");
         video.load();
         video.remove();
+      }
+
+      // ── Scrub controls (scroll to seek / arrow keys / progress bar) ────────
+      // Step is a PERCENTAGE of the video's own duration rather than a fixed
+      // number of seconds - a fixed step (e.g. fasttag's 10s "fast") blows
+      // through a 15s clip in two scrolls while barely moving a 20-minute
+      // one. A light, capped acceleration is layered on top so holding the
+      // same scroll direction can still cross the whole video quickly, but
+      // it resets the instant the direction changes or scrolling pauses, so
+      // precision comes back immediately when hunting for a performer.
+      function createScrubBar(clip) {
+        var bar = document.createElement("div");
+        bar.className = "st-thumb-scrub-bar";
+        var fill = document.createElement("div");
+        fill.className = "st-thumb-scrub-bar-fill";
+        bar.appendChild(fill);
+        clip.appendChild(bar);
+        return bar;
+      }
+
+      function updateScrubBar(bar, video) {
+        if (!bar || !video.duration || !isFinite(video.duration)) return;
+        var pct = Math.min(100, Math.max(0, (video.currentTime / video.duration) * 100));
+        bar.firstChild.style.width = pct + "%";
+      }
+
+      function attachScrubControls(clip, video) {
+        var isSoloPanel = !!clip.closest(".st-panel-solo");
+        var enabled = isSoloPanel ? pluginConfig.enableScrubControlsSolo : pluginConfig.enableScrubControlsGrid;
+        if (!enabled) return;
+
+        var bar = pluginConfig.scrubBarVisible ? createScrubBar(clip) : null;
+        var velocity = 1;
+        var lastWheelTime = 0;
+        var lastDirection = 0;
+        var shiftHeld = false;
+        var wasPlaying = false;
+        var resumeTimer = null;
+
+        function pickBasePct(dtMs) {
+          if (dtMs < 80) return pluginConfig.scrubStepFast || 6;
+          if (dtMs < 200) return pluginConfig.scrubStepNormal || 3;
+          return pluginConfig.scrubStepSlow || 1;
+        }
+
+        function seekBy(deltaSeconds) {
+          if (!video.duration || !isFinite(video.duration)) return;
+          if (!video.paused) { wasPlaying = true; video.pause(); }
+          video.currentTime = Math.min(video.duration, Math.max(0, video.currentTime + deltaSeconds));
+          updateScrubBar(bar, video);
+        }
+
+        function onWheel(e) {
+          if (!video.duration || !isFinite(video.duration)) return;
+          var rawDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+          if (!rawDelta) return;
+          e.preventDefault();
+          e.stopPropagation();
+
+          var direction = rawDelta > 0 ? 1 : -1;
+          var now = performance.now();
+          var dt = lastWheelTime ? (now - lastWheelTime) : 999;
+          var maxMult = pluginConfig.scrubMaxVelocityMultiplier || 3;
+          if (dt > 450 || direction !== lastDirection) {
+            velocity = 1;
+          } else {
+            velocity = Math.min(maxMult, velocity + 0.35);
+          }
+          lastDirection = direction;
+          lastWheelTime = now;
+
+          var basePct = pickBasePct(dt) / 100;
+          seekBy(video.duration * basePct * velocity * direction);
+
+          clearTimeout(resumeTimer);
+          if (!shiftHeld) {
+            resumeTimer = setTimeout(function () {
+              if (wasPlaying) video.play().catch(function () {});
+              wasPlaying = false;
+            }, 300);
+          }
+        }
+
+        function onKeyDown(e) {
+          if (e.key === "Shift") { shiftHeld = true; return; }
+          if (!pluginConfig.enableKeyboardSeek) return;
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          e.preventDefault();
+          var step = pluginConfig.keyboardSeekStep || 5;
+          seekBy(e.key === "ArrowRight" ? step : -step);
+          if (video.paused && wasPlaying) {
+            clearTimeout(resumeTimer);
+            resumeTimer = setTimeout(function () { video.play().catch(function () {}); wasPlaying = false; }, 300);
+          }
+        }
+        function onKeyUp(e) { if (e.key === "Shift") shiftHeld = false; }
+
+        clip.addEventListener("wheel", onWheel, { passive: false });
+        document.addEventListener("keydown", onKeyDown);
+        document.addEventListener("keyup", onKeyUp);
+        video.addEventListener("timeupdate", function () { updateScrubBar(bar, video); });
+
+        video._scrubCleanup = function () {
+          clip.removeEventListener("wheel", onWheel);
+          document.removeEventListener("keydown", onKeyDown);
+          document.removeEventListener("keyup", onKeyUp);
+          clearTimeout(resumeTimer);
+          if (bar) bar.remove();
+        };
       }
       // Applies either seek-and-loop-from-10% (source stream, duration
       // known) or plain loop-from-0 (generated preview clip, already short)
@@ -3221,6 +3439,7 @@
           video.src = streamUrl;
           playPreviewFrom(video, duration);
         }
+        attachScrubControls(clip, video);
       });
       rowsEl.addEventListener("mouseout", function (e) {
         var clip = e.target.closest(".st-thumb-clip");
@@ -3417,6 +3636,41 @@
     bindSettingCb("st-cfg-mark-organized",      "autoMarkOrganized");
     bindSettingCb("st-cfg-manual-fallback",       "manualFallbackOnFail");
     bindSettingCb("st-cfg-manual-fallback-title", "manualFallbackAllowTitle");
+    bindSettingCb("st-cfg-scrub-bar",             "scrubBarVisible");
+    bindSettingCb("st-cfg-keyboard-seek",         "enableKeyboardSeek");
+
+    function bindSettingNum(elId, key, defVal, minVal) {
+      var el = document.getElementById(elId);
+      if (!el) return;
+      el.value = typeof pluginConfig[key] === "number" ? pluginConfig[key] : defVal;
+      el.addEventListener("change", function () {
+        var v = parseFloat(el.value);
+        if (!isFinite(v) || v < minVal) v = defVal;
+        pluginConfig[key] = v;
+        el.value = v;
+        savePluginConfig();
+      });
+    }
+    bindSettingNum("st-cfg-scrub-slow",          "scrubStepSlow", 1, 0);
+    bindSettingNum("st-cfg-scrub-normal",        "scrubStepNormal", 3, 0);
+    bindSettingNum("st-cfg-scrub-fast",          "scrubStepFast", 6, 0);
+    bindSettingNum("st-cfg-scrub-max-mult",      "scrubMaxVelocityMultiplier", 3, 1);
+    bindSettingNum("st-cfg-keyboard-seek-step",  "keyboardSeekStep", 5, 1);
+
+    // Advanced scrub settings stay collapsed by default (nothing persisted -
+    // it's a rarely-touched sub-block, not worth remembering across
+    // sessions) so the Display section doesn't get visually heavy with 5
+    // numeric fields on every open.
+    (function () {
+      var toggle = document.getElementById("st-scrub-adv-toggle");
+      var box = document.getElementById("st-scrub-adv-box");
+      if (!toggle || !box) return;
+      toggle.addEventListener("click", function () {
+        var expanded = box.style.display !== "none";
+        box.style.display = expanded ? "none" : "block";
+        toggle.classList.toggle("st-setting-disclosure-open", !expanded);
+      });
+    })();
     // Not a plain bindSettingCb: data-preview-url/-duration are baked into
     // .st-thumb-clip's HTML at renderRow() time, based on nativeHoverPreview's
     // value at that moment - toggling the checkbox alone doesn't retroactively
@@ -3432,6 +3686,8 @@
         buildAllRows();
       });
     })();
+    bindSettingCb("st-cfg-scrub-enable-grid", "enableScrubControlsGrid");
+    bindSettingCb("st-cfg-scrub-enable-solo", "enableScrubControlsSolo");
 
     // Hide Auto/Manual toggle (scene page only) - takes effect immediately
     // via a class on #st-panel rather than needing a rebuild, since the
@@ -3445,6 +3701,43 @@
         savePluginConfig();
         var panelEl = document.getElementById(PANEL_ID);
         if (panelEl) panelEl.classList.toggle("st-hide-scene-mode-toggle", pluginConfig.hideSceneModeToggle);
+      });
+    })();
+
+    // Hide the "ST" scene-toolbar button - takes effect immediately by
+    // removing/re-injecting it, no rebuild needed (it lives outside the
+    // panel entirely, see injectToolbarButton()).
+    (function () {
+      var hideToolbarBtnEl = document.getElementById("st-cfg-hide-toolbar-btn");
+      if (!hideToolbarBtnEl) return;
+      hideToolbarBtnEl.checked = !!pluginConfig.hideToolbarButton;
+      hideToolbarBtnEl.addEventListener("change", function () {
+        pluginConfig.hideToolbarButton = hideToolbarBtnEl.checked;
+        savePluginConfig();
+        if (pluginConfig.hideToolbarButton) {
+          var existingToolbarGroup = document.getElementById(TOOLBAR_BTN_GROUP_ID);
+          if (existingToolbarGroup) existingToolbarGroup.remove();
+        } else {
+          injectToolbarButton();
+        }
+      });
+    })();
+
+    // Hide the "sceneTagger" button on the scene Edit tab (next to "Scrape
+    // with...") - same immediate remove/re-inject pattern, no rebuild.
+    (function () {
+      var hideEditBtnEl = document.getElementById("st-cfg-hide-edit-btn");
+      if (!hideEditBtnEl) return;
+      hideEditBtnEl.checked = !!pluginConfig.hideEditButton;
+      hideEditBtnEl.addEventListener("change", function () {
+        pluginConfig.hideEditButton = hideEditBtnEl.checked;
+        savePluginConfig();
+        if (pluginConfig.hideEditButton) {
+          var existingSceneBtn = document.getElementById(SCENE_BTN_ID);
+          if (existingSceneBtn) existingSceneBtn.remove();
+        } else {
+          injectSceneButton();
+        }
       });
     })();
 
@@ -3919,6 +4212,7 @@
   }
 
   function injectSceneButton() {
+    if (pluginConfig.hideEditButton) return;
     if (document.getElementById(SCENE_BTN_ID)) return;
     var buttons = document.querySelectorAll("button");
     var scrapeBtn = null;
@@ -3943,19 +4237,17 @@
     scrapeBtn.parentNode.insertBefore(btn, scrapeBtn);
   }
 
-  // ── Icone Sparkles dans la .scene-toolbar (sous la vignette video) -
-  // meme pattern d'injection DOM que sceneUrlDisplay (pas de patch React,
-  // juste un groupe ajoute en fin de toolbar). Inline SVG (pas d'emoji,
-  // cf. regle CLAUDE.md) - icone "sparkles" choisie par Sina parmi 5
-  // options presentees en maquette (session 2026-09-16).
+  // ── Badge "ST" dans la .scene-toolbar (sous la vignette video) - meme
+  // pattern d'injection DOM que sceneUrlDisplay (pas de patch React, juste
+  // un groupe ajoute en fin de toolbar). Remplace l'icone sparkles
+  // initiale (session 2026-09-16) par un badge carre arrondi aux couleurs
+  // propres du plugin (memes valeurs que .st-section-icon dans le panneau:
+  // fond #1a2028, bordure #2c3542, texte teal #88c0d0) plutot qu'une icone
+  // generique - plus reconnaissable comme "Scene Tagger" specifiquement.
   var TOOLBAR_BTN_GROUP_ID = "st-toolbar-btn-group";
-  var ST_SPARKLES_SVG =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-    'stroke-linecap="round" stroke-linejoin="round" width="16" height="16">' +
-    '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.287 1.288L3 12l5.8 1.9a2 2 0 0 1 1.288 1.287L12 21l1.9-5.8a2 2 0 0 1 1.287-1.288L21 12l-5.8-1.9a2 2 0 0 1-1.288-1.287Z"/>' +
-    '</svg>';
 
   function injectToolbarButton() {
+    if (pluginConfig.hideToolbarButton) return;
     var toolbar = document.querySelector(".scene-toolbar");
     if (!toolbar) return;
 
@@ -3963,9 +4255,9 @@
     if (!group) {
       var btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "minimal btn btn-secondary";
+      btn.className = "minimal btn btn-secondary st-toolbar-badge-btn";
       btn.title = "Scene Tagger";
-      btn.innerHTML = ST_SPARKLES_SVG;
+      btn.innerHTML = '<span class="st-toolbar-badge">ST</span>';
       btn.addEventListener("click", function (e) {
         e.stopPropagation();
         var sceneID = getCurrentSceneID(window.location.pathname);
@@ -4011,6 +4303,11 @@
     injectToolbarButton();
   }
 
+  // The toolbar button is injected independently of ever opening the main
+  // panel (which is where loadPluginConfig() normally runs) - without an
+  // early load here, "Hide ST button" wouldn't take effect until the panel
+  // was opened once per page load.
+  loadPluginConfig().then(sceneButtonTick);
   window.PluginApi.Event.addEventListener("stash:location", function () { setTimeout(sceneButtonTick, 150); });
   setTimeout(sceneButtonTick, 800);
 

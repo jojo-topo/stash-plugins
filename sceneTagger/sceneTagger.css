@@ -58,6 +58,23 @@
 #st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-panel-header {
   display: none !important;
 }
+/* Floating re-scrape button, solo mode only (see buildPanel()/renderRow()
+   for the show/hide + click wiring) - anchored to the panel's own corner
+   (#st-panel is position:fixed, so it's already the containing block for
+   an absolute child) rather than to #st-rows, since #st-rows shrinks to
+   its compact content once the row is "done" and no longer reaches the
+   bottom of the panel. */
+#st-panel.st-panel-solo #st-solo-refresh-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+}
 /* #st-rows is already `flex:1 1 0; min-height:0` in the base rule, which
    is what actually makes it scroll instead of growing the panel past the
    viewport (position:fixed panels don't get a page scrollbar) - this
@@ -66,6 +83,23 @@
    itself. */
 #st-panel.st-panel-solo #st-rows {
   max-height: none;
+  /* #st-panel-footer is hidden in solo mode (see above), so #st-rows is
+     the last element touching the panel's own bottom edge - its straight
+     rectangular corner (and the scrollbar track right against it) was
+     poking past the panel's rounded 14px corner with nothing clipping it
+     (confirmed session 2026-09-17). Radius-matching alone still left a
+     sliver visible (sub-pixel rendering at this radius) - pulled the
+     scrollable area up a few px off the panel's bottom edge instead, so
+     there's no shared edge left to clip against at all. */
+  border-radius: 0 0 13px 13px;
+  margin-bottom: 7.2px;
+}
+/* The scrollbar TRACK itself doesn't follow #st-rows' own border-radius
+   (WebKit clips overflow *content* to the radius, not necessarily the
+   custom scrollbar it paints on top) - its bottom stayed square next to
+   the now-rounded column beside it. Rounded explicitly here to match. */
+#st-panel.st-panel-solo #st-rows::-webkit-scrollbar-track {
+  border-radius: 0 0 3px 3px;
 }
 
 /* Only one row to show, so instead of the list layout (thumb on the left,
@@ -532,6 +566,56 @@
   cursor: pointer; flex-shrink: 0;
 }
 
+.st-setting-label-inline {
+  font-size: 13px;
+  color: #a0a8b0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.st-setting-row-sub .st-setting-label-inline { padding-left: 22px; color: #616975; }
+.st-setting-label-inline input[type="number"] {
+  background: #2e3440;
+  border: 1px solid #4c566a;
+  border-radius: 3px;
+  color: #d8dee9;
+  font-size: 12px;
+  padding: 2px 4px;
+  margin: 0 2px;
+}
+
+.st-setting-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 4px 22px;
+  cursor: pointer;
+  user-select: none;
+}
+.st-setting-disclosure-chevron {
+  color: #6b8299;
+  font-size: 10px;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+.st-setting-disclosure-open .st-setting-disclosure-chevron { transform: rotate(90deg); }
+.st-setting-disclosure-label {
+  font-size: 12px;
+  color: #8ea0b3;
+  font-weight: 600;
+}
+.st-setting-disclosure:hover .st-setting-disclosure-label { color: #d8dee9; }
+
+.st-setting-adv-box {
+  margin: 4px 0 4px 22px;
+  padding: 8px 10px;
+  background: #232830;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+}
+.st-setting-row-inline { padding: 3px 0; }
+
 #st-titlebar-settings {
   background: none; border: none;
   border-radius: 6px;
@@ -727,6 +811,22 @@
   height: 100%;
   object-fit: cover;
   pointer-events: none;
+}
+
+.st-thumb-scrub-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(0,0,0,0.55);
+  pointer-events: none;
+  z-index: 2;
+}
+.st-thumb-scrub-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: #88c0d0;
 }
 
 .st-thumb {
@@ -1073,6 +1173,26 @@
   font-size: 11px;
   font-style: italic;
   color: #4e5560;
+}
+
+/* ── "ST" badge (scene-toolbar entry button, see injectToolbarButton()) -
+   same colors as .st-section-icon below (#1a2028 fill, #2c3542 border,
+   #88c0d0 teal text) so it reads as "this plugin" at a glance rather than
+   a generic icon. */
+.st-toolbar-badge-btn { padding: 2px !important; }
+.st-toolbar-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: #1a2028;
+  border: 1px solid #2c3542;
+  color: #88c0d0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 /* ── Section icon (Studio/Performers/Tags/Details/URLs) - hidden in the
@@ -1780,10 +1900,18 @@
    reusable element repositioned per-item (see the mouseover handler),
    not one <img> per result, so 10 results don't all load their image at
    once just from opening the dropdown. */
+/* position:fixed + appended to document.body (see wireAvatarHoverPreview /
+   the search-dropdown hover handler) instead of position:absolute inside
+   the row - #st-rows has overflow-x:hidden for its own scroll behavior,
+   which was silently clipping this preview whenever it extended past the
+   row's bounds, regardless of the panel's dragged position (confirmed
+   session 2026-09-16: "hover hides inside the window" after moving the
+   panel - actually an overflow clip, not a z-index/drag issue). z-index
+   well above the panel's own (9000, see #st-panel) since it's a sibling
+   of the panel at the body level now, not a descendant. */
 .st-perf-hover-preview {
   display: none;
-  position: absolute;
-  left: calc(100% + 8px);
+  position: fixed;
   width: 120px;
   height: 160px;
   object-fit: cover;
@@ -1793,7 +1921,7 @@
   background: #13151a;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5);
   pointer-events: none;
-  z-index: 101;
+  z-index: 9500;
 }
 
 /* Manually added performer chips */
