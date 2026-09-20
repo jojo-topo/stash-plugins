@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.11.0"
+version: "1.11.1"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -42,10 +42,13 @@ settings:
     description: "Comma-separated list of studio names to ignore. Ex: name1, name2, name3"
     type: STRING
 
-  autoAddOtherStudios:
-    displayName: "Add other artists as Other studios"
-    description: "If enabled, studios detected via the Artists: line but not chosen as the main studio are automatically linked as 'Other studios' (compatible with the skExtra-Multiple-Studios-Custom plugin)."
-    type: BOOLEAN
+  # Hidden in the public build: depends on the companion plugin
+  # skExtra-Multiple-Studios-Custom, which isn't published. Uncomment
+  # if that plugin is ever published separately.
+  # autoAddOtherStudios:
+  #   displayName: "Add other artists as Other studios"
+  #   description: "If enabled, studios detected via the Artists: line but not chosen as the main studio are automatically linked as 'Other studios' (compatible with the skExtra-Multiple-Studios-Custom plugin)."
+  #   type: BOOLEAN
 
   hideStudioBanner:
     displayName: "Hide studio banner"
