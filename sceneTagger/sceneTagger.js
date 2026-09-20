@@ -73,7 +73,7 @@
 
   // ── scrapeSingleScene ──────────────────────────────────────────────────────
 
-  var Q_SCRAPE = "query ScrapeSingleScene($source:ScraperSourceInput!,$input:ScrapeSingleSceneInput!){scrapeSingleScene(source:$source,input:$input){title code date details director urls image studio{stored_id name image url}tags{stored_id name}performers{stored_id name disambiguation gender urls birthdate ethnicity country eye_color height measurements fake_tits penis_length circumcised career_start career_end tattoos piercings aliases images details death_date hair_color weight}}}";
+  var Q_SCRAPE = "query ScrapeSingleScene($source:ScraperSourceInput!,$input:ScrapeSingleSceneInput!){scrapeSingleScene(source:$source,input:$input){remote_site_id title code date details director urls image studio{stored_id name image url details}tags{stored_id name}performers{stored_id name disambiguation gender urls birthdate ethnicity country eye_color height measurements fake_tits penis_length circumcised career_start career_end tattoos piercings aliases images details death_date hair_color weight}}}";
 
   // Tried feeding a synthetic scene_input (title only) instead of scene_id
   // to re-scrape with a manually corrected title without touching the DB -
@@ -91,7 +91,9 @@
       input:  { scene_id: String(sceneID) }
     }).then(function (d) {
       var r = d.scrapeSingleScene;
-      return Array.isArray(r) ? (r[0] || null) : r;
+      r = Array.isArray(r) ? (r[0] || null) : r;
+      if (r && source.stash_box_endpoint) r._stashboxEndpoint = source.stash_box_endpoint;
+      return r;
     });
   }
 
@@ -111,7 +113,9 @@
       input:  { query: query }
     }).then(function (d) {
       var r = d.scrapeSingleScene;
-      return Array.isArray(r) ? r : (r ? [r] : []);
+      r = Array.isArray(r) ? r : (r ? [r] : []);
+      if (source.stash_box_endpoint) r.forEach(function (x) { if (x) x._stashboxEndpoint = source.stash_box_endpoint; });
+      return r;
     });
   }
 
@@ -129,7 +133,7 @@
 
   // Scrape via the URL already saved on the scene, scraper-agnostic:
   // Stash automatically tries the one whose sceneByURL matches the domain.
-  var Q_SCRAPE_URL = "query ScrapeSceneURL($url:String!){scrapeSceneURL(url:$url){title code date details director urls image studio{stored_id name image url}tags{stored_id name}performers{stored_id name disambiguation gender urls birthdate ethnicity country eye_color height measurements fake_tits penis_length circumcised career_start career_end tattoos piercings aliases images details death_date hair_color weight}}}";
+  var Q_SCRAPE_URL = "query ScrapeSceneURL($url:String!){scrapeSceneURL(url:$url){remote_site_id title code date details director urls image studio{stored_id name image url details}tags{stored_id name}performers{stored_id name disambiguation gender urls birthdate ethnicity country eye_color height measurements fake_tits penis_length circumcised career_start career_end tattoos piercings aliases images details death_date hair_color weight}}}";
 
   function scrapeSceneURL(url) {
     return gql("ScrapeSceneURL", Q_SCRAPE_URL, { url: url })
@@ -225,7 +229,7 @@
   // races that were impossible to fully eliminate (see history of attempts).
   // ────────────────────────────────────────────────────────────────────────
 
-  var Q_FIND_BY_IDS = "query FindScenesByIds($ids:[ID!]){findScenes(ids:$ids){count scenes{id title urls date code details director organized paths{screenshot preview stream}files{path basename duration}studio{id name image_path}performers{id name image_path}tags{id name}}}}";
+  var Q_FIND_BY_IDS = "query FindScenesByIds($ids:[ID!]){findScenes(ids:$ids){count scenes{id title stash_ids{endpoint stash_id} urls date code details director organized paths{screenshot preview stream}files{path basename duration}studio{id name image_path details}performers{id name image_path}tags{id name}}}}";
 
   // IDs of the scenes visible in the native grid, in display order.
   function getVisibleSceneIdsInOrder() {
@@ -308,7 +312,7 @@
   var Q_FP_SEARCH       = "query FPS($n:String!){findPerformers(performer_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name image_path}}}";
   var Q_FP_SEARCH_ALIAS = "query FPSA($n:String!){findPerformers(performer_filter:{aliases:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name image_path}}}";
   var Q_FP_IMAGE        = "query FPImg($id:ID!){findPerformer(id:$id){id image_path}}";
-  var Q_STUDIO_IMAGE    = "query StudioImg($id:ID!){findStudio(id:$id){id image_path}}";
+  var Q_STUDIO_IMAGE    = "query StudioImg($id:ID!){findStudio(id:$id){id image_path details}}";
   var Q_FTAG_SEARCH     = "query FTagS($n:String!){findTags(tag_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){tags{id name}}}";
   var M_CP = "mutation CP($n:String!,$disambiguation:String,$urls:[String!],$gender:GenderEnum,$birthdate:String,$ethnicity:String,$country:String,$eye_color:String,$height_cm:Int,$measurements:String,$fake_tits:String,$penis_length:Float,$circumcised:CircumcisedEnum,$career_start:String,$career_end:String,$tattoos:String,$piercings:String,$alias_list:[String!],$image:String,$details:String,$death_date:String,$hair_color:String,$weight:Int){performerCreate(input:{name:$n,disambiguation:$disambiguation,urls:$urls,gender:$gender,birthdate:$birthdate,ethnicity:$ethnicity,country:$country,eye_color:$eye_color,height_cm:$height_cm,measurements:$measurements,fake_tits:$fake_tits,penis_length:$penis_length,circumcised:$circumcised,career_start:$career_start,career_end:$career_end,tattoos:$tattoos,piercings:$piercings,alias_list:$alias_list,image:$image,details:$details,death_date:$death_date,hair_color:$hair_color,weight:$weight}){id}}";
   var Q_FT = "query FT($n:String!){findTags(tag_filter:{name:{value:$n,modifier:EQUALS}},filter:{per_page:1}){tags{id}}}";
@@ -473,6 +477,15 @@
   // resolvePerformer searches by exact name, then creates it carrying over
   // all the scraped fields (image, urls, birthdate, measurements...) if
   // available - accepts either a name (string) or the full scraped performer object.
+  // Stash's GenderEnum is upper snake case (FEMALE, TRANSGENDER_MALE...);
+  // scrapers often return lowercase ("female") -> invalid enum error.
+  function normalizeGender(g) {
+    if (!g) return null;
+    var v = String(g).trim().toUpperCase().replace(/[\s-]+/g, "_");
+    var ok = ["MALE", "FEMALE", "TRANSGENDER_MALE", "TRANSGENDER_FEMALE", "INTERSEX", "NON_BINARY"];
+    return ok.indexOf(v) !== -1 ? v : null;
+  }
+
   function resolvePerformer(performerOrName) {
     var p = typeof performerOrName === "string" ? { name: performerOrName } : (performerOrName || {});
     var name = p.name;
@@ -485,7 +498,7 @@
         n: name,
         disambiguation: p.disambiguation || null,
         urls: (p.urls && p.urls.length) ? p.urls : null,
-        gender: p.gender || null,
+        gender: normalizeGender(p.gender),
         birthdate: p.birthdate || null,
         ethnicity: p.ethnicity || null,
         country: p.country || null,
@@ -549,6 +562,14 @@
       if (pids.length) inp.performer_ids = pids;
       if (tids.length) inp.tag_ids       = tids;
       if (state.rows[sceneID].markOrganized) inp.organized = true;
+      var sidScene = state.rows[sceneID].scene;
+      if (scraped.remote_site_id && scraped._stashboxEndpoint && scraped._applyStashId) {
+        // Same as native Stash: replace the entry for this endpoint, keep the others
+        var keptIds = ((sidScene && sidScene.stash_ids) || []).filter(function (x) { return x.endpoint !== scraped._stashboxEndpoint; })
+          .map(function (x) { return { endpoint: x.endpoint, stash_id: x.stash_id }; });
+        keptIds.push({ endpoint: scraped._stashboxEndpoint, stash_id: scraped.remote_site_id });
+        inp.stash_ids = keptIds;
+      }
       var otherStudioIds = res[3].filter(Boolean);
 
       return gql("SceneUpdate", M_SU, { input: inp }).then(function (updateResult) {
@@ -578,6 +599,10 @@
     // Automatically adds "Artists:" candidates not chosen as the main studio
     // to "Other studios" (compatible with skExtra-Multiple-Studios-Custom)
     autoAddOtherStudios:     false,
+    // Hides the banner (cover) in the studio cards; logos stay
+    hideStudioBanner:        false,
+    // Hides the studio logo in the studio cards; banners stay
+    hideStudioLogo:          false,
     // Scraper fallback chain: [{id, enabled}, ...] in priority order.
     // Reconciled with the real scraper list on every load (see
     // reconcileScraperChain) - never empty once the scrapers are loaded.
@@ -653,6 +678,8 @@
           if (cfg.autoCheckDetails   !== undefined) pluginConfig.autoCheckDetails   = !!cfg.autoCheckDetails;
           if (cfg.prioritizeExistingStudio !== undefined) pluginConfig.prioritizeExistingStudio = !!cfg.prioritizeExistingStudio;
           if (cfg.autoAddOtherStudios !== undefined) pluginConfig.autoAddOtherStudios = !!cfg.autoAddOtherStudios;
+          if (cfg.hideStudioBanner !== undefined) pluginConfig.hideStudioBanner = !!cfg.hideStudioBanner;
+          if (cfg.hideStudioLogo !== undefined) pluginConfig.hideStudioLogo = !!cfg.hideStudioLogo;
           if (cfg.scraperMode === "auto" || cfg.scraperMode === "manual") pluginConfig.scraperMode = cfg.scraperMode;
           if (cfg.useUrlIfPresent !== undefined) pluginConfig.useUrlIfPresent = !!cfg.useUrlIfPresent;
           if (cfg.compactMode     !== undefined) pluginConfig.compactMode     = !!cfg.compactMode;
@@ -839,6 +866,11 @@
       filtered.date = scraped.date;
     }
     if (cb('[data-cb="code"]')       && scraped.code)        filtered.code      = scraped.code;
+    if (cb('[data-cb="stashid"]') && scraped.remote_site_id && scraped._stashboxEndpoint) {
+      filtered.remote_site_id = scraped.remote_site_id;
+      filtered._stashboxEndpoint = scraped._stashboxEndpoint;
+      filtered._applyStashId = true;
+    }
     if (cb('[data-cb="director"]')   && scraped.director)    filtered.director  = scraped.director;
     // Performers: checked scraped ones + manual additions
     var selectedPerfs = [];
@@ -974,7 +1006,213 @@
   // needs a visual anchor. Rendered unconditionally here rather than only
   // building them in solo, since it's cheap and keeps renderRow() from
   // needing to know which mode it's running in.
-  var ST_STUDIO_LOGO_PLACEHOLDER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 21V10a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v11"/></svg>';
+  // Studio logo shape: round when the image is roughly square (ratio 0.8 to
+  // 1.25), rounded corners otherwise. "load" doesn't bubble, so capture it.
+  document.addEventListener("load", function (e) {
+    var img = e.target;
+    if (!img || img.tagName !== "IMG" || !img.naturalHeight) return;
+    var box = img.closest && img.closest(".st-slogo");
+    if (!box) return;
+    var ratio = img.naturalWidth / img.naturalHeight;
+    var round = ratio >= 0.8 && ratio <= 1.25;
+    box.classList.toggle("st-slogo-round", round);
+    box.classList.toggle("st-slogo-wide", !round);
+  }, true);
+
+  // "bg:<url>" in a studio's details = its banner (same format as
+  // replaceBackground). Works for any studio object carrying `details`.
+  function studioBannerUrl(studioObj) {
+    if (pluginConfig.hideStudioBanner) return null;
+    var m = studioObj && studioObj.details ? String(studioObj.details).match(/(?:^|\s)bg:(\S+)/) : null;
+    return m ? m[1] : null;
+  }
+
+  // Studio card: logo on the left - round when the image is roughly square,
+  // rounded corners when elongated (decided once the image has loaded, see
+  // the capture "load" listener) - and, when the studio has a banner, a
+  // cover above with the logo overlapping its bottom-left corner.
+  // lookupId: local studio id whose logo/banner are fetched afterwards to
+  // fill whatever the scraper didn't provide (see hydrateStudioLookups).
+  // ── Hover card for the multi-studio candidates (radio list): banner + logo
+  // of the studio under the cursor. Existing studios (local id) are fetched
+  // on hover and cached; new ones have nothing to show. Follows the
+  // hideStudioBanner / hideStudioLogo settings.
+  var studioHoverCache = {};
+  var studioHoverEl = null;
+  var studioHoverToken = 0;
+  var studioHoverCurrent = null;
+
+  function fetchStudioHoverData(id) {
+    if (!id) return Promise.resolve(null);
+    if (!studioHoverCache[id]) {
+      studioHoverCache[id] = gql("StudioImg", Q_STUDIO_IMAGE, { id: id }).then(function (d) {
+        var st = d.findStudio || {};
+        var img = st.image_path && st.image_path.indexOf("default=true") === -1 ? st.image_path : null;
+        var banner = null;
+        var m = st.details ? String(st.details).match(/(?:^|\s)bg:(\S+)/) : null;
+        if (m) banner = m[1];
+        return { img: img, banner: banner };
+      }).catch(function () { return null; });
+    }
+    return studioHoverCache[id];
+  }
+
+  function hideStudioHover() {
+    studioHoverToken++;
+    studioHoverCurrent = null;
+    if (studioHoverEl) { studioHoverEl.remove(); studioHoverEl = null; }
+  }
+
+  function showStudioHover(label) {
+    var name = label.getAttribute("data-studio-name") || "";
+    var id = label.getAttribute("data-studio-id") || "";
+    var token = ++studioHoverToken;
+    studioHoverCurrent = label;
+    fetchStudioHoverData(id).then(function (data) {
+      if (token !== studioHoverToken) return;
+      var img = data && data.img && !pluginConfig.hideStudioLogo ? data.img : null;
+      var banner = data && data.banner && !pluginConfig.hideStudioBanner ? data.banner : null;
+      // Nothing to show (new studio, no image/banner, or hidden by the
+      // settings): no card at all.
+      if (!img && !banner) return;
+      var logoHTML = img
+        ? '<div class="st-slogo st-slogo-round"><img src="' + esc(img) + '"></div>'
+        : "";
+      if (studioHoverEl) studioHoverEl.remove();
+      var el = document.createElement("div");
+      el.className = "st-studio-hover";
+      el.innerHTML =
+        (banner ? '<div class="st-sh-cover"><img src="' + esc(banner) + '"></div>' : '') +
+        '<div class="st-sh-row' + (banner && logoHTML ? ' st-sh-overlap' : '') + '">' +
+          logoHTML +
+          '<div class="st-sh-text"><div class="st-sh-name">' + esc(name) + '</div></div>' +
+        '</div>';
+      document.body.appendChild(el);
+      studioHoverEl = el;
+      var r = label.getBoundingClientRect();
+      var w = el.offsetWidth, h = el.offsetHeight;
+      var left = r.right + 12;
+      if (left + w > window.innerWidth - 8) left = Math.max(8, r.left - w - 12);
+      var top = Math.min(Math.max(8, r.top - 6), window.innerHeight - h - 8);
+      el.style.left = left + "px";
+      el.style.top = top + "px";
+    });
+  }
+
+  document.addEventListener("mouseover", function (e) {
+    var label = e.target && e.target.closest ? e.target.closest(".st-radio-item[data-studio-name]") : null;
+    if (label === studioHoverCurrent) return;
+    if (studioHoverEl || studioHoverCurrent) hideStudioHover();
+    if (label) showStudioHover(label);
+  });
+
+  // Logo <img>, wrapped in a link to the studio's page when its local id is
+  // known (opens in a new tab so the scrape panel stays put).
+  function studioLogoInner(imgUrl, studioId) {
+    var img = '<img src="' + esc(imgUrl) + '">';
+    return studioId
+      ? '<a href="/studios/' + esc(String(studioId)) + '" target="_blank" rel="noopener" title="Open studio">' + img + '</a>'
+      : img;
+  }
+
+  // studioId: local id of the studio (makes the logo a link to its page).
+  // captionHTML (optional): label/checkbox row shown above the cover.
+  function studioCardHTML(logoUrl, bannerUrl, infoHTML, cardClass, lookupId, studioId, captionHTML) {
+    var logo = pluginConfig.hideStudioLogo
+      ? ''
+      : (logoUrl
+          ? '<div class="st-slogo st-slogo-round">' + studioLogoInner(logoUrl, studioId) + '</div>'
+          : '<div class="st-slogo st-slogo-round st-slogo-empty">' + ST_STUDIO_LOGO_PLACEHOLDER_SVG + '</div>');
+    return '<div class="st-studio-card' + (cardClass ? ' ' + cardClass : '') + '"' +
+      (lookupId ? ' data-studio-lookup="' + esc(String(lookupId)) + '"' : '') + '>' +
+      (captionHTML ? '<div class="st-studio-caption">' + captionHTML + '</div>' : '') +
+      (bannerUrl
+        ? '<a class="st-studio-cover" href="' + esc(bannerUrl) + '" target="_blank" rel="noopener" title="Open banner"><img src="' + esc(bannerUrl) + '"></a>'
+        : '') +
+      '<div class="st-studio-idrow' + (bannerUrl ? ' st-has-cover' : '') + '">' +
+        logo +
+        '<div class="st-studio-info">' + infoHTML + '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // Puts a logo and/or banner into an existing card. onlyMissing keeps what
+  // the card already shows and only adds what's absent.
+  function fillStudioCard(card, imgUrl, bannerUrl, onlyMissing, studioId) {
+    var idrow = card.querySelector(".st-studio-idrow");
+    var logo = card.querySelector(".st-slogo");
+    if (!idrow) return;
+    if (logo && imgUrl && !pluginConfig.hideStudioLogo) {
+      var hasLogo = !logo.classList.contains("st-slogo-empty");
+      if (!onlyMissing || !hasLogo) {
+        logo.classList.remove("st-slogo-empty", "st-slogo-wide");
+        logo.classList.add("st-slogo-round");
+        logo.innerHTML = studioLogoInner(imgUrl, studioId);
+      }
+    }
+    if (bannerUrl && !card.querySelector(".st-studio-cover")) {
+      var cover = document.createElement("a");
+      cover.className = "st-studio-cover";
+      cover.href = bannerUrl;
+      cover.target = "_blank";
+      cover.rel = "noopener";
+      cover.title = "Open banner";
+      cover.innerHTML = '<img src="' + esc(bannerUrl) + '">';
+      card.insertBefore(cover, idrow);
+      idrow.classList.add("st-has-cover");
+    }
+  }
+
+  // Fills (or resets) the "Manually added" studio card with the picked
+  // studio's logo and, if it has one, its banner cover.
+  function setManualStudioCard(el, imgUrl, bannerUrl, studioId) {
+    var card = el.querySelector(".st-studio-manual-card");
+    if (!card) return;
+    var idrow = card.querySelector(".st-studio-idrow");
+    var logo = card.querySelector(".st-slogo");
+    var oldCover = card.querySelector(".st-studio-cover");
+    if (oldCover) oldCover.remove();
+    idrow.classList.remove("st-has-cover");
+    if (logo) {
+      logo.classList.remove("st-slogo-wide", "st-slogo-round");
+      logo.classList.add("st-slogo-round", "st-slogo-empty");
+      logo.innerHTML = ST_STUDIO_LOGO_PLACEHOLDER_SVG;
+    }
+    fillStudioCard(card, imgUrl, bannerUrl, false, studioId);
+  }
+
+  // A studio that already exists locally (stored_id) but whose scraper gave
+  // no logo/banner: fetch its own logo (image_path) and banner (bg: line in
+  // details). Works with any scraper. Nodes carrying data-studio-lookup are
+  // either a ready card (fill what's missing) or a bare wrapper around the
+  // chip (turned into a card only if something was found, moving the
+  // existing nodes so their listeners survive).
+  function hydrateStudioLookups(el) {
+    el.querySelectorAll("[data-studio-lookup]").forEach(function (node) {
+      if (node.getAttribute("data-lookup-done")) return;
+      node.setAttribute("data-lookup-done", "1");
+      gql("StudioImg", Q_STUDIO_IMAGE, { id: node.getAttribute("data-studio-lookup") }).then(function (d) {
+        var st = d.findStudio || {};
+        var img = st.image_path && st.image_path.indexOf("default=true") === -1 ? st.image_path : null;
+        var banner = studioBannerUrl(st);
+        if (pluginConfig.hideStudioLogo) img = null;
+        if (!img && !banner) return;
+        var lookupId = node.getAttribute("data-studio-lookup");
+        if (node.classList.contains("st-studio-card")) {
+          fillStudioCard(node, img, banner, true, lookupId);
+          return;
+        }
+        var tmp = document.createElement("div");
+        tmp.innerHTML = studioCardHTML(img, banner, "", "st-card-stacked", null, lookupId);
+        var card = tmp.firstChild;
+        var info = card.querySelector(".st-studio-info");
+        while (node.firstChild) info.appendChild(node.firstChild);
+        node.appendChild(card);
+      }).catch(function () {});
+    });
+  }
+
+  var ST_STUDIO_LOGO_PLACEHOLDER_SVG ='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 21V10a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v11"/></svg>';
 
   var ST_SECTION_ICONS = {
     studio: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/>',
@@ -1118,6 +1356,7 @@
     var r34id  = getR34ID(scene);
 
     var hintHTML = "";
+    var foundViaHTML = "";
     if (status === "idle" || status === "scraped" || status === "done") {
       // Only show something here for scenes that actually look rule34-sourced
       // (id found in a URL or in the filename via getR34ID) - non-rule34
@@ -1153,6 +1392,21 @@
         );
       }
 
+      // ── Manual URL (manualFallbackOnFail mode): same field/binding as
+      // the idle/error row (.st-manual-url-input, bound once below at
+      // "var manualUrlInput = ..."), just surfaced here too since the
+      // top-level manualUrlHTML is hidden once status flips to "scraped"
+      // (see handleScrapeFailure()) - without this the user had no way to
+      // paste a URL for Retry once the manual fill-in panel was showing.
+      if (r.manualFallback) {
+        fields.push(
+          '<div class="st-inline-field">' +
+            '<label class="st-inline-label st-label-static">URL</label>' +
+            '<input type="text" class="st-manual-url-input" placeholder="URL (optional)" value="' + esc(r.manualUrl || "") + '">' +
+          '</div>'
+        );
+      }
+
       // ── Scraper-used badge (fallback, or search-by-title): visible when
       // it isn't the 1st enabled scraper in the chain (normal fallback
       // case), OR whenever the result came from title search - that's
@@ -1162,12 +1416,23 @@
       var showFallbackHint = r.viaTitleSearch ||
         (pluginConfig.scraperMode === "auto" && r.matchedScraperName && enabledChain.length > 1 && r.matchedScraperID !== firstEnabled);
       if (showFallbackHint && r.matchedScraperName) {
-        fields.push(
-          '<div class="st-inline-field st-scraper-match-hint">' +
-            '<span class="st-label-static"></span>' +
-            '<span>found via <strong>' + esc(r.matchedScraperName) + '</strong>' + (r.viaTitleSearch ? '' : ' (fallback)') + '</span>' +
-          '</div>'
-        );
+        var foundViaText = 'found via <strong>' + esc(r.matchedScraperName) + '</strong>' + (r.viaTitleSearch ? '' : ' (fallback)');
+        var panelElForHint = document.getElementById(PANEL_ID);
+        if (panelElForHint && panelElForHint.classList.contains("st-panel-solo")) {
+          fields.push(
+            '<div class="st-inline-field st-scraper-match-hint">' +
+              '<span class="st-label-static"></span>' +
+              '<span>' + foundViaText + '</span>' +
+            '</div>'
+          );
+        } else {
+          // Mass list: "found via" badge (right under the file name badge)
+          // is switched off for now - flip SHOW_FOUND_VIA_BADGE to bring it back.
+          var SHOW_FOUND_VIA_BADGE = false;
+          if (SHOW_FOUND_VIA_BADGE) {
+            foundViaHTML = '<div class="st-found-via"><span>' + foundViaText + '</span></div>';
+          }
+        }
       }
 
       // Solo mode (opened from a single scene page, see st-panel-solo) gets
@@ -1280,15 +1545,15 @@
           ? '<div class="' + cls + '"><img src="' + esc(imagePath) + '"></div>'
           : '<div class="' + cls + ' st-studio-logo-empty">' + ST_STUDIO_LOGO_PLACEHOLDER_SVG + '</div>';
       }
-      var existingStudioRowHTML =
-        '<div class="st-studio-stack-row">' +
-          '<div class="st-studio-left">' +
-            '<span class="st-existing-caption">Already on this scene</span>' +
-            '<span class="st-studio-name-plain">' + (scene.studio && scene.studio.name ? esc(scene.studio.name) : '(none)') + '</span>' +
-          '</div>' +
-          logoZoneHTML(scene.studio && scene.studio.image_path) +
-        '</div>';
-      var newStudioLogoHTML = logoZoneHTML(scraped.studio && scraped.studio.image);
+      var existingStudioRowHTML = studioCardHTML(
+        scene.studio && scene.studio.image_path,
+        studioBannerUrl(scene.studio),
+        '<span class="st-studio-name-plain">' + (scene.studio && scene.studio.name ? esc(scene.studio.name) : '(none)') + '</span>',
+        '',
+        null,
+        scene.studio && scene.studio.id,
+        '<span class="st-existing-caption">Already on this scene</span>'
+      );
       // Its own row/section (solo mode only) instead of being squeezed
       // under "New from scrape" - a manually searched studio isn't the
       // same candidate as the auto-scraped one and shouldn't read like it
@@ -1297,15 +1562,16 @@
       // actually picked, fetched on click (see the search-results click
       // handler below) and dropped into this zone by its
       // .st-studio-manual-logo class.
-      var manualStudioRowHTML =
-        '<div class="st-studio-stack-row">' +
-          '<div class="st-studio-left st-studio-manual-left">' +
-            '<span class="st-existing-caption">Manually added</span>' +
-            studioSearchWidget +
-            '<span class="st-split-empty st-studio-manual-empty">No studio added manually</span>' +
-          '</div>' +
-          logoZoneHTML(null, "st-studio-manual-logo") +
-        '</div>';
+      var manualStudioRowHTML = studioCardHTML(
+        null,
+        null,
+        studioSearchWidget +
+        '<span class="st-split-empty st-studio-manual-empty">No studio added manually</span>',
+        "st-studio-manual-card",
+        null,
+        null,
+        '<span class="st-existing-caption">Manually added</span>'
+      );
 
       if (artists.length > 1) {
         // Multiple non-blacklisted artists → radio buttons
@@ -1329,7 +1595,7 @@
           var checkedAttr = (i === defaultCheckedIdx) ? ' checked' : '';
           var isbl = isBlacklisted(artist.name);
           var artistIsNew = !artist.stored_id;
-          return '<label class="st-radio-item' + (isbl ? ' st-radio-blacklisted' : '') + '">' +
+          return '<label class="st-radio-item' + (isbl ? ' st-radio-blacklisted' : '') + '" data-studio-name="' + esc(artist.name) + '" data-studio-id="' + esc(String(artist.stored_id || "")) + '">' +
             '<input type="radio" name="' + esc(radioName) + '" data-cb="studio-radio" data-artist="' + esc(artist.name) + '" data-artist-stored="' + (artist.stored_id ? "1" : "") + '"' + checkedAttr + '> ' +
             '<span class="st-selectable">' + esc(artist.name) + '</span>' +
             (artistIsNew ? ' <span class="st-new-badge">new</span>' : '') +
@@ -1348,13 +1614,15 @@
               '<span class="st-inline-label st-label-static">' + sectionIcon("studio") + 'Studio</span>' +
               '<div class="st-studio-stack">' +
                 existingStudioRowHTML +
-                '<div class="st-studio-stack-row">' +
-                  '<div class="st-studio-left">' +
-                    '<span class="st-existing-caption st-new">New from scrape</span>' +
-                    studioMultiRadioHTML +
-                  '</div>' +
-                  newStudioLogoHTML +
-                '</div>' +
+                studioCardHTML(
+                  scraped.studio && scraped.studio.image,
+                  studioBannerUrl(scraped.studio),
+                  studioMultiRadioHTML,
+                  '',
+                  null,
+                  null,
+                  '<span class="st-existing-caption st-new">New from scrape</span>'
+                ) +
                 manualStudioRowHTML +
               '</div>' +
             '</div>'
@@ -1387,13 +1655,15 @@
               '<span class="st-inline-label st-label-static">' + sectionIcon("studio") + 'Studio</span>' +
               '<div class="st-studio-stack">' +
                 existingStudioRowHTML +
-                '<div class="st-studio-stack-row">' +
-                  '<div class="st-studio-left">' +
-                    '<label class="st-existing-caption st-new" style="cursor:pointer;"><input type="checkbox" data-cb="studio" data-artist-stored="' + (soloArtistObj.stored_id || '') + '"' + (soloChecked ? ' checked' : '') + '> New from scrape</label>' +
-                    studioSoloChipOnlyHTML +
-                  '</div>' +
-                  newStudioLogoHTML +
-                '</div>' +
+                studioCardHTML(
+                  scraped.studio && scraped.studio.image,
+                  studioBannerUrl(scraped.studio),
+                  studioSoloChipOnlyHTML,
+                  '',
+                  soloArtistObj.stored_id,
+                  soloArtistObj.stored_id,
+                  '<label class="st-existing-caption st-new" style="cursor:pointer;"><input type="checkbox" data-cb="studio" data-artist-stored="' + (soloArtistObj.stored_id || '') + '"' + (soloChecked ? ' checked' : '') + '> New from scrape</label>'
+                ) +
                 manualStudioRowHTML +
               '</div>' +
             '</div>'
@@ -1402,7 +1672,11 @@
           fields.push(
             '<div class="st-inline-field st-inline-artists">' +
               '<label class="st-inline-label"><input type="checkbox" data-cb="studio" data-artist-stored="' + (soloArtistObj.stored_id || '') + '"' + (soloChecked ? ' checked' : '') + '> Studio</label>' +
-              '<div>' + studioSoloChipHTML + '</div>' +
+              '<div>' + (scraped.studio && ((scraped.studio.image && !pluginConfig.hideStudioLogo) || studioBannerUrl(scraped.studio))
+                ? studioCardHTML(scraped.studio.image, studioBannerUrl(scraped.studio), studioSoloChipHTML, 'st-card-stacked', soloArtistObj.stored_id, soloArtistObj.stored_id)
+                : (soloArtistObj.stored_id
+                    ? '<div data-studio-lookup="' + esc(String(soloArtistObj.stored_id)) + '">' + studioSoloChipHTML + '</div>'
+                    : studioSoloChipHTML)) + '</div>' +
             '</div>'
           );
         }
@@ -1474,6 +1748,18 @@
           '<div class="st-inline-field">' +
             '<label class="st-inline-label"><input type="checkbox" data-cb="code" checked> Code</label>' +
             '<span class="st-chip st-chip-code">' + esc(scraped.code) + '</span>' +
+          '</div>'
+        );
+      }
+
+      // ── Stash ID (only when scraped from a stash-box: endpoint known)
+      if (scraped.remote_site_id && scraped._stashboxEndpoint) {
+        var curSid = ((scene && scene.stash_ids) || []).filter(function (x) { return x.endpoint === scraped._stashboxEndpoint; })[0];
+        fields.push(
+          '<div class="st-inline-field">' +
+            '<label class="st-inline-label"><input type="checkbox" data-cb="stashid" checked> Stash ID</label>' +
+            '<span class="st-chip st-chip-code" title="' + esc(scraped._stashboxEndpoint) + '">' + esc(scraped.remote_site_id) + '</span>' +
+            (curSid && curSid.stash_id !== scraped.remote_site_id ? '<span class="st-url-badge-new">replaces ' + esc(curSid.stash_id) + '</span>' : '') +
           '</div>'
         );
       }
@@ -1888,7 +2174,8 @@
           : '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-thumb-link scene-card-preview"><div class="st-thumb"></div></a>') +
         '</span>' +
         '<div class="st-row-info">' +
-          '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-filename st-scene-link">' + esc(fname) + '</a>' +
+          '<span class="st-filename st-scene-link" title="' + esc(fname) + '">' + esc(fname) + '</span>' +
+          foundViaHTML +
           hintHTML +
           manualUrlHTML +
         '</div>' +
@@ -2278,21 +2565,15 @@
           // Fetch the picked studio's own logo (only now, on click - not
           // per keystroke/result while typing) and drop it into the
           // reserved zone next to "Manually added".
-          var manualLogoZone = el.querySelector(".st-studio-manual-logo");
-          if (manualLogoZone) {
-            if (sid) {
-              gql("StudioImg", Q_STUDIO_IMAGE, { id: sid }).then(function (d) {
-                var img = d.findStudio && d.findStudio.image_path;
-                if (img) {
-                  manualLogoZone.classList.remove("st-studio-logo-empty");
-                  manualLogoZone.innerHTML = '<img src="' + esc(img) + '">';
-                }
-              }).catch(function () {});
-            } else {
-              // "+ Create ..." path - brand new studio, no image yet.
-              manualLogoZone.classList.add("st-studio-logo-empty");
-              manualLogoZone.innerHTML = ST_STUDIO_LOGO_PLACEHOLDER_SVG;
-            }
+          if (sid) {
+            gql("StudioImg", Q_STUDIO_IMAGE, { id: sid }).then(function (d) {
+              var st = d.findStudio || {};
+              var bm = st.details ? String(st.details).match(/(?:^|\s)bg:(\S+)/) : null;
+              setManualStudioCard(el, st.image_path, bm && !pluginConfig.hideStudioBanner ? bm[1] : null, sid);
+            }).catch(function () {});
+          } else {
+            // "+ Create ..." path - brand new studio, no image yet.
+            setManualStudioCard(el, null, null);
           }
         });
 
@@ -2311,15 +2592,13 @@
             overrideInput.setAttribute("data-studio-id", "");
             selectedSpan.style.display = "none";
             if (manualEmptyHint) manualEmptyHint.style.display = "";
-            var manualLogoZone = el.querySelector(".st-studio-manual-logo");
-            if (manualLogoZone) {
-              manualLogoZone.classList.add("st-studio-logo-empty");
-              manualLogoZone.innerHTML = ST_STUDIO_LOGO_PLACEHOLDER_SVG;
-            }
+            setManualStudioCard(el, null, null);
           });
         }
       }
     }
+
+    if (status === "scraped") hydrateStudioLookups(el);
 
     // "Check all/uncheck all" toggle for tags
     if (status === "scraped") {
@@ -3103,7 +3382,7 @@
           // skExtra-Multiple-Studios-Custom, which isn't published. Uncomment
           // if that plugin is ever published separately.
           // '<div class="st-setting-row">' +
-          //   '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
+          // '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
           // '</div>' +
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-performer"> Auto-check new performers</label>' +
@@ -3123,6 +3402,12 @@
         '</div>' +
         '<div class="st-setting-group">' +
           '<div class="st-setting-section-title">Display</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-studio-banner"> Hide studio banner</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-studio-logo"> Hide studio logo</label>' +
+          '</div>' +
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Thumbnail hover preview</label>' +
           '</div>' +
@@ -3586,6 +3871,8 @@
         if (panel) panel.style.display = "none";
         var btn = document.getElementById(BTN_ID);
         if (btn) { btn.textContent = "Scene Tagger"; btn.style.color = ""; btn.style.border = ""; }
+        var toolbarBtn = document.getElementById(TOOLBAR_BTN_GROUP_ID);
+        if (toolbarBtn) toolbarBtn.classList.remove("st-active");
       });
     }
 
@@ -3656,6 +3943,8 @@
     bindSettingCb("st-cfg-prioritize-existing", "prioritizeExistingStudio");
     bindSettingCb("st-cfg-use-url",             "useUrlIfPresent");
     // bindSettingCb("st-cfg-auto-other-studios", "autoAddOtherStudios"); // row hidden, see buildPanel()
+    bindSettingCb("st-cfg-hide-studio-banner",  "hideStudioBanner");
+    bindSettingCb("st-cfg-hide-studio-logo",    "hideStudioLogo");
     bindSettingCb("st-cfg-performer",           "autoCheckPerformer");
     bindSettingCb("st-cfg-tags",                "autoCheckNewTags");
     bindSettingCb("st-cfg-details",             "autoCheckDetails");
@@ -4232,6 +4521,8 @@
           state.visible = true;
           if (panelEl) panelEl.style.display = "";
         }
+        var toolbarBtn = document.getElementById(TOOLBAR_BTN_GROUP_ID);
+        if (toolbarBtn) toolbarBtn.classList.add("st-active");
         loadSingleScene(sceneID);
       });
     });
@@ -4287,6 +4578,13 @@
       btn.innerHTML = '<span class="st-toolbar-badge">ST</span>';
       btn.addEventListener("click", function (e) {
         e.stopPropagation();
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl && state.visible) {
+          state.visible = false;
+          panelEl.style.display = "none";
+          btn.classList.remove("st-active");
+          return;
+        }
         var sceneID = getCurrentSceneID(window.location.pathname);
         if (sceneID) openPanelForScene(sceneID);
       });
