@@ -2459,7 +2459,25 @@
 
 /* Logo wrapped in a link to the studio page */
 .st-slogo a { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
-.st-slogo a:hover { opacity: .85; }
+/* No hover effect on the studio logo link: no opacity change, and the
+   theme's global link/image hover effects (transition, filter, shine
+   pseudo-elements) are neutralized - they made the logo flicker. */
+#st-panel .st-slogo a,
+#st-panel .st-slogo a:hover,
+#st-panel .st-slogo a img,
+#st-panel .st-slogo a:hover img {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: none !important;
+  transition: none !important;
+  animation: none !important;
+  box-shadow: none !important;
+}
+#st-panel .st-slogo a::before,
+#st-panel .st-slogo a::after {
+  content: none !important;
+  display: none !important;
+}
 
 /* Caption/checkbox row above the cover, left-aligned with the fields */
 .st-studio-caption { padding: 0 0 6px; }
