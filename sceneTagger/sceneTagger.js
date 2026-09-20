@@ -60,6 +60,24 @@
     return s.id.indexOf(STASHBOX_PREFIX) === 0 || !!s.supportsName;
   }
 
+  // Search-title dropdown order: StashDB, ThePornDB, FansDB, other stash-boxes,
+  // JAVStash, then the YAML scrapers (original order kept inside each group).
+  function searchRank(s) {
+    var k = (s.id + " " + (s.name || "")).toLowerCase();
+    if (s.id.indexOf(STASHBOX_PREFIX) !== 0) return 100;
+    if (k.indexOf("stashdb") !== -1)   return 0;
+    if (k.indexOf("theporndb") !== -1) return 1;
+    if (k.indexOf("fansdb") !== -1)    return 2;
+    if (k.indexOf("javstash") !== -1)  return 4;
+    return 3;
+  }
+  function getSearchScrapers() {
+    return state.scrapers.filter(isSearchCapable)
+      .map(function (s, i) { return { s: s, i: i }; })
+      .sort(function (x, y) { return (searchRank(x.s) - searchRank(y.s)) || (x.i - y.i); })
+      .map(function (o) { return o.s; });
+  }
+
   function getStashBoxes() {
     return gql("GetStashBoxes", "query GetStashBoxes{configuration{general{stashBoxes{name endpoint}}}}")
       .then(function (d) {
@@ -2098,7 +2116,7 @@
     // auto-matched result).
     var titleSearchHTML = "";
     if (r.titleSearchOpen) {
-      var stashBoxes = state.scrapers.filter(isSearchCapable);
+      var stashBoxes = getSearchScrapers();
       var tsSelectedBoxID = r.titleSearchScraperID || (stashBoxes[0] && stashBoxes[0].id) || "";
       var tsQuery = r.titleSearchQuery != null ? r.titleSearchQuery : (scene.title || fname);
 
@@ -2904,7 +2922,7 @@
   window.stRunTitleSearch = function (id) {
     var r = state.rows[id];
     if (!r || !r.titleSearchOpen) return;
-    var stashBoxes = state.scrapers.filter(isSearchCapable);
+    var stashBoxes = getSearchScrapers();
     var scraperID = r.titleSearchScraperID || (stashBoxes[0] && stashBoxes[0].id) || "";
     var query = (r.titleSearchQuery || "").trim();
     if (!scraperID || !query) return;
@@ -2932,7 +2950,7 @@
     var r = state.rows[id];
     if (!r || !r.titleSearchResults || !r.titleSearchResults[idx]) return;
     var candidate = r.titleSearchResults[idx];
-    var stashBoxes = state.scrapers.filter(isSearchCapable);
+    var stashBoxes = getSearchScrapers();
     var box = stashBoxes.filter(function (s) { return s.id === r.titleSearchScraperID; })[0] || stashBoxes[0];
 
     function finish(scraped) {
