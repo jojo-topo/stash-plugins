@@ -621,6 +621,20 @@
     hideStudioBanner:        false,
     // Hides the studio logo in the studio cards; banners stay
     hideStudioLogo:          false,
+    // Mass list Cover position: false = aligned with the badges column (layout A),
+    // true = under the video thumbnail (layout B). Applied via a body class.
+    coverUnderThumb:         false,
+    // Mass list: full Details editor (like the Scrape scene popup) instead of
+    // the truncated chip
+    detailsEditorInList:     false,
+    // Header badge: show the scene's own title instead of the file name
+    // (only for scenes that have one)
+    showSceneTitleInHeader:  false,
+    // Mass list: Performers/Tags split into "Already on this scene" and "New from
+    // scrape" (performers stacked, tags side by side). Solo always does it.
+    splitExistingNew:        false,
+    // Sub-option of splitExistingNew: existing / new side by side instead of stacked
+    splitSideBySide:         false,
     // Scraper fallback chain: [{id, enabled}, ...] in priority order.
     // Reconciled with the real scraper list on every load (see
     // reconcileScraperChain) - never empty once the scrapers are loaded.
@@ -698,6 +712,11 @@
           if (cfg.autoAddOtherStudios !== undefined) pluginConfig.autoAddOtherStudios = !!cfg.autoAddOtherStudios;
           if (cfg.hideStudioBanner !== undefined) pluginConfig.hideStudioBanner = !!cfg.hideStudioBanner;
           if (cfg.hideStudioLogo !== undefined) pluginConfig.hideStudioLogo = !!cfg.hideStudioLogo;
+          if (cfg.coverUnderThumb !== undefined) pluginConfig.coverUnderThumb = !!cfg.coverUnderThumb;
+          if (cfg.detailsEditorInList !== undefined) pluginConfig.detailsEditorInList = !!cfg.detailsEditorInList;
+          if (cfg.showSceneTitleInHeader !== undefined) pluginConfig.showSceneTitleInHeader = !!cfg.showSceneTitleInHeader;
+          if (cfg.splitExistingNew !== undefined) pluginConfig.splitExistingNew = !!cfg.splitExistingNew;
+          if (cfg.splitSideBySide !== undefined) pluginConfig.splitSideBySide = !!cfg.splitSideBySide;
           if (cfg.scraperMode === "auto" || cfg.scraperMode === "manual") pluginConfig.scraperMode = cfg.scraperMode;
           if (cfg.useUrlIfPresent !== undefined) pluginConfig.useUrlIfPresent = !!cfg.useUrlIfPresent;
           if (cfg.compactMode     !== undefined) pluginConfig.compactMode     = !!cfg.compactMode;
@@ -731,6 +750,14 @@
         }
       })
       .catch(function () {});
+  }
+
+  // Mass list layout switch: body.st-cover-under-thumb (CSS picks layout B).
+  // A body class survives the panel's className rewrites (compact toggle).
+  function applyLayoutClasses() {
+    document.body.classList.toggle("st-cover-under-thumb", !!pluginConfig.coverUnderThumb);
+    document.body.classList.toggle("st-split-existing-new", !!pluginConfig.splitExistingNew);
+    document.body.classList.toggle("st-split-side", !!pluginConfig.splitSideBySide);
   }
 
   function savePluginConfig() {
@@ -928,7 +955,9 @@
     // value.
     var detailsEditEl = row.querySelector(".st-details-edit");
     if (detailsEditEl) {
-      filtered.details = detailsEditEl.value;
+      // Mass list editor has a per-row checkbox; solo has none (always applied)
+      var detailsEditCb = row.querySelector('[data-cb="details"]');
+      if (!detailsEditCb || detailsEditCb.checked) filtered.details = detailsEditEl.value;
     } else {
       var detailsCb = row.querySelector('[data-cb="details"]');
       if (detailsCb && detailsCb.checked && scraped.details) {
@@ -1185,7 +1214,10 @@
   // studio's logo and, if it has one, its banner cover.
   function setManualStudioCard(el, imgUrl, bannerUrl, studioId) {
     var card = el.querySelector(".st-studio-manual-card");
-    if (!card) return;
+    if (!card) {
+      setListPickedStudio(el, imgUrl, bannerUrl, studioId);
+      return;
+    }
     var idrow = card.querySelector(".st-studio-idrow");
     var logo = card.querySelector(".st-slogo");
     var oldCover = card.querySelector(".st-studio-cover");
@@ -1197,6 +1229,24 @@
       logo.innerHTML = ST_STUDIO_LOGO_PLACEHOLDER_SVG;
     }
     fillStudioCard(card, imgUrl, bannerUrl, false, studioId);
+  }
+
+  // Mass list (no "Manually added" card there): the studio picked through the
+  // search box gets its banner + logo shown between the search box and the
+  // selected-name chip. Only one studio can be picked at a time, so the card
+  // is simply replaced (or removed when the pick is cleared / has no image).
+  function setListPickedStudio(el, imgUrl, bannerUrl, studioId) {
+    var wrap = el.querySelector(".st-studio-search-wrap");
+    if (!wrap) return;
+    var old = wrap.querySelector(".st-studio-picked");
+    if (old) old.remove();
+    var logo = imgUrl && imgUrl.indexOf("default=true") === -1 ? imgUrl : null;
+    if (pluginConfig.hideStudioLogo) logo = null;
+    if (!logo && !bannerUrl) return;
+    var holder = document.createElement("div");
+    holder.className = "st-studio-picked";
+    holder.innerHTML = studioCardHTML(logo, bannerUrl, "", "st-card-stacked", null, studioId);
+    wrap.insertBefore(holder, wrap.querySelector(".st-studio-selected"));
   }
 
   // A studio that already exists locally (stored_id) but whose scraper gave
@@ -1227,6 +1277,29 @@
         while (node.firstChild) info.appendChild(node.firstChild);
         node.appendChild(card);
       }).catch(function () {});
+    });
+  }
+
+  var ST_ICON_COPY = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
+  var ST_ICON_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+
+  // Copies text; falls back to execCommand when the Clipboard API is
+  // unavailable (Stash served over plain http on the LAN is not a secure context).
+  function stCopyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) {}
+      ta.remove();
+      ok ? resolve() : reject(new Error("copy failed"));
     });
   }
 
@@ -1370,6 +1443,11 @@
 
     var thumb  = getThumb(scene);
     var fname  = getFilename(scene);
+    // Header badge text: the scene's own title when the setting is on and the
+    // scene has one, the file name otherwise (file name kept in the tooltip).
+    var sceneOwnTitle = (scene.title || "").trim();
+    var headerShowsTitle = !!(pluginConfig.showSceneTitleInHeader && sceneOwnTitle);
+    var headerLabel = headerShowsTitle ? sceneOwnTitle : fname;
     var r34url = getR34URL(scene);
     var r34id  = getR34ID(scene);
 
@@ -1799,7 +1877,16 @@
         '</div>' +
         '<div class="st-perfs-added"></div>';
 
-      if (isSolo) {
+      // Existing/new split: always in solo, opt-in in the mass list
+      // (setting splitExistingNew) - see the note on the else branches below.
+      // In the mass list, a field with nothing to compare (no performer /
+      // no tag, neither on the scene nor scraped) keeps its original
+      // compact layout instead of an empty two-part split.
+      var useSplitPerf = isSolo || (!!pluginConfig.splitExistingNew &&
+        ((scene.performers || []).length > 0 || (scraped.performers || []).length > 0));
+      var useSplitTags = isSolo || (!!pluginConfig.splitExistingNew &&
+        ((scene.tags || []).length > 0 || (scraped.tags || []).length > 0));
+      if (useSplitPerf) {
         // ── Already on this scene (kept as-is, not checkboxes - see the
         // merge step in getCheckedScraped()) vs new from the scrape.
         var existingPerfsHTML = (scene.performers && scene.performers.length)
@@ -1843,16 +1930,16 @@
           : '<span>Performers' + (perfsCountText ? ' <span class="st-count-hint">(' + perfsCountText + ')</span>' : '') + '</span>';
 
         fields.push(
-          '<div class="st-inline-field st-inline-performers">' +
-            '<div class="st-inline-label">' + sectionIcon("performers") + perfsLabel + '</div>' +
-            '<div class="st-split-cols">' +
+          '<div class="st-inline-field st-inline-performers' + (isSolo ? '' : ' st-split-list') + '">' +
+            '<div class="st-inline-label">' + (isSolo ? sectionIcon("performers") : '') + perfsLabel + '</div>' +
+            '<div class="st-split-cols' + (isSolo ? '' : ' st-split-stack') + '">' +
               '<div class="st-split-col">' +
                 '<span class="st-existing-caption">Already on this scene</span>' +
                 (existingPerfsHTML || '<span class="st-split-empty">None</span>') +
               '</div>' +
               '<div class="st-split-col">' +
-                '<span class="st-existing-caption st-new">New from scrape</span>' +
-                (perfItemsHTML ? '<div class="st-perfs-grid">' + perfItemsHTML + '</div>' : '<span class="st-split-empty">None found</span>') +
+                ((isSolo || perfItemsHTML) ? '<span class="st-existing-caption st-new">New from scrape</span>' : '') +
+                (perfItemsHTML ? '<div class="st-perfs-grid">' + perfItemsHTML + '</div>' : (isSolo ? '<span class="st-split-empty">None found</span>' : '')) +
                 perfSearchWidget +
               '</div>' +
             '</div>' +
@@ -1899,7 +1986,7 @@
           '</div>' +
           '<div class="st-tags-added"></div>';
 
-        if (isSolo) {
+        if (useSplitTags) {
           var existingTagsHTML = (scene.tags && scene.tags.length)
             ? '<div class="st-existing-pills">' + scene.tags.map(function (t) {
                 return '<span class="st-existing-pill">' + esc(t.name) + '</span>';
@@ -1933,16 +2020,16 @@
             : '<span>Tags' + (tagsCountText ? ' <span class="st-count-hint">(' + tagsCountText + ')</span>' : '') + '</span>';
 
           fields.push(
-            '<div class="st-inline-field st-inline-tags">' +
-              '<div class="st-inline-label">' + sectionIcon("tags") + tagsLabel + '</div>' +
-              '<div class="st-split-cols">' +
+            '<div class="st-inline-field st-inline-tags' + (isSolo ? '' : ' st-split-list') + '">' +
+              '<div class="st-inline-label">' + (isSolo ? sectionIcon("tags") : '') + tagsLabel + '</div>' +
+              '<div class="st-split-cols' + (isSolo ? '' : ' st-split-stack') + '">' +
                 '<div class="st-split-col">' +
                   '<span class="st-existing-caption">Already on this scene</span>' +
                   (existingTagsHTML || '<span class="st-split-empty">None</span>') +
                 '</div>' +
                 '<div class="st-split-col">' +
-                  '<span class="st-existing-caption st-new">New from scrape</span>' +
-                  (tagItems ? '<div class="st-tags-grid">' + tagItems + '</div>' : '<span class="st-split-empty">None found</span>') +
+                  ((isSolo || tagItems) ? '<span class="st-existing-caption st-new">New from scrape</span>' : '') +
+                  (tagItems ? '<div class="st-tags-grid">' + tagItems + '</div>' : (isSolo ? '<span class="st-split-empty">None found</span>' : '')) +
                   tagSearchWidget +
                 '</div>' +
               '</div>' +
@@ -1977,20 +2064,20 @@
       // best available, split into "Already on this scene" (read-only) /
       // "New from scrape (editable)" only when the two genuinely differ.
       // Mass list keeps the original checkbox+chip preview - see isSolo.
-      if (!isSolo) {
+      if (!isSolo && !pluginConfig.detailsEditorInList) {
         if (scraped.details) {
           var detailsParsedForDisplay = parseDetailsArtists(scraped.details);
           var hasRealContent = !!detailsParsedForDisplay.rest;
           var detailsChecked = pluginConfig.autoCheckDetails ? true : hasRealContent;
           var detailsShort = scraped.details.length > 80 ? scraped.details.substring(0, 80) + "…" : scraped.details;
           fields.push(
-            '<div class="st-inline-field">' +
+            '<div class="st-inline-field st-inline-details-chip">' +
               '<label class="st-inline-label"><input type="checkbox" data-cb="details"' + (detailsChecked ? ' checked' : '') + '> Details</label>' +
               '<span class="st-chip st-chip-details" title="' + esc(scraped.details) + '">' + esc(detailsShort) + '</span>' +
             '</div>'
           );
         }
-      } else {
+      } else if (isSolo || scraped.details) {
         var scrapedDetailsClean = scraped.details ? scraped.details.replace(/\[(\w+)\]/g, "").trim() : "";
         var existingDetailsText = (scene.details || "").trim();
         var hasNewDetails = !!scrapedDetailsClean && scrapedDetailsClean !== existingDetailsText;
@@ -2003,9 +2090,18 @@
               '<div class="st-details-readonly">' + (existingDetailsText ? esc(existingDetailsText) : '<span class="st-details-empty">(empty)</span>') + '</div>' +
             '</div>'
           : "";
+        // Solo: static label (always applied). Mass list editor: keeps the
+        // per-row checkbox, checked by the same rule as the short preview.
+        var detailsLabelHTML;
+        if (isSolo) {
+          detailsLabelHTML = '<span class="st-inline-label st-label-static">' + sectionIcon("details") + 'Details</span>';
+        } else {
+          var detailsListChecked = pluginConfig.autoCheckDetails ? true : !!parseDetailsArtists(scraped.details).rest;
+          detailsLabelHTML = '<label class="st-inline-label"><input type="checkbox" data-cb="details"' + (detailsListChecked ? ' checked' : '') + '> Details</label>';
+        }
         fields.push(
           '<div class="st-inline-field st-inline-details">' +
-            '<span class="st-inline-label st-label-static">' + sectionIcon("details") + 'Details</span>' +
+            detailsLabelHTML +
             '<div class="st-details-wrap' + (hasNewDetails ? ' st-details-split' : '') + '">' +
               detailsExistingColHTML +
               '<div class="st-details-col">' +
@@ -2024,7 +2120,10 @@
       if (!isSolo) {
         if (scraped.urls && scraped.urls.length) {
           var urlChips = scraped.urls.map(function (u) {
-            return '<a class="st-chip st-chip-url" href="' + esc(u) + '" target="_blank" rel="noopener" title="' + esc(u) + '">' + esc(u) + '</a>';
+            return '<span class="st-url-item">' +
+              '<a class="st-chip st-chip-url" href="' + esc(u) + '" target="_blank" rel="noopener" title="' + esc(u) + '">' + esc(u) + '</a>' +
+              '<button type="button" class="st-url-copy" data-url="' + esc(u) + '" title="Copy the full URL">' + ST_ICON_COPY + '</button>' +
+            '</span>';
           }).join("");
           fields.push(
             '<div class="st-inline-field st-inline-urls">' +
@@ -2192,7 +2291,7 @@
           : '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-thumb-link scene-card-preview"><div class="st-thumb"></div></a>') +
         '</span>' +
         '<div class="st-row-info">' +
-          '<span class="st-filename st-scene-link" title="' + esc(fname) + '">' + esc(fname) + '</span>' +
+          '<span class="st-filename st-scene-link" title="' + esc(headerShowsTitle ? headerLabel + '\n' + fname : fname) + '">' + esc(headerLabel) + '</span>' +
           foundViaHTML +
           hintHTML +
           manualUrlHTML +
@@ -2233,11 +2332,78 @@
       });
     }
 
+    // Mass list: Details editor and URL chips are as wide as the
+    // Apply / Skip / Organized row, so their right edge lines up with the
+    // Organized button. Published as --st-col-w on the row; measured from the
+    // first button's left edge to the last one's right edge (the actions
+    // container itself spans the whole row).
+    var syncColWidth = function () {
+      var panelForW = document.getElementById(PANEL_ID);
+      if (!panelForW || panelForW.classList.contains("st-panel-solo")) return;
+      var actionBtns = el.querySelectorAll(".st-inline-actions button");
+      if (!actionBtns.length) return;
+      var w = actionBtns[actionBtns.length - 1].getBoundingClientRect().right -
+              actionBtns[0].getBoundingClientRect().left;
+      if (w > 0) el.style.setProperty("--st-col-w", Math.round(w) + "px");
+    };
+    syncColWidth();
+    requestAnimationFrame(syncColWidth);
+
+    // Split view: the performer / tag search boxes end right after the "..."
+    // of their placeholder (measured with the input's own font).
+    var fitSearchToPlaceholder = function () {
+      var inputs = el.querySelectorAll(".st-split-list .st-perf-search-input, .st-split-list .st-tag-search-input");
+      if (!inputs.length) return;
+      var ctx = document.createElement("canvas").getContext("2d");
+      // All the boxes of the row get the width of the longest one (the
+      // performer box), so the tag box lines up with it on the right too.
+      var widest = 0;
+      inputs.forEach(function (input) {
+        var cs = window.getComputedStyle(input);
+        ctx.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+        var textW = ctx.measureText(input.placeholder || "").width;
+        var w = Math.ceil(textW + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
+                          parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth) + 6);
+        if (w > widest) widest = w;
+      });
+      if (widest > 0) {
+        inputs.forEach(function (input) {
+          if (input.parentElement) input.parentElement.style.width = widest + "px";
+        });
+      }
+    };
+    fitSearchToPlaceholder();
+    requestAnimationFrame(fitSearchToPlaceholder);
+
+    el.querySelectorAll(".st-url-copy").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        stCopyText(btn.getAttribute("data-url") || "").then(function () {
+          btn.innerHTML = ST_ICON_CHECK;
+          btn.classList.add("st-url-copy-ok");
+          setTimeout(function () {
+            btn.innerHTML = ST_ICON_COPY;
+            btn.classList.remove("st-url-copy-ok");
+          }, 1500);
+        }).catch(function () {});
+      });
+    });
+
     var detailsEdit = el.querySelector(".st-details-edit");
     if (detailsEdit) {
+      // Grows with its text (no resize grip anymore). Measured again on the
+      // next frame: the row may not be laid out yet when first built.
+      var autoGrowDetails = function () {
+        detailsEdit.style.height = "auto";
+        detailsEdit.style.height = (detailsEdit.scrollHeight + 2) + "px";
+      };
       detailsEdit.addEventListener("input", function () {
         r.detailsEditValue = detailsEdit.value;
+        autoGrowDetails();
       });
+      autoGrowDetails();
+      requestAnimationFrame(autoGrowDetails);
     }
 
     var dateField = el.querySelector(".st-date-field");
@@ -3360,6 +3526,7 @@
     if (!state.visible) panel.style.display = "none";
 
     panel.className = pluginConfig.compactMode ? "st-compact" : "";
+    applyLayoutClasses();
 
     panel.innerHTML =
       '<div id="st-titlebar">' +
@@ -3374,8 +3541,11 @@
         '<div class="st-setting-group">' +
           '<div class="st-setting-section-title">Scraping</div>' +
           '<div class="st-setting-row st-scraper-chain-row">' +
-            '<div class="st-blacklist-label">Scrapers (order = fallback priority)</div>' +
-            '<div id="st-scraper-chain"></div>' +
+            '<div class="st-setting-disclosure st-disclosure-flush" id="st-chain-toggle">' +
+              '<span class="st-setting-disclosure-chevron">&#9656;</span>' +
+              '<span class="st-setting-disclosure-label">Scrapers (order = fallback priority)</span>' +
+            '</div>' +
+            '<div id="st-chain-box" style="display:none"><div id="st-scraper-chain"></div></div>' +
           '</div>' +
           '<div class="st-setting-subtitle">Fallback behavior</div>' +
           '<div class="st-setting-row">' +
@@ -3425,6 +3595,21 @@
           '</div>' +
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-studio-logo"> Hide studio logo</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-cover-under-thumb"> Cover under the thumbnail (instead of aligned with the title)</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-details-editor"> Full Details editor in the mass list (instead of the short preview)</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scene-title-header"> Show the scene title instead of the file name (when it has one)</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-split-existing-new"> Split existing / new data</label>' +
+          '</div>' +
+          '<div class="st-setting-row st-setting-row-sub">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-split-side"> Side by side instead of stacked</label>' +
           '</div>' +
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Thumbnail hover preview</label>' +
@@ -3478,6 +3663,7 @@
             '<button class="st-btn st-btn-ghost" id="st-blacklist-add">+</button>' +
           '</div>' +
         '</div>' +
+        '<div id="st-settings-resize" title="Drag to resize - double-click to reset"></div>' +
       '</div>' +
       '<div id="st-panel-header">' +
         '<button class="st-btn st-btn-primary"  id="st-btn-scrape-all">Scrape All</button>' +
@@ -3955,6 +4141,7 @@
       el.addEventListener("change", function () {
         pluginConfig[key] = el.checked;
         savePluginConfig();
+        applyLayoutClasses();
       });
     }
     bindSettingCb("st-cfg-studio",              "autoCheckStudio");
@@ -3963,6 +4150,11 @@
     // bindSettingCb("st-cfg-auto-other-studios", "autoAddOtherStudios"); // row hidden, see buildPanel()
     bindSettingCb("st-cfg-hide-studio-banner",  "hideStudioBanner");
     bindSettingCb("st-cfg-hide-studio-logo",    "hideStudioLogo");
+    bindSettingCb("st-cfg-cover-under-thumb",   "coverUnderThumb");
+    bindSettingCb("st-cfg-details-editor",      "detailsEditorInList");
+    bindSettingCb("st-cfg-scene-title-header",  "showSceneTitleInHeader");
+    bindSettingCb("st-cfg-split-existing-new",  "splitExistingNew");
+    bindSettingCb("st-cfg-split-side",          "splitSideBySide");
     bindSettingCb("st-cfg-performer",           "autoCheckPerformer");
     bindSettingCb("st-cfg-tags",                "autoCheckNewTags");
     bindSettingCb("st-cfg-details",             "autoCheckDetails");
@@ -4002,6 +4194,64 @@
         var expanded = box.style.display !== "none";
         box.style.display = expanded ? "none" : "block";
         toggle.classList.toggle("st-setting-disclosure-open", !expanded);
+      });
+    })();
+    // Settings panel height: drag the bar at its bottom edge, double-click to
+    // go back to the automatic height. Remembered (per browser).
+    (function () {
+      var handle = document.getElementById("st-settings-resize");
+      var sp = document.getElementById("st-settings-panel");
+      if (!handle || !sp) return;
+      var applyHeight = function (h) {
+        sp.style.maxHeight = "none";
+        sp.style.flexShrink = "0";
+        sp.style.height = h + "px";
+      };
+      try {
+        var savedH = parseInt(localStorage.getItem("stSettingsHeight"), 10);
+        if (savedH >= 60) applyHeight(savedH);
+      } catch (e) {}
+      handle.addEventListener("mousedown", function (e) {
+        e.preventDefault();
+        var startY = e.clientY;
+        var startH = sp.getBoundingClientRect().height;
+        var move = function (ev) {
+          var h = Math.max(60, Math.min(window.innerHeight * 0.9, startH + ev.clientY - startY));
+          applyHeight(Math.round(h));
+        };
+        var up = function () {
+          document.removeEventListener("mousemove", move);
+          document.removeEventListener("mouseup", up);
+          try { localStorage.setItem("stSettingsHeight", String(parseInt(sp.style.height, 10))); } catch (err) {}
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+      });
+      handle.addEventListener("dblclick", function () {
+        sp.style.height = "";
+        sp.style.maxHeight = "";
+        sp.style.flexShrink = "";
+        try { localStorage.removeItem("stSettingsHeight"); } catch (e) {}
+      });
+    })();
+    // "Scrapers (order = fallback priority)": collapsed by default, last
+    // state remembered (per browser) since it's opened often while setting up
+    // the chain and rarely afterwards.
+    (function () {
+      var toggle = document.getElementById("st-chain-toggle");
+      var box = document.getElementById("st-chain-box");
+      if (!toggle || !box) return;
+      var setOpen = function (open) {
+        box.style.display = open ? "block" : "none";
+        toggle.classList.toggle("st-setting-disclosure-open", open);
+      };
+      var saved = false;
+      try { saved = localStorage.getItem("stScraperChainOpen") === "1"; } catch (e) {}
+      setOpen(saved);
+      toggle.addEventListener("click", function () {
+        var open = box.style.display === "none";
+        setOpen(open);
+        try { localStorage.setItem("stScraperChainOpen", open ? "1" : "0"); } catch (e) {}
       });
     })();
     // Not a plain bindSettingCb: data-preview-url/-duration are baked into

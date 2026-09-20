@@ -2575,3 +2575,192 @@
 #st-panel:not(.st-panel-solo):not(.st-compact) .st-cover-preview {
   width: 68px;
 }
+
+/* ── Cover layout B (mass list) ──
+   - Title: the badge starts on the same vertical line as the file name badge
+     (thumbnail 160px + 14px gap = 174px; minus the 10px field gap = 164px label).
+   - Cover: unchanged, still ends at the thumbnail's right edge (68px rule above).
+   - From Studio on, every field (and the Apply/Skip row) goes back to the right
+     of the thumbnail, on that same 174px line. */
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-field:has([data-cb="title"]) .st-inline-label {
+  min-width: 164px;
+}
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-artists,
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-artists ~ * {
+  margin-left: 174px;
+}
+
+/* ── Cover layout A (mass list, default; on top of B) ──
+   Cover joins Title on the same vertical line as the file name badge: same
+   164px label column, and the preview gets its normal size back (the 68px cap
+   above only existed to stop it overshooting the thumbnail's right edge).
+   Turned off by body.st-cover-under-thumb (setting "Cover under the thumbnail"),
+   which leaves layout B above in charge. */
+body:not(.st-cover-under-thumb) #st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-field:has([data-cb="cover"]) .st-inline-label {
+  min-width: 164px;
+}
+body:not(.st-cover-under-thumb) #st-panel:not(.st-panel-solo):not(.st-compact) .st-cover-preview {
+  width: auto;
+}
+
+/* Mass list: full Details editor (setting "Full Details editor in the mass list") */
+#st-panel:not(.st-panel-solo) .st-inline-details .st-details-wrap {
+  max-width: none;
+  flex: none;
+  width: var(--st-col-w, auto);
+}
+/* Same width as the Apply/Skip/Organized row (set from JS): when the scene
+   already has different details, stack the two blocks instead of side by side
+   so each one keeps that full width. */
+#st-panel:not(.st-panel-solo) .st-inline-details .st-details-wrap.st-details-split {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* No resize grip (the little dashes in the bottom-right corner) on the
+   Details editor - mass list and Scrape scene */
+.st-details-edit,
+#st-panel.st-panel-solo .st-details-edit {
+  resize: none;
+}
+
+/* Auto-growing Details editor: no inner scrollbar while it resizes */
+.st-details-edit,
+#st-panel.st-panel-solo .st-details-edit {
+  overflow-y: hidden;
+}
+
+/* Mass list: URLs go before Details (flex order), and the URL is cut with an
+   ellipsis at the width of the Apply/Skip/Organized row, with a copy button.
+   Selecting/copying works from the button (the link itself opens the page). */
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-details,
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-details-chip {
+  order: 1;
+}
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-actions {
+  order: 2;
+}
+.st-url-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #203040;
+  border-radius: 999px;
+  padding: 2px 4px 2px 12px;
+  box-sizing: border-box;
+  max-width: 100%;
+  width: var(--st-col-w, auto);
+}
+.st-url-item .st-chip-url {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  padding: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+  display: block;
+}
+.st-url-copy {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #6090b0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.st-url-copy:hover { background: #2c4258; color: #a9d2ea; }
+.st-url-copy.st-url-copy-ok { background: #3d6b3d; color: #dbeedb; }
+
+/* Mass list: existing / new split (setting "Split existing / new..."):
+   everything stacked, with extra air between the fields. */
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list .st-split-cols.st-split-stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+body.st-split-existing-new #st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-results {
+  gap: 16px;
+}
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list {
+  gap: 8px;
+}
+
+/* Settings: the Scrapers disclosure sits flush left (top of its group) */
+.st-disclosure-flush { margin-left: 0; }
+
+/* Split existing / new, side by side (sub-option): the stacked columns become
+   two columns, the "new" one wider (it holds most of the items). */
+body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list .st-split-cols.st-split-stack {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr);
+  gap: 14px;
+}
+
+/* Mass list: more air above Performers and Tags, so the performer search box
+   and the Tags label are no longer stuck together (with or without the split) */
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-performers,
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-tags {
+  margin-top: 10px;
+}
+
+/* Side by side: give Performers and Tags the same width so both "New from
+   scrape" columns start on the same vertical line. The fields shrink to their
+   content otherwise (align-items:flex-start on a column flex), and each
+   ended up with a different width, hence a different column split. */
+body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list .st-split-cols.st-split-stack {
+  align-self: stretch;
+  width: 100%;
+  max-width: 1200px;
+  box-sizing: border-box;
+}
+
+/* Settings panel: draggable bar at its bottom edge (sticky, so it stays
+   visible while the settings scroll) to resize the panel by hand. */
+#st-settings-resize {
+  position: sticky;
+  bottom: -12px;
+  height: 14px;
+  margin: 4px -18px -12px;
+  cursor: row-resize;
+  background: rgba(20, 22, 28, 0.92);
+  border-top: 1px solid #2e3440;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#st-settings-resize::after {
+  content: "";
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: #3b4252;
+}
+#st-settings-resize:hover::after { background: #5e81ac; }
+
+/* Split view: the performer / tag search boxes are only as long as their
+   placeholder text, not as wide as the column they sit in */
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list .st-perf-search-wrap,
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list .st-tag-search-wrap {
+  width: 250px;
+  max-width: 100%;
+}
+
+/* Split view: same gap above the performer search box as above the tag one
+   (.st-tag-search-wrap has 6px of its own, the performer one had none) */
+#st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list .st-perf-search-wrap {
+  margin-top: 6px;
+}
+
+/* Mass list: banner + logo of the studio picked through the search box */
+.st-studio-picked {
+  width: 280px;
+  max-width: 100%;
+  margin: 8px 0 6px;
+}

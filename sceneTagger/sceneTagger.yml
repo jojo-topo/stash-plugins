@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.10.2"
+version: "1.11.0"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -55,6 +55,31 @@ settings:
   hideStudioLogo:
     displayName: "Hide studio logo"
     description: "If enabled, the studio logo is not shown in the studio cards; the banner stays."
+    type: BOOLEAN
+
+  coverUnderThumb:
+    displayName: "Cover under the thumbnail"
+    description: "Mass list layout: if enabled, the Cover preview sits under the video thumbnail (compact); otherwise it is aligned with the title badge."
+    type: BOOLEAN
+
+  detailsEditorInList:
+    displayName: "Full Details editor in the mass list"
+    description: "If enabled, the mass list shows the full editable Details area (like the Scrape scene popup) instead of the short preview chip. The per-row Details checkbox stays."
+    type: BOOLEAN
+
+  showSceneTitleInHeader:
+    displayName: "Show the scene title instead of the file name"
+    description: "Mass list header badge: if enabled, shows the scene's own title instead of its file name when the scene has one (the file name stays in the tooltip)."
+    type: BOOLEAN
+
+  splitExistingNew:
+    displayName: "Split existing / new data"
+    description: "Mass list: if enabled, Performers and Tags are split into 'Already on this scene' and 'New from scrape' (stacked, or side by side with the sub-option). The 'New from scrape' title is hidden when nothing is new. Off by default."
+    type: BOOLEAN
+
+  splitSideBySide:
+    displayName: "Split existing / new: side by side"
+    description: "Sub-option of 'Split existing / new': shows 'Already on this scene' and 'New from scrape' side by side (Performers and Tags) instead of stacked."
     type: BOOLEAN
 
   useUrlIfPresent:
