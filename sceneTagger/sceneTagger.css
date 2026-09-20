@@ -2764,3 +2764,12 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
   max-width: 100%;
   margin: 8px 0 6px;
 }
+
+/* Side by side view: the "Already on this scene" performers run horizontally
+   and wrap at the column's edge (they were one per row, which made the field
+   very tall for scenes with many performers). */
+body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list .st-existing-pills-perf {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
