@@ -2438,8 +2438,8 @@
 .st-studio-idrow { display: flex; align-items: center; gap: 14px; padding: 4px 4px 4px 14px; }
 .st-studio-idrow.st-has-cover { align-items: flex-start; }
 .st-has-cover .st-slogo { margin-top: -30px; }
-.st-slogo { flex: none; height: 60px; overflow: hidden; background: #f5f5f5; display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
-.st-has-cover .st-slogo { border: 3px solid #1f252d; }
+.st-slogo { flex: none; height: 60px; overflow: hidden; background: transparent; display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.st-has-cover .st-slogo { border: 3px solid #1c1f27; background: #1c1f27; }
 .st-slogo img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .st-slogo.st-slogo-round { width: 60px; border-radius: 50%; }
 .st-slogo.st-slogo-round img { object-fit: cover; }
@@ -2563,7 +2563,7 @@
 .st-sh-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .st-sh-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
 .st-sh-row.st-sh-overlap { align-items: flex-end; padding-top: 0; padding-bottom: 10px; }
-.st-sh-row.st-sh-overlap .st-slogo { margin-top: -24px; border: 3px solid #1f252d; }
+.st-sh-row.st-sh-overlap .st-slogo { margin-top: -24px; border: 3px solid #1c1f27; background: #1c1f27; }
 .st-studio-hover .st-slogo { height: 48px; }
 .st-studio-hover .st-slogo.st-slogo-round { width: 48px; }
 .st-sh-text { min-width: 0; padding-bottom: 2px; }

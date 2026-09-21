@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.11.2"
+version: "1.11.3"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
