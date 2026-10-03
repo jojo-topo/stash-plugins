@@ -660,6 +660,9 @@
     // Sub-option (only has an effect if manualFallbackOnFail is enabled):
     // adds a text field to type the title by hand.
     manualFallbackAllowTitle:  false,
+    // Sub-option (needs manualFallbackAllowTitle): pre-fills the manual title
+    // with the file name (extension stripped).
+    manualFallbackPrefillFilename: true,
     // If enabled, hovering a thumbnail streams the source video directly
     // (scene.paths.stream, seeked to 10% in) - fully self-contained, no
     // generated preview clip and no companion plugin (videoHoverPreview)
@@ -722,6 +725,7 @@
           if (cfg.compactMode     !== undefined) pluginConfig.compactMode     = !!cfg.compactMode;
           if (cfg.manualFallbackOnFail     !== undefined) pluginConfig.manualFallbackOnFail     = !!cfg.manualFallbackOnFail;
           if (cfg.manualFallbackAllowTitle !== undefined) pluginConfig.manualFallbackAllowTitle = !!cfg.manualFallbackAllowTitle;
+          if (cfg.manualFallbackPrefillFilename !== undefined) pluginConfig.manualFallbackPrefillFilename = !!cfg.manualFallbackPrefillFilename;
           if (cfg.nativeHoverPreview !== undefined) pluginConfig.nativeHoverPreview = !!cfg.nativeHoverPreview;
           if (cfg.enableScrubControlsGrid !== undefined) pluginConfig.enableScrubControlsGrid = !!cfg.enableScrubControlsGrid;
           if (cfg.enableScrubControlsSolo !== undefined) pluginConfig.enableScrubControlsSolo = !!cfg.enableScrubControlsSolo;
@@ -1088,6 +1092,7 @@
   var studioHoverEl = null;
   var studioHoverToken = 0;
   var studioHoverCurrent = null;
+  var studioHoverTimer = null;
 
   function fetchStudioHoverData(id) {
     if (!id) return Promise.resolve(null);
@@ -1123,7 +1128,7 @@
       // settings): no card at all.
       if (!img && !banner) return;
       var logoHTML = img
-        ? '<div class="st-slogo st-slogo-round"><img src="' + esc(img) + '"></div>'
+        ? '<div class="st-slogo st-slogo-round">' + studioLogoInner(img, id) + '</div>'
         : "";
       if (studioHoverEl) studioHoverEl.remove();
       var el = document.createElement("div");
@@ -1147,10 +1152,20 @@
   }
 
   document.addEventListener("mouseover", function (e) {
-    var label = e.target && e.target.closest ? e.target.closest(".st-radio-item[data-studio-name]") : null;
-    if (label === studioHoverCurrent) return;
-    if (studioHoverEl || studioHoverCurrent) hideStudioHover();
-    if (label) showStudioHover(label);
+    var t = e.target;
+    // Mouse on the card itself: keep it open.
+    if (studioHoverEl && t && studioHoverEl.contains(t)) { clearTimeout(studioHoverTimer); return; }
+    var label = t && t.closest ? t.closest(".st-radio-item[data-studio-name]") : null;
+    if (label && label === studioHoverCurrent) { clearTimeout(studioHoverTimer); return; }
+    if (label) {
+      clearTimeout(studioHoverTimer);
+      if (studioHoverEl || studioHoverCurrent) hideStudioHover();
+      showStudioHover(label);
+    } else if (studioHoverEl || studioHoverCurrent) {
+      // Small grace delay so the mouse can cross the gap between row and card.
+      clearTimeout(studioHoverTimer);
+      studioHoverTimer = setTimeout(hideStudioHover, 250);
+    }
   });
 
   // Logo <img>, wrapped in a link to the studio's page when its local id is
@@ -1256,6 +1271,17 @@
   // chip (turned into a card only if something was found, moving the
   // existing nodes so their listeners survive).
   function hydrateStudioLookups(el) {
+    // Round logo in each row of the multi-studio radio list (existing studios only).
+    el.querySelectorAll(".st-radio-logo[data-logo-id]").forEach(function (node) {
+      if (node.getAttribute("data-lookup-done")) return;
+      node.setAttribute("data-lookup-done", "1");
+      fetchStudioHoverData(node.getAttribute("data-logo-id")).then(function (data) {
+        if (!data || !data.img) return;
+        node.classList.remove("st-radio-logo-empty");
+        node.style.display = "inline-flex";
+        node.innerHTML = studioLogoInner(data.img, node.getAttribute("data-logo-id"));
+      });
+    });
     el.querySelectorAll("[data-studio-lookup]").forEach(function (node) {
       if (node.getAttribute("data-lookup-done")) return;
       node.setAttribute("data-lookup-done", "1");
@@ -1693,6 +1719,7 @@
           var artistIsNew = !artist.stored_id;
           return '<label class="st-radio-item' + (isbl ? ' st-radio-blacklisted' : '') + '" data-studio-name="' + esc(artist.name) + '" data-studio-id="' + esc(String(artist.stored_id || "")) + '">' +
             '<input type="radio" name="' + esc(radioName) + '" data-cb="studio-radio" data-artist="' + esc(artist.name) + '" data-artist-stored="' + (artist.stored_id ? "1" : "") + '"' + checkedAttr + '> ' +
+            (pluginConfig.hideStudioLogo || !artist.stored_id ? '' : '<span class="st-radio-logo st-radio-logo-empty" data-logo-id="' + esc(String(artist.stored_id)) + '"></span>') +
             '<span class="st-selectable">' + esc(artist.name) + '</span>' +
             (artistIsNew ? ' <span class="st-new-badge">new</span>' : '') +
             (!isbl ? '<button class="st-blacklist-btn" data-artist="' + esc(artist.name) + '" title="Blacklist this studio">&#128683;</button>' : '') +
@@ -3059,6 +3086,11 @@
       r.scraped = {};
       r.manualFallback = true;
       r.msg = msg;
+      // Pre-fill the manual title with the file name (extension stripped)
+      // so the user starts from something editable instead of an empty field.
+      if (pluginConfig.manualFallbackAllowTitle && pluginConfig.manualFallbackPrefillFilename && !r.manualTitle && r.scene) {
+        r.manualTitle = getFilename(r.scene).replace(/^.*[\\\/]/, "").replace(/\.[A-Za-z0-9]{1,5}$/, "");
+      }
       applyOrganizedAutoDefault(r);
     } else {
       r.status = "error";
@@ -3186,7 +3218,7 @@
     if (!filtered) return;
     r.status = "applying"; renderRow(id);
 
-    applyScrapedData(id, filtered)
+    return applyScrapedData(id, filtered)
       .then(function () {
         r.status = "done"; renderRow(id); updatePageInfo();
         updateStatus("Applied: " + getFilename(r.scene));
@@ -3326,14 +3358,21 @@
     setApplyAllBtn(true);
     updateStatus("Bulk apply: " + todo.length + " scenes...");
 
-    var seq = Promise.resolve();
+    // Pause optionnelle du watcher Watchtower (plugin watchtowerGuard) : sans effet s'il est absent
+    var guard = window.watchtowerGuard;
+    var guardReady = guard ? guard.pause() : Promise.resolve();
+    var pending = [];
+    var seq = guardReady;
     todo.forEach(function (scene) {
       seq = seq.then(function () {
-        window.stApplyOne(scene.id);
+        pending.push(window.stApplyOne(scene.id));
         return new Promise(function (resolve) { setTimeout(resolve, 300); });
       });
     });
-    seq.then(function () { updateStatus("All scenes applied"); updatePageInfo(); });
+    seq.then(function () { return Promise.all(pending); })
+      .catch(function () {})
+      .then(function () { return guard ? guard.resume() : null; })
+      .then(function () { updateStatus("All scenes applied"); updatePageInfo(); });
   }
 
   // ── Skip All ────────────────────────────────────────────────────────────────
@@ -3556,6 +3595,9 @@
           '</div>' +
           '<div class="st-setting-row st-setting-row-sub">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-manual-fallback-title"> Allow manual title</label>' +
+          '</div>' +
+          '<div class="st-setting-row st-setting-row-sub">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-manual-fallback-prefill"> Pre-fill title with file name</label>' +
           '</div>' +
         '</div>' +
         '<div class="st-setting-group">' +
@@ -4161,7 +4203,8 @@
     bindSettingCb("st-cfg-mark-organized",      "autoMarkOrganized");
     bindSettingCb("st-cfg-manual-fallback",       "manualFallbackOnFail");
     bindSettingCb("st-cfg-manual-fallback-title", "manualFallbackAllowTitle");
-    bindSettingCb("st-cfg-scrub-bar",             "scrubBarVisible");
+    bindSettingCb("st-cfg-manual-fallback-prefill", "manualFallbackPrefillFilename");
+    bindSettingCb("st-cfg-scrub-bar",            "scrubBarVisible");
     bindSettingCb("st-cfg-keyboard-seek",         "enableKeyboardSeek");
 
     function bindSettingNum(elId, key, defVal, minVal) {

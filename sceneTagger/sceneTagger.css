@@ -1571,6 +1571,18 @@
   cursor: pointer;
   flex-shrink: 0;
 }
+.st-radio-logo {
+  flex: none;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #2a303a;
+}
+.st-radio-logo a { display: flex; width: 100%; height: 100%; cursor: pointer; }
+.st-radio-logo:hover { box-shadow: 0 0 0 2px rgba(136,192,208,0.7); }
+.st-radio-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.st-radio-logo.st-radio-logo-empty { display: none; }
 /* Selected studio radio in solid fill — same "solid = active" language
    as the tag/chip colors above, blue to match the Studio chip. */
 .st-radio-item:has(input:checked) {
@@ -2551,23 +2563,22 @@
 .st-studio-hover {
   position: fixed;
   z-index: 2147483000;
-  width: 260px;
+  width: 520px;
   background: #1f252d;
   border: 1px solid #2e3440;
-  border-radius: 12px;
+  border-radius: 24px;
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
 }
-.st-sh-cover { height: 66px; background: #1b2028; }
+.st-sh-cover { height: 132px; background: #1b2028; }
 .st-sh-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.st-sh-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
-.st-sh-row.st-sh-overlap { align-items: flex-end; padding-top: 0; padding-bottom: 10px; }
-.st-sh-row.st-sh-overlap .st-slogo { margin-top: -24px; border: 3px solid #1c1f27; background: #1c1f27; }
-.st-studio-hover .st-slogo { height: 48px; }
-.st-studio-hover .st-slogo.st-slogo-round { width: 48px; }
-.st-sh-text { min-width: 0; padding-bottom: 2px; }
-.st-sh-name { color: #e6edf3; font-weight: 600; font-size: 13px; }
+.st-sh-row { display: flex; align-items: center; gap: 20px; padding: 20px 24px; }
+.st-sh-row.st-sh-overlap { align-items: flex-end; padding-top: 0; padding-bottom: 20px; }
+.st-sh-row.st-sh-overlap .st-slogo { margin-top: -48px; border: 6px solid #1c1f27; background: #1c1f27; }
+.st-studio-hover .st-slogo { height: 96px; }
+.st-studio-hover .st-slogo.st-slogo-round { width: 96px; }
+.st-sh-text { min-width: 0; padding-bottom: 4px; }
+.st-sh-name { color: #e6edf3; font-weight: 600; font-size: 26px; }
 
 /* Mass list: the Cover preview stops at the thumbnail's right edge.
    Thumbnail = 160px wide from the row padding; the preview starts after the

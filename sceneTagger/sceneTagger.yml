@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.11.3"
+version: "1.12.0"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -98,6 +98,11 @@ settings:
   manualFallbackAllowTitle:
     displayName: "Also allow manual title entry"
     description: "Sub-option of 'Manual fill-in when scraping fails': adds a text field to type the title by hand."
+    type: BOOLEAN
+
+  manualFallbackPrefillFilename:
+    displayName: "Pre-fill manual title with file name"
+    description: "Sub-option of 'Also allow manual title entry': pre-fills the title field with the file name (extension stripped) after a failed scrape."
     type: BOOLEAN
 
   nativeHoverPreview:
