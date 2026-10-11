@@ -663,6 +663,9 @@
     // Sub-option (needs manualFallbackAllowTitle): pre-fills the manual title
     // with the file name (extension stripped).
     manualFallbackPrefillFilename: true,
+    // Cleans the text sent by "Search title" (strips extension, dates,
+    // resolutions and punctuation) - some scrapers (Pornhub) 404 on it.
+    cleanSearchTitle: false,
     // If enabled, hovering a thumbnail streams the source video directly
     // (scene.paths.stream, seeked to 10% in) - fully self-contained, no
     // generated preview clip and no companion plugin (videoHoverPreview)
@@ -726,6 +729,7 @@
           if (cfg.manualFallbackOnFail     !== undefined) pluginConfig.manualFallbackOnFail     = !!cfg.manualFallbackOnFail;
           if (cfg.manualFallbackAllowTitle !== undefined) pluginConfig.manualFallbackAllowTitle = !!cfg.manualFallbackAllowTitle;
           if (cfg.manualFallbackPrefillFilename !== undefined) pluginConfig.manualFallbackPrefillFilename = !!cfg.manualFallbackPrefillFilename;
+          if (cfg.cleanSearchTitle !== undefined) pluginConfig.cleanSearchTitle = !!cfg.cleanSearchTitle;
           if (cfg.nativeHoverPreview !== undefined) pluginConfig.nativeHoverPreview = !!cfg.nativeHoverPreview;
           if (cfg.enableScrubControlsGrid !== undefined) pluginConfig.enableScrubControlsGrid = !!cfg.enableScrubControlsGrid;
           if (cfg.enableScrubControlsSolo !== undefined) pluginConfig.enableScrubControlsSolo = !!cfg.enableScrubControlsSolo;
@@ -3100,6 +3104,19 @@
 
   // ── Search title (query-based: stash-box or NAME-capable YAML scraper) ────
 
+  // Strips what makes some scrapers fail: file extension, dates
+  // (10-09-26, 2026.10.09), resolutions (1080p, 4K), then every
+  // non-letter/digit character. Accents are kept.
+  function cleanSearchQuery(s) {
+    return String(s || "")
+      .replace(/.[A-Za-z0-9]{2,4}$/, "")
+      .replace(/(^|[^0-9])d{1,4}[-._/]d{1,2}[-._/]d{1,4}(?![0-9])/g, "$1 ")
+      .replace(/(^|[^A-Za-z0-9])(?:d{3,4}p|[248]k)(?![A-Za-z0-9])/gi, "$1 ")
+      .replace(/[^p{L}p{N}s]|_/gu, " ")
+      .replace(/s+/g, " ")
+      .trim();
+  }
+
   window.stToggleTitleSearch = function (id) {
     var r = state.rows[id];
     if (!r) return;
@@ -3112,7 +3129,10 @@
       // without writing it into r here too, stRunTitleSearch() sees an
       // empty r.titleSearchQuery and bails out on a totally untouched
       // field (confirmed session 2026-09-16: clicking Search did nothing).
-      if (!r.titleSearchQuery) r.titleSearchQuery = r.scene.title || getFilename(r.scene);
+      if (!r.titleSearchQuery) {
+        r.titleSearchQuery = r.scene.title || getFilename(r.scene);
+        if (pluginConfig.cleanSearchTitle) r.titleSearchQuery = cleanSearchQuery(r.titleSearchQuery);
+      }
     }
     renderRow(id);
   };
@@ -3123,6 +3143,10 @@
     var stashBoxes = getSearchScrapers();
     var scraperID = r.titleSearchScraperID || (stashBoxes[0] && stashBoxes[0].id) || "";
     var query = (r.titleSearchQuery || "").trim();
+    if (pluginConfig.cleanSearchTitle) {
+      query = cleanSearchQuery(query);
+      r.titleSearchQuery = query;
+    }
     if (!scraperID || !query) return;
 
     r.titleSearchLoading = true; r.titleSearchError = ""; r.titleSearchResults = null;
@@ -3598,6 +3622,9 @@
           '</div>' +
           '<div class="st-setting-row st-setting-row-sub">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-manual-fallback-prefill"> Pre-fill title with file name</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-clean-search"> Clean title in "Search title" (strip dates, resolution, punctuation)</label>' +
           '</div>' +
         '</div>' +
         '<div class="st-setting-group">' +
@@ -4204,6 +4231,7 @@
     bindSettingCb("st-cfg-manual-fallback",       "manualFallbackOnFail");
     bindSettingCb("st-cfg-manual-fallback-title", "manualFallbackAllowTitle");
     bindSettingCb("st-cfg-manual-fallback-prefill", "manualFallbackPrefillFilename");
+    bindSettingCb("st-cfg-clean-search",          "cleanSearchTitle");
     bindSettingCb("st-cfg-scrub-bar",            "scrubBarVisible");
     bindSettingCb("st-cfg-keyboard-seek",         "enableKeyboardSeek");
 

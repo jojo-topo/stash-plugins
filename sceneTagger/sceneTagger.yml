@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.12.0"
+version: "1.12.1"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -103,6 +103,11 @@ settings:
   manualFallbackPrefillFilename:
     displayName: "Pre-fill manual title with file name"
     description: "Sub-option of 'Also allow manual title entry': pre-fills the title field with the file name (extension stripped) after a failed scrape."
+    type: BOOLEAN
+
+  cleanSearchTitle:
+    displayName: "Clean title in Search title"
+    description: "Strips the file extension, dates, resolutions and punctuation from the text sent by 'Search title' (some scrapers like Pornhub return 404 otherwise)."
     type: BOOLEAN
 
   nativeHoverPreview:
