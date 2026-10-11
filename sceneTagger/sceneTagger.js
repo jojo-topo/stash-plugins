@@ -3109,11 +3109,11 @@
   // non-letter/digit character. Accents are kept.
   function cleanSearchQuery(s) {
     return String(s || "")
-      .replace(/.[A-Za-z0-9]{2,4}$/, "")
-      .replace(/(^|[^0-9])d{1,4}[-._/]d{1,2}[-._/]d{1,4}(?![0-9])/g, "$1 ")
-      .replace(/(^|[^A-Za-z0-9])(?:d{3,4}p|[248]k)(?![A-Za-z0-9])/gi, "$1 ")
-      .replace(/[^p{L}p{N}s]|_/gu, " ")
-      .replace(/s+/g, " ")
+      .replace(/\.[A-Za-z0-9]{2,4}$/, "")
+      .replace(/(^|[^0-9])\d{1,4}[-._\/]\d{1,2}[-._\/]\d{1,4}(?![0-9])/g, "$1 ")
+      .replace(/(^|[^A-Za-z0-9])(?:\d{3,4}p|[248]k)(?![A-Za-z0-9])/gi, "$1 ")
+      .replace(/[^\p{L}\p{N}\s]|_/gu, " ")
+      .replace(/\s+/g, " ")
       .trim();
   }
 
