@@ -2784,3 +2784,104 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
   flex-wrap: wrap;
   align-items: center;
 }
+
+
+/* ── Mobile (phone) layout, session 2026-10-15 ──
+   Fullscreen panel, single-column rows, bigger touch targets. !important is
+   needed to beat the inline top/left/width/height the desktop drag/resize
+   JS writes onto #st-panel. Desktop is untouched (rules live only in this
+   media query). */
+/* Tablet + phone: fullscreen panel (same page-wide treatment as on phones).
+   The single-column row layout below stays phone-only (<=768px). */
+@media (max-width: 1100px) {
+  #st-panel,
+  #st-panel.st-panel-solo {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    min-width: 0 !important;
+    border-radius: 0 !important;
+    border: none;
+  }
+  #st-titlebar { border-radius: 0; padding: 12px 14px; }
+  #st-resize-handle { display: none !important; }
+  /* Base rule caps #st-rows at 100vh minus a 130px top offset + headers,
+     which leaves a gap under the footer once the panel is fullscreen. */
+  #st-rows { max-height: none; }
+  #st-panel-footer { border-radius: 0; }
+}
+
+@media (max-width: 768px) {
+
+  #st-panel-header { padding: 10px 12px; gap: 8px; }
+  /* Header on phones: Auto/Manual keeps its natural spot (right after
+     Clear) while it fits on the first row; only when the row is too narrow
+     for it does it drop underneath the filter group (container query on the
+     header's own width, not the viewport). The filter group always takes
+     its own full row. */
+  #st-panel-header { container-type: inline-size; }
+  .st-filter-radios { order: 1; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; margin-left: 0; }
+  @container (max-width: 410px) {
+    #st-btn-scraper-mode, #st-scraper-select-manual { order: 2; }
+  }
+  /* Even narrower: Clear wraps too, so it joins Auto on the last row
+     (same order -> DOM order kept, Clear then Auto) instead of sitting
+     alone on its own line above the filters. */
+  @container (max-width: 340px) {
+    #st-btn-clear { order: 2; }
+  }
+  #st-status-bar { padding: 6px 12px; flex-wrap: wrap; }
+  .st-btn { min-height: 40px; padding: 8px 14px; }
+  .st-combo-btn { min-height: 40px; }
+  .st-combo-option { padding: 10px 12px; }
+
+  .st-row-top,
+  #st-panel.st-panel-solo .st-row-top {
+    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 14px 12px;
+    gap: 10px;
+  }
+  .st-thumb-clip,
+  #st-panel.st-panel-solo .st-thumb-clip {
+    width: 100%;
+    max-width: 320px;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  .st-row-info { width: 100%; }
+  .st-row-btn { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .st-row-btn .st-btn { width: auto; min-width: 108px; }
+  .st-manual-url-wrap,
+  #st-panel.st-panel-solo .st-manual-url-wrap { max-width: 100%; width: 100%; }
+
+  .st-inline-results,
+  .st-title-search,
+  #st-panel.st-panel-solo .st-inline-results,
+  #st-panel.st-panel-solo .st-title-search {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .st-inline-field:not(.st-inline-tags):not(.st-inline-performers):not(.st-inline-artists):not(.st-inline-urls):not(.st-inline-details):not(.st-inline-date):not(.st-inline-cover) {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .st-inline-label { min-width: 0; }
+  #st-panel input[type="text"],
+  #st-panel input[type="search"],
+  #st-panel input:not([type]),
+  #st-panel textarea,
+  #st-panel select {
+    font-size: 16px; /* stops iOS from zooming on focus */
+    min-height: 40px;
+    max-width: 100%;
+  }
+  #st-panel-footer { padding-left: 12px; padding-right: 12px; flex-wrap: wrap; }
+}
