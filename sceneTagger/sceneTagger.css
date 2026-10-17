@@ -419,6 +419,11 @@
 #st-panel.st-panel-solo .st-row {
   background: transparent;
 }
+/* Solo: a scraped row has no green line (the one row IS the panel). */
+#st-panel.st-panel-solo .st-row.st-state-scraped {
+  background: transparent;
+  box-shadow: none;
+}
 
 #st-panel {
   position: fixed;
@@ -764,9 +769,23 @@
 .st-row:last-child { border-bottom: none; }
 .st-row:hover { background: #1c1f27; }
 .st-state-scraping  { background: #181d2a; }
-.st-state-scraped   { background: #141d14; }
+/* Scraped: a thin azure "neon" outline (#4286c4) all around the row, rounded
+   corners and a soft inner glow, marks "scraped, ready to apply" - it replaced a
+   dark green gradient that no longer matched the card colours. Inset shadows,
+   so nothing shifts (an outer glow would be clipped by the scrolling list);
+   a small margin keeps the rounded outline off the panel edges. */
+.st-state-scraped {
+  background: transparent;
+  border-radius: 10px;
+  margin: 5px 8px;
+  border-bottom-color: transparent;
+  box-shadow: inset 0 0 0 2px #4286c4, inset 0 0 14px rgba(66, 134, 196, 0.18);
+}
+.st-row.st-state-scraped:hover {
+  background: #1c1f27;
+}
 .st-state-applying  { background: #181d2a; }
-.st-state-done      { background: #131a13; }
+.st-state-done      { background: #152b49; }
 .st-state-error     { background: #1d1414; }
 .st-state-skipped   { opacity: 0.42; }
 
@@ -998,8 +1017,9 @@
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #a3be8c1e;
-  color: #a3be8c;
+  background: #5db0ff;
+  color: #0a1626;
+  box-shadow: 0 0 10px #5db0ff44;
   font-size: 15px;
   line-height: 1;
 }
@@ -2785,6 +2805,96 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
   align-items: center;
 }
 
+/* ── Drag & drop a cover image ──
+   Solo: while an image is dragged over the window, every cover tile gets a
+   dimmed dashed overlay; only the tile under the cursor (.st-hot) shows the
+   "Drop an image" label. Mass list: the row thumbnail shows the same label
+   (.st-dropover). Dropped image = extra "Dropped image" tile / pending cover. */
+#st-panel.st-panel-solo .st-cover-option { position: relative; }
+.st-tile-ov {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  box-sizing: border-box;
+  border-radius: 9px;
+  border: 2px dashed #4a6070;
+  background: #0f1115b3;
+  color: #88c0d0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.st-tile-ov-lbl {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.st-tile-ov-lbl small {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #9fb3c4;
+}
+.st-tile-ov svg { width: 28px; height: 28px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+#st-panel.st-dragging .st-tile-ov { display: flex; }
+.st-tile-ov.st-hot {
+  border-color: #88c0d0;
+  background: #0f1115d9;
+  box-shadow: 0 0 0 3px #88c0d033;
+}
+.st-tile-ov.st-hot .st-tile-ov-lbl { display: flex; }
+
+#st-panel.st-panel-solo .st-cover-caption.st-dropped { color: #b48ead; }
+.st-cover-rm {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #000a;
+  color: #eceff4;
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  cursor: pointer;
+}
+.st-cover-rm:hover { background: #bf616a; }
+#st-panel.st-panel-solo .st-cover-custom-wrap .st-cover-rm { right: 50%; margin-right: -104px; }
+.st-cover-rm-inline { position: static; align-self: center; flex-shrink: 0; }
+
+/* Mass list: thumbnail as drop target */
+#st-panel.st-dragging:not(.st-panel-solo) .st-thumb-clip { outline: 2px dashed #4a6070; outline-offset: -2px; }
+.st-thumb-clip.st-dropover::after {
+  content: "Drop an image";
+  position: absolute;
+  inset: 0;
+  background: #0f1115d9;
+  border: 2px dashed #88c0d0;
+  border-radius: 8px;
+  color: #88c0d0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
 
 /* ── Mobile (phone) layout, session 2026-10-15 ──
    Fullscreen panel, single-column rows, bigger touch targets. !important is
@@ -2792,8 +2902,10 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
    JS writes onto #st-panel. Desktop is untouched (rules live only in this
    media query). */
 /* Tablet + phone: fullscreen panel (same page-wide treatment as on phones).
+   Also on any touch-first device whatever its width, so an iPad held in
+   landscape (wider than 1100px) doesn't fall back to the floating window.
    The single-column row layout below stays phone-only (<=768px). */
-@media (max-width: 1100px) {
+@media (max-width: 1100px), (pointer: coarse) {
   #st-panel,
   #st-panel.st-panel-solo {
     top: 0 !important;
@@ -2856,11 +2968,22 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
     height: auto;
     aspect-ratio: 16 / 9;
   }
-  .st-row-info { width: 100%; }
-  .st-row-btn { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  /* Beats the mass-list "align-items: start" rule (id + two :not()). */
+  #st-panel:not(.st-panel-solo):not(.st-compact) .st-row-top { align-items: center; }
+  #st-panel .st-row-info,
+  #st-panel:not(.st-panel-solo):not(.st-compact) .st-row-info { width: 100%; align-items: center; }
+  #st-panel .st-hint { text-align: center; }
+  #st-panel .st-row-btn {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+  }
   .st-row-btn .st-btn { width: auto; min-width: 108px; }
-  .st-manual-url-wrap,
-  #st-panel.st-panel-solo .st-manual-url-wrap { max-width: 100%; width: 100%; }
+  #st-panel .st-manual-url-wrap,
+  #st-panel.st-panel-solo .st-manual-url-wrap { max-width: 320px; width: 100%; align-self: center; margin-left: auto; margin-right: auto; }
 
   .st-inline-results,
   .st-title-search,
@@ -2884,4 +3007,948 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
     max-width: 100%;
   }
   #st-panel-footer { padding-left: 12px; padding-right: 12px; flex-wrap: wrap; }
+}
+
+
+/* Touch screens (tablets and phones, any width): bigger tap targets.
+   Gated on the pointer type, not the width, so a mouse on a small desktop
+   window keeps the compact look. */
+@media (pointer: coarse) {
+  .st-btn { min-height: 40px; }
+  .st-combo-btn { min-height: 40px; }
+  .st-manual-url-input { min-height: 38px; font-size: 14px; padding: 6px 10px; }
+  .st-manual-url-wrap { max-width: 420px; }
+  .st-combo-option { padding: 10px 12px; }
+  /* The sliding indicator's top/bottom are fixed offsets and its left/width
+     are measured from the item boxes, so growing the items is safe. */
+  .st-filter-item { padding: 10px 14px; font-size: 13px; }
+  .st-multi-studio-toggle { padding: 10px 14px; font-size: 13px; }
+}
+
+/* Tablet-sized touch screens (just above the phone breakpoint): keep the
+   whole header (actions + filters) on one line by tightening paddings and
+   gaps. The threshold is 769px, not 900px: a real iPad Pro 13 in Safari
+   reported a layout viewport of ~836 CSS px (measured from a screenshot,
+   session 2026-10-15), so a 900px gate never matched there. */
+@media (pointer: coarse) and (min-width: 769px) {
+  #st-panel-header { flex-wrap: nowrap; gap: 8px; padding-left: 14px; padding-right: 14px; }
+  #st-panel-header .st-btn { min-height: 40px; padding: 8px 14px; }
+  #st-panel-header .st-combo-btn { min-height: 40px; padding: 8px 12px; }
+  #st-panel-header .st-filter-item { padding: 10px 13px; }
+  #st-panel-header .st-multi-studio-toggle { padding: 10px 14px; margin-left: 0; }
+  #st-panel-header .st-filter-radios { gap: 8px; }
+}
+
+/* Phones (touch, <=768px): header controls a bit smaller than on tablets so
+   they fit the narrow width. Scoped to the header so the per-row Scrape /
+   Search title buttons keep their full tap size. */
+@media (pointer: coarse) and (max-width: 768px) {
+  #st-panel-header { gap: 6px; }
+  #st-panel-header .st-btn { min-height: 37px; padding: 6px 12px; font-size: 12.5px; }
+  #st-panel-header .st-combo-btn { min-height: 37px; padding: 6px 10px; font-size: 12.5px; }
+  #st-panel-header .st-filter-item { padding: 8px 10px; font-size: 12.5px; }
+  #st-panel-header .st-multi-studio-toggle { padding: 8px 11px; font-size: 12.5px; margin-left: 0; }
+  #st-panel-header .st-multi-studio-toggle svg { width: 13px; height: 13px; }
+}
+
+
+/* Setting "Fullscreen panel on desktop": same rules as the tablet/phone
+   block above, gated on a class instead of a media query. */
+  #st-panel.st-fullscreen,
+  #st-panel.st-fullscreen.st-panel-solo {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    min-width: 0 !important;
+    border-radius: 0 !important;
+    border: none;
+  }
+  #st-panel.st-fullscreen #st-titlebar { border-radius: 0; padding: 12px 14px; }
+  #st-panel.st-fullscreen #st-resize-handle { display: none !important; }
+  /* Base rule caps #st-rows at 100vh minus a 130px top offset + headers,
+     which leaves a gap under the footer once the panel is fullscreen. */
+  #st-panel.st-fullscreen #st-rows { max-height: none; }
+  #st-panel.st-fullscreen #st-panel-footer { border-radius: 0; }
+
+
+/* Fullscreen on a wide window (the "Fullscreen panel on desktop" setting):
+   the mass-list rows get larger elements to use the extra room. Mass list
+   only (solo and compact keep their own layouts), and >768px so the phone
+   single-column layout is untouched. */
+@media (min-width: 769px) {
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-row-top {
+    grid-template-columns: 240px 1fr auto;
+    gap: 20px;
+    padding: 14px 22px;
+  }
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-thumb-clip {
+    width: 240px;
+    height: 135px;
+    border-radius: 10px;
+  }
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-filename {
+    font-size: 14px;
+    padding: 5px 14px;
+  }
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-r34-link,
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-found-via span {
+    font-size: 13px;
+    padding: 4px 14px;
+  }
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-manual-url-wrap { max-width: 460px; }
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-manual-url-input {
+    font-size: 14px;
+    padding: 8px 12px;
+    min-height: 38px;
+  }
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-row-btn .st-btn {
+    width: 136px;
+    min-height: 40px;
+    font-size: 14px;
+  }
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-inline-results,
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-title-search {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+  #st-panel.st-fullscreen:not(.st-panel-solo):not(.st-compact) .st-inline-label { font-size: 13px; }
+
+}
+
+
+/* "NSFW mode" header button: blurs every image/video in the panel plus the
+   floating hover previews (those live on <body>, hence the body class).
+   clip-path keeps the blur from bleeding outside each element's box. */
+#st-btn-nsfw.st-btn-nsfw-on {
+  border-color: #88c0d0;
+  color: #a5cfe6;
+  background: #88c0d01a;
+}
+body.st-nsfw-on #st-panel img,
+body.st-nsfw-on #st-panel video,
+body.st-nsfw-on .st-perf-hover-preview,
+body.st-nsfw-on .st-studio-hover img {
+  filter: blur(14px);
+  clip-path: inset(0 round 8px);
+}
+
+/* Studio banners stay sharp in SFW mode (logos/avatars/thumbnails blur). */
+body.st-nsfw-on #st-panel .st-studio-cover img,
+body.st-nsfw-on .st-studio-hover .st-sh-cover img {
+  filter: none;
+  clip-path: none;
+}
+
+
+/* ── Banner layout (setting "Banner layout") ──
+   Mass list, scraped rows only (rows that carry .st-inline-results), wide
+   windows only: the details go to the right of the video (260px column, file
+   title under the thumbnail), and the studio becomes a banner header on top
+   of the details column (banner strip, square logo overlapping it, big name,
+   search box on the right). No banner -> compact header without the strip.
+   "None" candidate / no studio -> just the search box. */
+@media (min-width: 769px) {
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    column-gap: 24px;
+    align-items: start;
+    padding: 14px 22px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-row-top {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 0;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) .st-thumb-clip {
+    width: 260px;
+    height: 146px;
+    border-radius: 10px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) .st-row-info { width: 100%; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) .st-filename {
+    display: inline-block;
+    max-width: 100%;
+    white-space: normal;
+    overflow: visible;
+    line-height: 1.35;
+    border-radius: 12px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-inline-results,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-title-search {
+    grid-column: 2;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-inline-results { padding-top: 0; }
+
+  /* Undo the old "everything lines up under the thumbnail" offsets */
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-field:has([data-cb="title"]) .st-inline-label,
+  body:not(.st-cover-under-thumb) #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-field:has([data-cb="cover"]) .st-inline-label {
+    min-width: 82px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-artists,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-artists ~ * { margin-left: 0; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-preview,
+  body:not(.st-cover-under-thumb) #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-preview {
+    width: auto;
+    max-height: 72px;
+  }
+
+  /* Studio field first, as the banner header */
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-results { display: flex; flex-direction: column; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-artists {
+    order: -1;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists > .st-inline-label,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists > .st-label-static { min-width: 0; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-card { width: 100%; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-cover {
+    height: 92px;
+    width: 100%;
+    border-radius: 14px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-idrow {
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    padding: 2px 16px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-idrow.st-has-cover { align-items: flex-start; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-idrow.st-has-cover .st-slogo {
+    margin-top: -30px;
+    margin-left: 0;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo.st-slogo-round,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo.st-slogo-wide,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo.st-slogo-empty {
+    width: 64px;
+    height: 64px;
+    max-width: none;
+    border-radius: 16px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-has-cover .st-slogo.st-slogo-round,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-has-cover .st-slogo.st-slogo-wide,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-has-cover .st-slogo.st-slogo-empty {
+    width: 76px;
+    height: 76px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo img { object-fit: cover; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-bl-initial { font-size: 26px; font-weight: 600; color: #9fb0d0; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo.st-slogo-empty { background: #34405a; color: #9fb0d0; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-info {
+    flex: 1;
+    min-width: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0 4px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-idrow:not(.st-has-cover) .st-studio-info { padding: 0; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-chip-studio {
+    background: none;
+    color: #eceff4;
+    font-size: 1.3rem;
+    font-weight: 600;
+    padding: 0;
+    border-radius: 0;
+    max-width: none;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-search-wrap {
+    margin: 0 0 0 auto;
+    width: 260px;
+    max-width: 100%;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-picked { width: 260px; }
+
+  /* Several candidates: pills under the header */
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-radio-group {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 20px;
+  }
+  /* None candidate / no studio: only the search box */
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-card.st-bl-empty .st-studio-cover,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-card.st-bl-empty .st-slogo,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-card.st-bl-empty .st-bl-name { display: none; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-card.st-bl-empty .st-studio-idrow { padding: 0; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-card.st-bl-empty .st-studio-search-wrap { margin-left: 0; }
+}
+
+/* Banner layout: a manually picked studio sits next to the header card */
+@media (min-width: 769px) {
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-artists.st-bl-has-picked {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 16px;
+    row-gap: 6px;
+    align-items: start;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists.st-bl-has-picked > .st-inline-label,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists.st-bl-has-picked > .st-label-static {
+    grid-column: 1 / -1;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-picked { min-width: 0; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-picked .st-studio-caption { padding: 0 0 6px; }
+}
+
+/* Banner layout alignment fixes (session 2026-10-15):
+   - both cards' names sit at the same height, at the top of the info block
+     (it used to be centred on a tall stack: search box + picked chip, which
+     pushed the name far below the banner);
+   - the "Manually added" caption floats over the corner of the second card
+     instead of pushing it lower than the first one. */
+@media (min-width: 769px) {
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-info {
+    align-items: flex-start;
+    align-content: flex-start;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-chip-studio {
+    padding: 4px 0 0;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-search-wrap { margin-top: 2px; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-picked { position: relative; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-picked .st-studio-caption {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    padding: 0;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-picked .st-existing-caption {
+    background: rgba(0, 0, 0, 0.55);
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+}
+
+/* Banner layout: the studio search box moves to its own row under the
+   header, aligned with the detail values (82px label column + 10px gap).
+   .st-studio-info is flattened (display: contents) so the name and the search
+   wrap become flex items of the id row; the wrap takes the second row. */
+@media (min-width: 769px) {
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-idrow {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-info { display: contents; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-chip-studio {
+    flex: 1 1 0;
+    min-width: 0;
+    align-self: flex-start;
+    padding: 12px 0 0;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-idrow:not(.st-has-cover) .st-chip-studio {
+    align-self: center;
+    padding: 0;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-search-wrap {
+    order: 3;
+    flex: 0 0 calc(100% - 76px);
+    margin: 6px 0 4px 76px;
+    width: auto;
+    max-width: none;
+  }
+  /* The wrap is full width only to force its own row; the box itself stays
+     260px wide like the other detail inputs. */
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-search-input,
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-search-results {
+    max-width: 260px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-card.st-bl-empty .st-studio-search-wrap { margin-left: 92px; }
+}
+
+/* ── Cover card under the video (setting "Cover card under the video") ──
+   Needs Banner layout. Cover rules copied from the single-scene panel with a
+   mass-list prefix; the card sits in the left column (260px) under the title. */
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-cover {
+  background: #20262f;
+  border: 1px solid #2c3542;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-cover .st-inline-label {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #e4e7eb;
+  text-transform: none;
+  letter-spacing: normal;
+  margin-bottom: 13px;
+  min-width: 0;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-section-icon { display: flex; }
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-cover {
+  align-items: stretch;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-options {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-option img {
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 9px;
+  border: 2px solid #2c3542;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-option:hover img {
+  border-color: #4a6070;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-option.st-cover-selected img {
+  border-color: #5e81ac;
+  box-shadow: 0 0 0 3px #5e81ac33;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-caption {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5c6773;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-caption.st-new { color: #d0a868; }
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-option.st-cover-selected .st-cover-caption {
+  color: #88c0d0;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-empty {
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  border: 2px dashed #2c3542;
+}
+
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-option { position: relative; }
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row-info .st-inline-cover { margin: 8px 0 0; width: 100%; box-sizing: border-box; padding: 12px; }
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row-info .st-inline-cover .st-cover-options { flex-direction: column; align-items: center; gap: 12px; }
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row-info .st-inline-cover .st-cover-option img,
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row-info .st-inline-cover .st-cover-empty { width: 100%; max-width: 220px; }
+
+/* Cover card mode: video (thumbnail + title) and Cover share ONE card in the
+   left column - the row-top block becomes the card, the Cover section inside
+   it loses its own box and is just separated by a thin line. */
+@media (min-width: 769px) {
+  #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-row-top {
+    background: #20262f;
+    border: 1px solid #2c3542;
+    border-radius: 10px;
+    padding: 12px;
+    box-sizing: border-box;
+    width: 260px;
+    gap: 10px;
+  }
+  #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) .st-thumb-clip {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row-info .st-inline-cover {
+    background: none;
+    border: none;
+    border-top: 1px solid #2c3542;
+    border-radius: 0;
+    margin: 4px 0 0;
+    padding: 12px 0 0;
+  }
+}
+
+/* ── Details in one card (setting "Details in one card", needs Banner layout) ──
+   The detail fields are wrapped in .st-onecard by renderRow: one card with the
+   single-scene panel's colours, sections separated by a thin line (stacked), or
+   in two columns with .st-one-card-cols. The studio search box lines up with
+   the card's inner edge. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard {
+    background: #20262f;
+    border: 1px solid #2c3542;
+    border-radius: 10px;
+    padding: 4px 18px;
+    margin-top: 4px;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field {
+    padding: 10px 0;
+    margin: 0;
+    border-top: 1px solid #2c3542;
+    background: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:first-child { border-top: none; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-label { font-weight: 650; color: #e4e7eb; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-search-wrap { margin-left: 2px; max-width: calc(100% - 2px); flex-basis: calc(100% - 2px); }
+}
+@media (min-width: 769px) {
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0 18px;
+  }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field {
+    grid-column: 1 / -1;
+    order: 7;
+    min-width: 0;
+  }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]) { grid-column: 1; order: 1; border-top: none; padding-right: 18px; }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) { grid-column: 2; order: 2; border-top: none; padding-left: 18px; border-left: 1px solid #2c3542; }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-performers { grid-column: 1; order: 3; padding-right: 18px; }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls { grid-column: 2; order: 4; padding-left: 18px; border-left: 1px solid #2c3542; }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-tags { order: 5; }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-details { order: 6; }
+}
+
+/* Cover card mode: the file title goes ABOVE the thumbnail (row-info is
+   flattened so its children join the row-top flex column; the title takes
+   order -1). */
+@media (min-width: 769px) {
+  #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-row-top > .st-row-info { display: contents; }
+  #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-row-top .st-filename {
+    order: -1;
+    align-self: stretch;
+    text-align: left;
+  }
+}
+
+/* One card: shorter Details editor (it grows with its text), search box
+   exactly on the card's inner edge (card border 1px + padding 18px = 19px). */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-details-edit { max-height: 90px; overflow-y: auto; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-search-wrap { margin-left: 3px; max-width: calc(100% - 3px); flex-basis: calc(100% - 3px); }
+}
+
+/* One card, stacked variant: same section order as the two-column one
+   (Title, Date, Performers, URLs, Tags, Details) - a flex column so the
+   order values apply. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard { display: flex; flex-direction: column; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field { order: 7; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]) { order: 1; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) { order: 2; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-performers { order: 3; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls { order: 4; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-tags { order: 5; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-details { order: 6; }
+  /* the first section in visual order must not show a top line */
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]) { border-top: none; }
+}
+/* two-column variant keeps its grid */
+@media (min-width: 769px) {
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard { display: grid; }
+}
+
+/* One card, studio included: the studio banner header is the first section of
+   the card (full card width), the other sections follow with their top line. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists {
+    order: 0;
+    grid-column: 1 / -1;
+    border-top: none;
+    padding: 12px 0 10px;
+    margin: 0;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]),
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) {
+    border-top: 1px solid #2c3542;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-artists .st-studio-idrow { padding-left: 0; padding-right: 0; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-artists .st-studio-search-wrap {
+    margin-left: 0;
+    max-width: 100%;
+    flex-basis: 100%;
+  }
+}
+
+/* One card: the studio section always comes first (beats the section order
+   rules of the stacked / two-column variants). */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists {
+    order: -1 !important;
+    grid-column: 1 / -1 !important;
+  }
+}
+
+/* Cover card mode: file title centred above the thumbnail. */
+@media (min-width: 769px) {
+  #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-row-top .st-filename {
+    text-align: center;
+  }
+}
+
+/* One card: the Title chip shows the whole title (wraps instead of being cut
+   at 300px) - it only wraps when it would go past its section. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-chip-title {
+    max-width: 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    border-radius: 12px;
+    line-height: 1.35;
+  }
+}
+
+/* One card, two columns: Performers and Tags are both full width so their
+   existing / new columns line up (same split widths); URLs | Details share the
+   last row. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-performers {
+    grid-column: 1 / -1;
+    order: 3;
+    padding-right: 0;
+  }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-tags { order: 4; }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls {
+    grid-column: 1;
+    order: 5;
+    padding-left: 0;
+    padding-right: 18px;
+    border-left: none;
+  }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-details {
+    grid-column: 2;
+    order: 5;
+    padding-left: 18px;
+    border-left: 1px solid #2c3542;
+  }
+}
+
+/* One card, single studio: the banner is full bleed - it takes the whole top
+   of the card, edge to edge, no border or rounded corners of its own (the
+   card's rounded corners clip it). The "Studio" checkbox label floats over
+   its top-left corner. With two studios side by side (manual pick) the
+   header goes back to the inset look. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard { overflow: hidden; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) {
+    position: relative;
+    margin: -4px -18px 0;
+    padding: 0 0 10px;
+  }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) { margin-top: 0; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) > .st-inline-label {
+    position: absolute;
+    top: 8px;
+    left: 19px;
+    z-index: 4;
+    margin: 0;
+    padding: 2px 10px 2px 8px;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 999px;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) .st-studio-cover {
+    border-radius: 0;
+    height: 100px;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) .st-studio-idrow { padding-left: 18px; padding-right: 18px; }
+}
+
+/* Banner layout: "Manually added" is a small label beside the studio name,
+   below the banner (it used to float over the banner corner). */
+@media (min-width: 769px) {
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-picked .st-bl-manual-badge {
+    flex: none;
+    align-self: flex-start;
+    margin: 14px 0 0;
+    white-space: nowrap;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-bl-picked .st-studio-idrow:not(.st-has-cover) .st-bl-manual-badge { align-self: center; margin: 0; }
+}
+
+/* One card: taller full-bleed banner when the studio is alone, and URLs
+   always placed before Details so they share the last row (URLs | Details). */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) .st-studio-cover { height: 140px; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) .st-studio-idrow.st-has-cover .st-slogo { margin-top: -34px; }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-details { order: 6; }
+}
+
+/* One card, two columns: Details on the left, URLs on the right. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-details {
+    grid-column: 1;
+    order: 5;
+    padding-left: 0;
+    padding-right: 18px;
+    border-left: none;
+  }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls {
+    grid-column: 2;
+    order: 6;
+    padding-left: 18px;
+    padding-right: 0;
+    border-left: 1px solid #2c3542;
+  }
+}
+
+/* One card: the single-scene panel's small section icons (injected by
+   withSectionIcon) are shown, and long titles are cut at two lines with an
+   ellipsis instead of growing taller. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-section-icon { display: flex; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-label { align-items: center; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-chip-title,
+  #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-row-top .st-filename {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    text-overflow: ellipsis;
+  }
+}
+
+/* One card, studio WITHOUT a banner: no full-bleed trick, no floating label -
+   a normal "Studio" label row above the compact header (the floating pill sat
+   on top of the logo). */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked):not(:has(.st-studio-cover)) {
+    margin: 0;
+    padding: 12px 0 10px;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked):not(:has(.st-studio-cover)) > .st-inline-label {
+    position: static;
+    margin: 0 0 8px;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked):not(:has(.st-studio-cover)) .st-studio-idrow { padding-left: 0; padding-right: 0; }
+}
+
+/* One card: a label that wraps a checkbox (Tags, Performers...) lines up
+   checkbox, icon and text on one row. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-label > label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-label > label .st-section-icon { margin-right: 3px; }
+}
+
+/* One card: the Studio label's icon is for a studio WITHOUT a banner (with or
+   without a logo); when a banner is present the label floats over it and the
+   icon stays hidden. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:has(.st-studio-cover) > .st-inline-label .st-section-icon { display: none; }
+}
+
+/* One card: section icon first, then the name, the checkbox on the right. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-label > .st-section-icon,
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-label > label > .st-section-icon { order: -1; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-label > input[type="checkbox"],
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-label > label > input[type="checkbox"] {
+    order: 1;
+    margin: 0 0 0 8px;
+  }
+}
+
+
+/* ── Narrow panel (class st-narrow, set from JS when #st-panel is < 760px wide:
+   phone, or a desktop panel dragged small) ──
+   Banner layout / one card / cover card are wide-screen layouts; in a narrow
+   panel they fall back to a single column, centred like the phone layout.
+   !important on purpose: those layouts are built from long selectors. */
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) {
+  display: block !important;
+  padding: 10px 12px !important;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-row-top {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  width: auto !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  margin: 0 0 8px !important;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) .st-thumb-clip {
+  width: 100% !important;
+  max-width: 320px !important;
+  height: auto !important;
+  aspect-ratio: 16 / 9;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-inline-results,
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-title-search {
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-onecard {
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 4px 12px !important;
+  overflow: visible !important;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-onecard > * {
+  grid-column: auto !important;
+  order: 0 !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  border-left: none !important;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists {
+  order: -1 !important;
+  margin: 0 -12px !important;
+  padding: 0 12px 10px !important;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-artists,
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-inline-results .st-inline-artists ~ * {
+  margin-left: 0 !important;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-inline-field:has([data-cb="title"]) .st-inline-label,
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-inline-field:has([data-cb="cover"]) .st-inline-label {
+  min-width: 0 !important;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-split-cols,
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-split-cols.st-split-stack {
+  grid-template-columns: minmax(0, 1fr) !important;
+  max-width: 100% !important;
+}
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-inline-field { max-width: 100%; box-sizing: border-box; }
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-details-edit,
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-details-wrap { width: 100% !important; max-width: 100% !important; box-sizing: border-box; }
+#st-panel.st-narrow:not(.st-panel-solo):not(.st-compact) .st-inline-actions { justify-content: center; flex-wrap: wrap; }
+
+/* One card: the existing / new split uses the full card width - a narrow
+   "Already on this scene" column and a wide "New from scrape" one, so the new
+   tags (and performers) spread over the empty space on the right and take
+   fewer rows. Same widths for Performers and Tags, so their columns line up. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-cols,
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-cols.st-split-stack {
+    grid-template-columns: minmax(0, 300px) minmax(0, 1fr) !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+}
+
+/* One card: the search box of "Already on this scene" sits at the BOTTOM of
+   its column, so Performers and Tags both leave the same gap between the box
+   and the line below, whatever the height of the "New from scrape" column. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-cols > .st-split-col:first-child {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-cols > .st-split-col:first-child .st-perf-search-wrap,
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-cols > .st-split-col:first-child .st-tag-search-wrap {
+    margin-top: auto;
+    padding-top: 10px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+/* ...and neither search wrap keeps a bottom margin (the tag one had 6px), so
+   the two gaps to the line below are identical. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-cols > .st-split-col:first-child .st-perf-search-wrap,
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-cols > .st-split-col:first-child .st-tag-search-wrap {
+    margin-bottom: 0;
+  }
+}
+
+/* One card: the (empty) "added tags" strip under the search box added 6px, so
+   Tags ended lower than Performers; hidden while it is empty. */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-col .st-tags-added:empty,
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-col .st-perfs-added:empty { display: none; }
+}
+
+/* Setting "Blue outline around scraped rows" off: a scraped row looks like any
+   other row again (no outline, no margin, square corners). */
+#st-panel.st-no-outline .st-row.st-state-scraped {
+  box-shadow: none;
+  margin: 0;
+  border-radius: 0;
+  border-bottom-color: #1e2128;
+}
+
+/* Copy button on the existing Details text: top right of the grey box, shown
+   when the box is hovered (or the button focused with the keyboard). */
+.st-copy-wrap { position: relative; }
+.st-copy-wrap .st-details-readonly { padding-right: 38px; }
+.st-copy-text {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #3b4252;
+  border-radius: 6px;
+  background: #1e2229;
+  color: #8892a0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
+}
+.st-copy-wrap:hover .st-copy-text,
+.st-copy-text:focus-visible,
+.st-copy-text.st-copy-text-ok { opacity: 1; }
+.st-copy-text:hover { color: #d8dee9; border-color: #4a6070; background: #252c35; }
+.st-copy-text.st-copy-text-ok { color: #8fd19e; border-color: #3f7a50; background: #16261c; }
+
+/* Setting "Copy icon ... always visible": no hover needed. */
+#st-panel.st-copy-always .st-copy-text { opacity: 1; }
+
+/* Title chip: double-click to rename (see the dblclick handler in renderRow). */
+.st-chip-title { cursor: text; }
+.st-chip-title.st-chip-edited { box-shadow: inset 0 0 0 1px #88c0d066; }
+#st-panel .st-chip-title.st-chip-editing {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  text-overflow: clip;
+  outline: 2px solid #88c0d0;
+  outline-offset: 1px;
+  background: #1e2229;
+  color: #eceff4;
+  cursor: text;
+  user-select: text;
 }

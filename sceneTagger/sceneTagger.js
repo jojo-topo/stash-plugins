@@ -16,6 +16,14 @@
   var BTN_ID    = "st-toggle-btn";
   var REOPEN_FLAG = "st-reopen-after-reload";
 
+  // Stash UI (the separate app at /plugin/stashui/assets/) has no PluginApi:
+  // events become a no-op there and the panel is driven through _host (see
+  // window.stSceneTaggerHost at the end of this file).
+  var PluginEvent = (window.PluginApi && window.PluginApi.Event) || { addEventListener: function () {} };
+  var _host = null;      // { fetchIds(page) -> Promise<{ids, page, total}> } when opened from Stash UI
+  var _hostInfo = null;  // last page info returned by _host.fetchIds()
+  var _hostSolo = false; // the solo panel was opened from a Stash UI scene page
+
   // ── GraphQL ────────────────────────────────────────────────────────────────
 
   function gql(opName, query, variables) {
@@ -325,7 +333,8 @@
   var Q_FS_EXACT = "query FSE($n:String!){findStudios(studio_filter:{name:{value:$n,modifier:EQUALS}},filter:{per_page:1}){studios{id name}}}";
   var Q_FS_ALIAS = "query FSA($n:String!){findStudios(studio_filter:{aliases:{value:$n,modifier:EQUALS}},filter:{per_page:5}){studios{id name aliases}}}";
   var Q_FS_SEARCH = "query FSS($n:String!){findStudios(studio_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:8}){studios{id name}}}";
-  var M_CS = "mutation CS($n:String!,$image:String,$url:String){studioCreate(input:{name:$n,image:$image,url:$url}){id}}";
+  var M_CS = "mutation CS($n:String!,$image:String,$url:String,$details:String){studioCreate(input:{name:$n,image:$image,url:$url,details:$details}){id}}";
+  var M_STUDIO_UPD = "mutation SU($input:StudioUpdateInput!){studioUpdate(input:$input){id}}";
   var Q_FP        = "query FP($n:String!){findPerformers(performer_filter:{name:{value:$n,modifier:EQUALS}},filter:{per_page:1}){performers{id}}}";
   var Q_FP_SEARCH       = "query FPS($n:String!){findPerformers(performer_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name image_path}}}";
   var Q_FP_SEARCH_ALIAS = "query FPSA($n:String!){findPerformers(performer_filter:{aliases:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){performers{id name image_path}}}";
@@ -413,6 +422,9 @@
   //    exact-name check has to run here too, not just an alias check.
   // undefined = never checked, null = checked and not found, otherwise = id.
   var studioAliasBadgeCache = {};
+  // Canonical (parent) studio name for each resolved candidate name - used
+  // to show the existing studio's name instead of the scraped alias.
+  var studioNameCache = {};
 
   function getCachedStudioAliasId(name) {
     if (!name) return null;
@@ -435,22 +447,32 @@
       if (studioAliasBadgeCache[key] === undefined) toCheck.push(n);
     });
     if (!toCheck.length) return Promise.resolve(false);
+    // Space/underscore/case-insensitive key: an alias stored as
+    // "unknown_showhey" must match a scraped "unknown showhey".
+    function normName(s) { return String(s).toLowerCase().replace(/_/g, " ").trim(); }
     return Promise.all(toCheck.map(function (n) {
-      return gql("FS", Q_FS, { n: n }).then(function (d) {
+      return gql("FSE", Q_FS_EXACT, { n: n }).then(function (d) {
         var exact = (d.findStudios || {}).studios || [];
         if (exact.length) {
           studioAliasBadgeCache[n.toLowerCase()] = exact[0].id;
+          studioNameCache[n.toLowerCase()] = exact[0].name;
           return true;
         }
-        return gql("FSA", Q_FS_ALIAS, { n: n }).then(function (d2) {
-          var studios = (d2.findStudios || {}).studios || [];
+        var variants = [n, n.replace(/ /g, "_"), n.replace(/_/g, " ")].filter(function (v, i, a) { return a.indexOf(v) === i; });
+        return Promise.all(variants.map(function (v) {
+          return gql("FSA", Q_FS_ALIAS, { n: v }).then(function (d2) { return (d2.findStudios || {}).studios || []; });
+        })).then(function (lists) {
+          var studios = [].concat.apply([], lists);
           var match = null;
-          for (var i = 0; i < studios.length; i++) {
+          for (var i = 0; i < studios.length && !match; i++) {
             var aliases = studios[i].aliases || [];
             for (var j = 0; j < aliases.length; j++) {
-              if (aliases[j].toLowerCase() === n.toLowerCase()) { match = studios[i].id; break; }
+              if (normName(aliases[j]) === normName(n)) {
+                match = studios[i].id;
+                studioNameCache[n.toLowerCase()] = studios[i].name;
+                break;
+              }
             }
-            if (match) break;
           }
           studioAliasBadgeCache[n.toLowerCase()] = match;
           return match !== null;
@@ -462,6 +484,22 @@
     })).then(function (results) {
       return results.some(Boolean);
     });
+  }
+
+  // Fill in the logo / banner (details "bg:<url>") of an EXISTING studio from the
+  // scrape, only where it has none - never overwrites what is already there.
+  function enrichStudio(id, studio) {
+    if (!id || !studio || (!studio.image && !studio.details)) return Promise.resolve(id);
+    return gql("StudioImg", Q_STUDIO_IMAGE, { id: id }).then(function (d) {
+      var cur = (d && d.findStudio) || {};
+      var input = { id: String(id) };
+      if (studio.image && (!cur.image_path || /default=true/.test(cur.image_path))) input.image = studio.image;
+      if (studio.details && !/(?:^|\s)bg:\S+/.test(cur.details || "")) {
+        input.details = cur.details ? cur.details + "\n" + studio.details : studio.details;
+      }
+      if (Object.keys(input).length === 1) return id;
+      return gql("SU", M_STUDIO_UPD, { input: input }).then(function () { return id; });
+    }).catch(function () { return id; });
   }
 
   // resolveStudio first searches by exact name, then by alias, then creates.
@@ -486,7 +524,7 @@
           }
         }
         // Still not found → create it (with logo/URL if scraped)
-        return gql("CS", M_CS, { n: name, image: studio.image || null, url: studio.url || null })
+        return gql("CS", M_CS, { n: name, image: studio.image || null, url: studio.url || null, details: studio.details || null })
           .then(function (d3) { return d3.studioCreate.id; });
       });
     });
@@ -542,10 +580,26 @@
   }
   function resolveTag(name)       { return resolveOrCreate(Q_FT,"FT","findTags","tags",M_CT,"CT","tagCreate",name); }
 
+  // rule34-python only returns a low-quality static thumbnail: its cover is
+  // shown in the panel but never applied to the scene.
+  function coverBlocked(r) {
+    if (!r) return false;
+    if (/rule34-python/i.test((r.matchedScraperID || "") + " " + (r.matchedScraperName || ""))) return true;
+    // Scraped by URL: the scraper id is just "url", so also detect its
+    // thumbnail (rule34.xxx/thumbnails/<dir>/thumbnail_<hash>.jpg).
+    // Stash often hands the image back as a data: URI, so also look at the
+    // post URL(s) in the scraped result (rule34.xxx/index.php?page=post...).
+    var s = r.scraped;
+    if (!s) return false;
+    if (/rule34\.xxx\/thumbnails\/.*thumbnail_/i.test(s.image || "")) return true;
+    return (s.urls || []).some(function (u) { return /rule34\.xxx\//i.test(u || ""); });
+  }
+
   function applyScrapedData(sceneID, scraped) {
     // scraped.studio may have been replaced by an artist chosen via radio
     var p_studio = scraped.studio && scraped.studio.name
       ? (scraped.studio.stored_id ? Promise.resolve(scraped.studio.stored_id) : resolveStudio(scraped.studio))
+        .then(function (sid) { return enrichStudio(sid, scraped.studio); })
       : Promise.resolve(null);
 
     var p_perfs = Promise.all((scraped.performers || []).map(function (p) {
@@ -701,7 +755,31 @@
     hideToolbarButton:         false,
     // If enabled, the "sceneTagger" button injected next to "Scrape
     // with..." on the scene Edit tab (see injectSceneButton()) is not shown.
-    hideEditButton:            false
+    hideEditButton:            false,
+    // If enabled, the panel covers the whole window on desktop too (it
+    // already does on touch screens / narrow windows, see the
+    // .st-fullscreen rules in sceneTagger.css).
+    fullscreenOnDesktop:       false,
+    // "SFW" header button (internally nsfwBlur): blurs every image/video preview in the
+    // panel (and its floating hover previews) for use in public.
+    nsfwBlur:                  false,
+    // "Banner layout" (mass list, scraped rows): details go to the right of
+    // the video, title under it, and the studio becomes a banner header
+    // (class .st-banner-layout on #st-panel, see sceneTagger.css).
+    studioBannerLayout:        false,
+    // "Cover card under the video" (needs Banner layout): the Cover section
+    // becomes a card under the video with a single "New from scrape" tile
+    // (class .st-cover-card on #st-panel).
+    coverCard:                 false,
+    // "Details in one card" (needs Banner layout): Title/Date/Performers/
+    // Tags/URLs/Details share ONE card (class .st-one-card on #st-panel);
+    // oneCardCols = two columns inside it (.st-one-card-cols), else stacked.
+    oneCard:                   false,
+    oneCardCols:               true,
+    // Blue outline around a scraped row (state "scraped, ready to apply").
+    scrapedOutline:            true,
+    // Copy icon on the existing Details text: always visible (otherwise on hover).
+    copyIconAlways:            false
   };
 
   function loadPluginConfig() {
@@ -744,6 +822,14 @@
           if (cfg.hideSceneModeToggle !== undefined) pluginConfig.hideSceneModeToggle = !!cfg.hideSceneModeToggle;
           if (cfg.hideToolbarButton !== undefined) pluginConfig.hideToolbarButton = !!cfg.hideToolbarButton;
           if (cfg.hideEditButton !== undefined) pluginConfig.hideEditButton = !!cfg.hideEditButton;
+          if (cfg.fullscreenOnDesktop !== undefined) pluginConfig.fullscreenOnDesktop = !!cfg.fullscreenOnDesktop;
+          if (cfg.nsfwBlur !== undefined) pluginConfig.nsfwBlur = !!cfg.nsfwBlur;
+          if (cfg.studioBannerLayout !== undefined) pluginConfig.studioBannerLayout = !!cfg.studioBannerLayout;
+          if (cfg.coverCard !== undefined) pluginConfig.coverCard = !!cfg.coverCard;
+          if (cfg.oneCard !== undefined) pluginConfig.oneCard = !!cfg.oneCard;
+          if (cfg.oneCardCols !== undefined) pluginConfig.oneCardCols = !!cfg.oneCardCols;
+          if (cfg.scrapedOutline !== undefined) pluginConfig.scrapedOutline = !!cfg.scrapedOutline;
+          if (cfg.copyIconAlways !== undefined) pluginConfig.copyIconAlways = !!cfg.copyIconAlways;
           if (cfg.scraperChain !== undefined) {
             try {
               var parsed = typeof cfg.scraperChain === "string" ? JSON.parse(cfg.scraperChain) : cfg.scraperChain;
@@ -833,6 +919,12 @@
   function goToPage(newPage) {
     newPage = Math.min(Math.max(newPage, 1), state.totalPages || 1);
     if (newPage === state.currentPage) return;
+    if (_host) {
+      state.currentPage = newPage;
+      state.scenes = [];
+      loadScenes();
+      return;
+    }
     var p = new URLSearchParams(window.location.search);
     p.set("p", String(newPage));
     var href = window.location.pathname + "?" + p.toString();
@@ -902,7 +994,7 @@
 
     var cb = function (sel) { var el = row.querySelector(sel); return el ? el.checked : false; };
 
-    if (cb('[data-cb="title"]')      && scraped.title)      filtered.title     = scraped.title;
+    if (cb('[data-cb="title"]')      && scraped.title)      filtered.title     = r.titleEdit || scraped.title;
     // Manually typed title (manualFallbackOnFail + manualFallbackAllowTitle mode)
     if (r.manualFallback && pluginConfig.manualFallbackAllowTitle) {
       var manualTitleEl = row.querySelector(".st-manual-title-input");
@@ -951,7 +1043,14 @@
     }
     // Cover: solo mode picks between existing/scraped by click (see
     // renderRow()) - "existing" means don't touch the current cover.
-    if (row.querySelector(".st-cover-options")) {
+    if (r.customCover && (r.coverChoice === "custom" || !row.querySelector(".st-cover-options"))) {
+      // Image dropped by hand (see initCoverDrop()): always wins over the
+      // scraped cover, even a low-quality one. Mass list has no coverChoice,
+      // the dropped image just replaces the scraped cover there.
+      filtered.image = r.customCover;
+    } else if (coverBlocked(r)) {
+      // Low-quality scraper thumbnail: never applied (preview only).
+    } else if (row.querySelector(".st-cover-options")) {
       if (r.coverChoice === "scraped" && scraped.image) filtered.image = scraped.image;
     } else if (cb('[data-cb="cover"]') && scraped.image) {
       filtered.image = scraped.image;
@@ -1261,11 +1360,102 @@
     if (old) old.remove();
     var logo = imgUrl && imgUrl.indexOf("default=true") === -1 ? imgUrl : null;
     if (pluginConfig.hideStudioLogo) logo = null;
+
+    // Banner layout: the picked studio becomes a second card NEXT TO the
+    // header card (two columns in .st-inline-artists) instead of being
+    // stacked inside the narrow search wrap. Shown even without any image
+    // (compact card with the initial), so the pick is always visible.
+    var artistsField = pluginConfig.studioBannerLayout ? wrap.closest(".st-inline-artists") : null;
+    if (artistsField) {
+      var oldPair = artistsField.querySelector(":scope > .st-bl-picked");
+      if (oldPair) oldPair.remove();
+      artistsField.classList.remove("st-bl-has-picked");
+      var ov = el.querySelector('[data-cb="studio-override"]');
+      var pickedName = ov ? String(ov.value || "") : "";
+      if (!pickedName) return;
+      var pair = document.createElement("div");
+      pair.className = "st-bl-picked";
+      // "Manually added" sits next to the name, below the banner (not over it).
+      pair.innerHTML = studioCardHTML(logo, bannerUrl,
+        '<span class="st-chip st-chip-studio st-bl-name">' + esc(pickedName) + '</span>' +
+        '<span class="st-existing-caption st-new st-bl-manual-badge">Manually added</span>',
+        "st-card-stacked", null, studioId);
+      if (!logo) {
+        var ph = pair.querySelector(".st-slogo");
+        if (ph) ph.innerHTML = '<span class="st-bl-initial">' + esc(pickedName.charAt(0).toUpperCase()) + '</span>';
+      }
+      artistsField.appendChild(pair);
+      artistsField.classList.add("st-bl-has-picked");
+      return;
+    }
+
     if (!logo && !bannerUrl) return;
     var holder = document.createElement("div");
     holder.className = "st-studio-picked";
     holder.innerHTML = studioCardHTML(logo, bannerUrl, "", "st-card-stacked", null, studioId);
     wrap.insertBefore(holder, wrap.querySelector(".st-studio-selected"));
+  }
+
+  // Banner layout, multi-studio mass list: the card under the radios follows
+  // whichever candidate is checked (name, logo, banner), "None" collapses it
+  // to just the search box (class st-bl-empty).
+  function setBLCard(card, name, logoUrl, bannerUrl, studioId) {
+    var idrow = card.querySelector(".st-studio-idrow");
+    var logo = card.querySelector(".st-slogo");
+    var nameEl = card.querySelector(".st-bl-name");
+    card.classList.toggle("st-bl-empty", !name);
+    if (nameEl) nameEl.textContent = name || "";
+    var oldCover = card.querySelector(".st-studio-cover");
+    if (oldCover) oldCover.remove();
+    idrow.classList.remove("st-has-cover");
+    if (logo) {
+      logo.classList.remove("st-slogo-wide", "st-slogo-round");
+      logo.classList.add("st-slogo-round");
+      if (logoUrl && !pluginConfig.hideStudioLogo) {
+        logo.classList.remove("st-slogo-empty");
+        logo.innerHTML = studioLogoInner(logoUrl, studioId);
+      } else {
+        logo.classList.add("st-slogo-empty");
+        logo.innerHTML = name ? '<span class="st-bl-initial">' + esc(name.charAt(0).toUpperCase()) + '</span>' : ST_STUDIO_LOGO_PLACEHOLDER_SVG;
+      }
+    }
+    if (bannerUrl) {
+      var cover = document.createElement("a");
+      cover.className = "st-studio-cover";
+      cover.href = bannerUrl;
+      cover.target = "_blank";
+      cover.rel = "noopener";
+      cover.title = "Open banner";
+      cover.innerHTML = '<img src="' + esc(bannerUrl) + '">';
+      card.insertBefore(cover, idrow);
+      idrow.classList.add("st-has-cover");
+    }
+  }
+
+  function setupBannerLayoutCard(el, scrapedStudio) {
+    var card = el.querySelector(".st-bl-card");
+    if (!card) return;
+    function apply() {
+      var radio = el.querySelector('[data-cb="studio-radio"]:checked');
+      var name = radio ? (radio.getAttribute("data-artist") || "") : "";
+      var label = radio && radio.closest ? radio.closest(".st-radio-item") : null;
+      var sid = label ? (label.getAttribute("data-studio-id") || "") : "";
+      // Immediate: name + placeholder logo, no banner; then the real images.
+      var scrapedMatch = !!(name && scrapedStudio && scrapedStudio.name &&
+        String(scrapedStudio.name).toLowerCase() === name.toLowerCase());
+      setBLCard(card, name, scrapedMatch ? scrapedStudio.image : null, scrapedMatch ? studioBannerUrl(scrapedStudio) : null, sid);
+      if (name && sid) {
+        fetchStudioHoverData(sid).then(function (d) {
+          var still = el.querySelector('[data-cb="studio-radio"]:checked');
+          if (!d || !still || still.getAttribute("data-artist") !== name) return;
+          setBLCard(card, name, d.img, d.banner, sid);
+        });
+      }
+    }
+    el.querySelectorAll('[data-cb="studio-radio"]').forEach(function (rd) {
+      rd.addEventListener("change", apply);
+    });
+    apply();
   }
 
   // A studio that already exists locally (stored_id) but whose scraper gave
@@ -1317,8 +1507,13 @@
   // unavailable (Stash served over plain http on the LAN is not a secure context).
   function stCopyText(text) {
     if (navigator.clipboard && window.isSecureContext) {
-      return navigator.clipboard.writeText(text);
+      // The async API can be refused (page not focused...): try the old way.
+      return navigator.clipboard.writeText(text).catch(function () { return stCopyTextFallback(text); });
     }
+    return stCopyTextFallback(text);
+  }
+
+  function stCopyTextFallback(text) {
     return new Promise(function (resolve, reject) {
       var ta = document.createElement("textarea");
       ta.value = text;
@@ -1346,6 +1541,23 @@
   };
   function sectionIcon(name) {
     return '<span class="st-section-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' + ST_SECTION_ICONS[name] + '</svg></span>';
+  }
+
+  // Batch mode (one card): adds the single-scene panel's small section icon to
+  // a field's label, after its checkbox. Title has no icon (none in solo either).
+  function withSectionIcon(fieldHTML) {
+    // Studio: icon whenever there is no banner (the label floats over a banner
+    // otherwise); CSS hides it again if a banner shows up later (async lookup).
+    var name = fieldHTML.indexOf("st-inline-artists") !== -1 ? (fieldHTML.indexOf("st-studio-cover") === -1 ? "studio" : null)
+      : fieldHTML.indexOf("st-inline-performers") !== -1 ? "performers"
+      : fieldHTML.indexOf("st-inline-tags") !== -1 ? "tags"
+      : fieldHTML.indexOf("st-inline-details") !== -1 ? "details"
+      : fieldHTML.indexOf("st-inline-urls") !== -1 ? "urls"
+      : fieldHTML.indexOf('data-cb="date"') !== -1 ? "date" : null;
+    if (!name || fieldHTML.indexOf("st-section-icon") !== -1) return fieldHTML;
+    return fieldHTML.replace(/(<(?:label|div|span) class="st-inline-label[^"]*">)(<label>)?(<input[^>]*>)?/, function (m, a, b, c) {
+      return a + (b || "") + (c || "") + sectionIcon(name);
+    });
   }
 
   // ── Custom date picker (solo mode only) ────────────────────────────────────
@@ -1442,6 +1654,8 @@
   // ── Rendering a row ────────────────────────────────────────────────────────
 
   function renderRow(id) {
+    var blScrapedStudio = null; // multi-studio banner card (see setupBannerLayoutCard)
+    var coverMovedHTML = "";    // cover card shown under the video (setting "Cover card")
     var r = state.rows[id];
     if (!r) return;
     var scene   = r.scene;
@@ -1573,13 +1787,20 @@
       // list markup even in solo (confirmed session 2026-09-16).
       var panelElForMode = document.getElementById(PANEL_ID);
       var isSolo = !!(panelElForMode && panelElForMode.classList.contains("st-panel-solo"));
+      // "Details in one card": the Performers / Tags search boxes live in the
+      // "Already on this scene" column (left) instead of "New from scrape".
+      var searchInExisting = !isSolo && !!panelElForMode && panelElForMode.classList.contains("st-one-card") &&
+        panelElForMode.classList.contains("st-banner-layout") && !panelElForMode.classList.contains("st-compact");
+      // Cover card under the video: mass list, Banner layout + Cover card both on.
+      var coverUnderVideo = !isSolo && !!(panelElForMode && panelElForMode.classList.contains("st-cover-card") &&
+        panelElForMode.classList.contains("st-banner-layout") && !panelElForMode.classList.contains("st-compact"));
 
       // ── Title
       if (scraped.title) {
         fields.push(
           '<div class="st-inline-field">' +
             '<label class="st-inline-label"><input type="checkbox" data-cb="title" checked> Title</label>' +
-            '<span class="st-chip st-chip-title">' + esc(scraped.title) + '</span>' +
+            '<span class="st-chip st-chip-title' + (r.titleEdit ? ' st-chip-edited' : '') + '" title="Double-click to rename">' + esc(r.titleEdit || scraped.title) + '</span>' +
           '</div>'
         );
       }
@@ -1588,35 +1809,58 @@
       // scraped) side by side instead of a single checkbox+preview -
       // the selected one gets a highlight ring. Mass list keeps the
       // original checkbox - see isSolo.
-      if (!isSolo) {
-        if (scraped.image) {
+      if (!isSolo && !coverUnderVideo) {
+        if (r.customCover) {
           fields.push(
             '<div class="st-inline-field">' +
-              '<label class="st-inline-label"><input type="checkbox" data-cb="cover" checked> Cover</label>' +
+              '<label class="st-inline-label"><input type="checkbox" data-cb="cover" checked disabled title="Dropped image: always applied"> Cover</label>' +
+              '<img class="st-cover-preview" src="' + esc(r.customCover) + '" alt="dropped cover">' +
+              '<span class="st-cover-rm st-cover-rm-inline" role="button" title="Remove" onclick="stRemoveCustomCover(\'' + esc(id) + '\')">&#10005;</span>' +
+            '</div>'
+          );
+        } else if (scraped.image) {
+          fields.push(
+            '<div class="st-inline-field">' +
+              '<label class="st-inline-label"><input type="checkbox" data-cb="cover"' + (coverBlocked(r) ? ' disabled title="Low-quality cover: not applied"' : ' checked') + '> Cover</label>' +
               '<img class="st-cover-preview" src="' + esc(scraped.image) + '" alt="cover">' +
             '</div>'
           );
         }
       } else if (scraped.image || thumb) {
-        if (r.coverChoice === undefined) {
-          r.coverChoice = scraped.image ? "scraped" : "existing";
+        if (r.coverChoice !== "custom" && (r.coverChoice === undefined || coverBlocked(r))) {
+          r.coverChoice = (scraped.image && !coverBlocked(r)) ? "scraped" : "existing";
         }
-        var coverExistingHTML = thumb
+        var coverExistingHTML = coverUnderVideo ? "" : thumb
           ? '<button type="button" class="st-cover-option' + (r.coverChoice === "existing" ? " st-cover-selected" : "") + '" onclick="stPickCover(\'' + esc(id) + '\',\'existing\')">' +
-              '<img src="' + esc(thumb) + '" alt="existing cover">' +
+              '<img src="' + esc(thumb) + '" alt="existing cover">' + COVER_DROP_OV +
               '<span class="st-cover-caption">Already on this scene</span>' +
             '</button>'
           : '<div class="st-cover-option st-cover-empty"><span class="st-split-empty">No existing thumbnail</span></div>';
         var coverScrapedHTML = scraped.image
-          ? '<button type="button" class="st-cover-option' + (r.coverChoice === "scraped" ? " st-cover-selected" : "") + '" onclick="stPickCover(\'' + esc(id) + '\',\'scraped\')">' +
-              '<img src="' + esc(scraped.image) + '" alt="scraped cover">' +
-              '<span class="st-cover-caption st-new">New from scrape</span>' +
-            '</button>'
+          ? (coverBlocked(r)
+              // Preview only: plain block, not a button, never selectable.
+              ? '<div class="st-cover-option" style="opacity:.6">' +
+                  '<img src="' + esc(scraped.image) + '" alt="scraped cover (not applied)">' +
+                  '<span class="st-cover-caption st-new">Preview only (low quality)</span>' +
+                '</div>'
+              : '<button type="button" class="st-cover-option' + (r.coverChoice === "scraped" ? " st-cover-selected" : "") + '" onclick="stPickCover(\'' + esc(id) + '\',\'' + (coverUnderVideo && r.coverChoice === "scraped" ? "existing" : "scraped") + '\')"' + (coverUnderVideo ? ' title="Click to apply / keep the current cover"' : '') + '>' +
+                  '<img src="' + esc(scraped.image) + '" alt="scraped cover">' + COVER_DROP_OV +
+                  '<span class="st-cover-caption st-new">New from scrape</span>' +
+                '</button>')
           : '';
-        fields.push(
+        var coverCustomHTML = r.customCover
+          ? '<div class="st-cover-custom-wrap">' +
+              '<button type="button" class="st-cover-option' + (r.coverChoice === "custom" ? " st-cover-selected" : "") + '" onclick="stPickCover(\'' + esc(id) + '\',\'custom\')">' +
+                '<img src="' + esc(r.customCover) + '" alt="dropped cover">' + COVER_DROP_OV +
+                '<span class="st-cover-caption st-dropped">Dropped image</span>' +
+              '</button>' +
+              '<span class="st-cover-rm" role="button" title="Remove" onclick="stRemoveCustomCover(\'' + esc(id) + '\')">&#10005;</span>' +
+            '</div>'
+          : '';
+        if (!coverUnderVideo || scraped.image || r.customCover) fields.push(
           '<div class="st-inline-field st-inline-cover">' +
             '<span class="st-inline-label st-label-static">' + sectionIcon("cover") + 'Cover</span>' +
-            '<div class="st-cover-options">' + coverExistingHTML + coverScrapedHTML + '</div>' +
+            '<div class="st-cover-options">' + coverExistingHTML + coverScrapedHTML + coverCustomHTML + '</div>' +
           '</div>'
         );
       }
@@ -1647,7 +1891,17 @@
       artists = artists.map(function (a) {
         if (a.stored_id) return a;
         var cachedId = getCachedStudioAliasId(a.name);
-        return cachedId ? { name: a.name, stored_id: cachedId } : a;
+        return cachedId ? { name: studioNameCache[a.name.toLowerCase()] || a.name, stored_id: cachedId } : a;
+      });
+      // Merge candidates that resolve to the same existing studio (an alias
+      // of a studio already in the list): keep only the first.
+      var seenStudioIds = {};
+      artists = artists.filter(function (a) {
+        if (!a.stored_id) return true;
+        var k = String(a.stored_id);
+        if (seenStudioIds[k]) return false;
+        seenStudioIds[k] = true;
+        return true;
       });
 
       // Studio search widget — common to both cases (radio and checkbox)
@@ -1735,6 +1989,17 @@
         '</label>';
         var studioMultiRadioHTML = '<div class="st-radio-group">' + radioNone + radioItems + '</div>';
         var studioMultiContentHTML = studioMultiRadioHTML + studioSearchWidget;
+        blScrapedStudio = scraped.studio || null;
+        if (pluginConfig.studioBannerLayout && !isSolo) {
+          // Banner header for the selected candidate (filled by
+          // setupBannerLayoutCard after render); the search box lives in it.
+          studioMultiContentHTML =
+            '<div class="st-studio-card st-card-stacked st-bl-card">' +
+              '<div class="st-studio-idrow"><div class="st-slogo st-slogo-round st-slogo-empty">' + ST_STUDIO_LOGO_PLACEHOLDER_SVG + '</div>' +
+                '<div class="st-studio-info"><span class="st-chip st-chip-studio st-bl-name"></span>' + studioSearchWidget + '</div>' +
+              '</div>' +
+            '</div>' + studioMultiRadioHTML;
+        }
         if (isSolo) {
           fields.push(
             '<div class="st-inline-field st-inline-artists">' +
@@ -1967,11 +2232,12 @@
               '<div class="st-split-col">' +
                 '<span class="st-existing-caption">Already on this scene</span>' +
                 (existingPerfsHTML || '<span class="st-split-empty">None</span>') +
+                (searchInExisting ? perfSearchWidget : '') +
               '</div>' +
               '<div class="st-split-col">' +
                 ((isSolo || perfItemsHTML) ? '<span class="st-existing-caption st-new">New from scrape</span>' : '') +
                 (perfItemsHTML ? '<div class="st-perfs-grid">' + perfItemsHTML + '</div>' : (isSolo ? '<span class="st-split-empty">None found</span>' : '')) +
-                perfSearchWidget +
+                (searchInExisting ? '' : perfSearchWidget) +
               '</div>' +
             '</div>' +
           '</div>'
@@ -2057,11 +2323,12 @@
                 '<div class="st-split-col">' +
                   '<span class="st-existing-caption">Already on this scene</span>' +
                   (existingTagsHTML || '<span class="st-split-empty">None</span>') +
+                  (searchInExisting ? tagSearchWidget : '') +
                 '</div>' +
                 '<div class="st-split-col">' +
                   ((isSolo || tagItems) ? '<span class="st-existing-caption st-new">New from scrape</span>' : '') +
                   (tagItems ? '<div class="st-tags-grid">' + tagItems + '</div>' : (isSolo ? '<span class="st-split-empty">None found</span>' : '')) +
-                  tagSearchWidget +
+                  (searchInExisting ? '' : tagSearchWidget) +
                 '</div>' +
               '</div>' +
             '</div>'
@@ -2095,7 +2362,11 @@
       // best available, split into "Already on this scene" (read-only) /
       // "New from scrape (editable)" only when the two genuinely differ.
       // Mass list keeps the original checkbox+chip preview - see isSolo.
-      if (!isSolo && !pluginConfig.detailsEditorInList) {
+      // "Details in one card": the Details editor is always there (even when
+      // the scrape found nothing) so text can be typed in; typing ticks the box.
+      var detailsAlwaysEditor = !isSolo && !!panelElForMode && panelElForMode.classList.contains("st-one-card") &&
+        panelElForMode.classList.contains("st-banner-layout") && !panelElForMode.classList.contains("st-compact");
+      if (!isSolo && !pluginConfig.detailsEditorInList && !detailsAlwaysEditor) {
         if (scraped.details) {
           var detailsParsedForDisplay = parseDetailsArtists(scraped.details);
           var hasRealContent = !!detailsParsedForDisplay.rest;
@@ -2108,7 +2379,7 @@
             '</div>'
           );
         }
-      } else if (isSolo || scraped.details) {
+      } else if (isSolo || scraped.details || detailsAlwaysEditor) {
         var scrapedDetailsClean = scraped.details ? scraped.details.replace(/\[(\w+)\]/g, "").trim() : "";
         var existingDetailsText = (scene.details || "").trim();
         var hasNewDetails = !!scrapedDetailsClean && scrapedDetailsClean !== existingDetailsText;
@@ -2118,7 +2389,10 @@
         var detailsExistingColHTML = hasNewDetails
           ? '<div class="st-details-col">' +
               '<span class="st-existing-caption">Already on this scene</span>' +
-              '<div class="st-details-readonly">' + (existingDetailsText ? esc(existingDetailsText) : '<span class="st-details-empty">(empty)</span>') + '</div>' +
+              (existingDetailsText
+                ? '<div class="st-copy-wrap"><div class="st-details-readonly">' + esc(existingDetailsText) + '</div>' +
+                    '<button type="button" class="st-copy-text" title="Copy this text">' + ST_ICON_COPY + '</button></div>'
+                : '<div class="st-details-readonly"><span class="st-details-empty">(empty)</span></div>') +
             '</div>'
           : "";
         // Solo: static label (always applied). Mass list editor: keeps the
@@ -2192,9 +2466,26 @@
         );
       }
 
+      if (coverUnderVideo) {
+        for (var cvI = 0; cvI < fields.length; cvI++) {
+          if (fields[cvI].indexOf("st-inline-cover") !== -1) {
+            coverMovedHTML = fields.splice(cvI, 1)[0];
+            break;
+          }
+        }
+      }
+
+      var fieldsHTML = fields.join("");
+      if (!isSolo && panelElForMode && panelElForMode.classList.contains("st-one-card") &&
+          panelElForMode.classList.contains("st-banner-layout") && !panelElForMode.classList.contains("st-compact")) {
+        // Everything, studio banner header included, in ONE card (the studio
+        // field comes first through CSS order).
+        fieldsHTML = '<div class="st-onecard">' + fields.map(withSectionIcon).join("") + '</div>';
+      }
+
       inlineHTML =
         '<div class="st-inline-results">' +
-          fields.join("") +
+          fieldsHTML +
           '<div class="st-inline-actions">' +
             '<button class="st-btn st-btn-success" onclick="stApplyOne(\'' + esc(id) + '\')">Apply</button>' +
             (r.manualFallback ? '<button class="st-btn st-btn-ghost" onclick="stScrapeOne(\'' + esc(id) + '\')">Retry</button>' : '') +
@@ -2291,6 +2582,12 @@
         '</div>';
     }
 
+    // Mass list: a hand-dropped cover replaces the thumbnail right away (solo
+    // keeps the real one - its "existing" tile must show what's on the scene).
+    var panelElForThumb = document.getElementById(PANEL_ID);
+    var headerThumb = (r.customCover && !(panelElForThumb && (panelElForThumb.classList.contains("st-panel-solo") || (panelElForThumb.classList.contains("st-cover-card") && panelElForThumb.classList.contains("st-banner-layout")))))
+      ? r.customCover : thumb;
+
     el.innerHTML =
       '<div class="st-row-top">' +
         // .st-thumb-clip does the clipping (size + overflow:hidden) - see
@@ -2317,8 +2614,8 @@
               ' data-preview-duration="' + esc(getSceneDuration(scene)) + '"'
             : '') +
         '>' +
-        (thumb
-          ? '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-thumb-link scene-card-preview"><img class="st-thumb" src="' + esc(thumb) + '" loading="lazy"></a>'
+        (headerThumb
+          ? '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-thumb-link scene-card-preview"><img class="st-thumb" src="' + esc(headerThumb) + '" loading="lazy"></a>'
           : '<a href="' + esc(sceneUrl) + '" target="_blank" class="st-thumb-link scene-card-preview"><div class="st-thumb"></div></a>') +
         '</span>' +
         '<div class="st-row-info">' +
@@ -2326,6 +2623,7 @@
           foundViaHTML +
           hintHTML +
           manualUrlHTML +
+          coverMovedHTML +
         '</div>' +
         rightHTML +
       '</div>' +
@@ -2406,6 +2704,75 @@
     fitSearchToPlaceholder();
     requestAnimationFrame(fitSearchToPlaceholder);
 
+    // Double-click the Title chip to rename it before applying: the chip becomes
+    // editable in place; Enter or leaving it keeps the new title (r.titleEdit,
+    // read by getCheckedScraped), Escape cancels, an empty title restores the
+    // scraped one.
+    (function () {
+      var titleCb = el.querySelector('[data-cb="title"]');
+      var titleChip = titleCb && titleCb.closest(".st-inline-field")
+        ? titleCb.closest(".st-inline-field").querySelector(".st-chip-title") : null;
+      if (!titleChip) return;
+      titleChip.addEventListener("dblclick", function (e) {
+        e.preventDefault();
+        if (titleChip.isContentEditable) return;
+        var before = titleChip.textContent;
+        titleChip.contentEditable = "true";
+        titleChip.classList.add("st-chip-editing");
+        titleChip.focus();
+        var range = document.createRange();
+        range.selectNodeContents(titleChip);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        var done = false;
+        function finish(commit) {
+          if (done) return;
+          done = true;
+          titleChip.contentEditable = "false";
+          titleChip.classList.remove("st-chip-editing");
+          titleChip.removeEventListener("blur", onBlur);
+          titleChip.removeEventListener("keydown", onKey);
+          var text = (titleChip.textContent || "").replace(/\s+/g, " ").trim();
+          if (!commit) { titleChip.textContent = before; return; }
+          if (!text || text === scraped.title) {
+            delete r.titleEdit;
+            titleChip.textContent = scraped.title;
+            titleChip.classList.remove("st-chip-edited");
+          } else {
+            r.titleEdit = text;
+            titleChip.textContent = text;
+            titleChip.classList.add("st-chip-edited");
+            if (titleCb) titleCb.checked = true;
+          }
+        }
+        function onBlur() { finish(true); }
+        function onKey(ev) {
+          if (ev.key === "Enter") { ev.preventDefault(); finish(true); }
+          else if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
+        }
+        titleChip.addEventListener("blur", onBlur);
+        titleChip.addEventListener("keydown", onKey);
+      });
+    })();
+
+    // Copy button on the existing Details text (top right, shown on hover).
+    el.querySelectorAll(".st-copy-text").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var box = btn.parentNode.querySelector(".st-details-readonly");
+        stCopyText(box ? box.textContent : "").then(function () {
+          btn.innerHTML = ST_ICON_CHECK;
+          btn.classList.add("st-copy-text-ok");
+          setTimeout(function () {
+            btn.innerHTML = ST_ICON_COPY;
+            btn.classList.remove("st-copy-text-ok");
+          }, 1400);
+        }).catch(function () {});
+      });
+    });
+
     el.querySelectorAll(".st-url-copy").forEach(function (btn) {
       btn.addEventListener("click", function (e) {
         e.preventDefault();
@@ -2432,6 +2799,9 @@
       detailsEdit.addEventListener("input", function () {
         r.detailsEditValue = detailsEdit.value;
         autoGrowDetails();
+        // Mass list editor has a per-row checkbox: typing means "apply this".
+        var detailsTypedCb = el.querySelector('[data-cb="details"]');
+        if (detailsTypedCb && detailsEdit.value.trim()) detailsTypedCb.checked = true;
       });
       autoGrowDetails();
       requestAnimationFrame(autoGrowDetails);
@@ -2814,6 +3184,7 @@
     }
 
     if (status === "scraped") hydrateStudioLookups(el);
+    setupBannerLayoutCard(el, blScrapedStudio);
 
     // "Check all/uncheck all" toggle for tags
     if (status === "scraped") {
@@ -2956,8 +3327,12 @@
         el.style.display = "none";
         return;
       }
+      // Skipped by the user: always stays visible, whatever filter is active.
+      if (r && r.status === "skipped") { el.style.display = ""; return; }
       if (!r || r.status !== "scraped") {
-        el.style.display = (sf === "all" && !multiOnly) ? "" : "none";
+        // Not scraped yet: no new/existing status either, so hide under
+        // New/Existing too (only visible under All with no other filter).
+        el.style.display = (f === "all" && sf === "all" && !multiOnly) ? "" : "none";
         return;
       }
       if (sf !== "all" && r.matchedScraperID !== sf) { el.style.display = "none"; return; }
@@ -3273,6 +3648,128 @@
     renderRow(id);
   };
 
+  var COVER_DROP_OV =
+    '<span class="st-tile-ov"><span class="st-tile-ov-lbl">' +
+      '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 16V8M8 12l4-4 4 4"/></svg>' +
+      '<span>Drop an image</span><small>file or web image</small>' +
+    '</span></span>';
+
+  window.stRemoveCustomCover = function (id) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.customCover = null;
+    if (r.coverChoice === "custom") r.coverChoice = undefined;
+    renderRow(id);
+  };
+
+  // ── Drag & drop a cover image (file or web image) ───────────────────────
+  // Solo: dragging an image over the window lights up the cover tiles;
+  // dropping on any of them adds a 3rd "Dropped image" tile (pending until
+  // Apply, existing/scraped stay untouched). Mass list: drop on a row's
+  // thumbnail. Web images: fetched to a data URI when CORS allows it,
+  // otherwise the URL itself is kept (Stash downloads cover URLs itself).
+  function dragHasImage(e) {
+    var t = e.dataTransfer && e.dataTransfer.types ? Array.prototype.slice.call(e.dataTransfer.types) : [];
+    // Other browsers expose a dragged web image under different formats
+    // (Firefox: text/x-moz-url, Chrome: text/uri-list or only text/html) -
+    // the real content is only readable at drop time, so accept them all here.
+    return ["Files", "text/uri-list", "text/x-moz-url", "text/html", "text/plain"].some(function (k) {
+      return t.indexOf(k) > -1;
+    });
+  }
+  function readBlob(blob, cb) {
+    var fr = new FileReader();
+    fr.onload = function () { cb(fr.result); };
+    fr.readAsDataURL(blob);
+  }
+  function dropImageSource(dt, cb) {
+    var f = dt.files && dt.files[0];
+    if (f && (/^image\//.test(f.type) || /\.(png|jpe?g|webp|gif|avif|bmp)$/i.test(f.name))) { readBlob(f, cb); return; }
+    // Collect every URL-ish candidate the source browser provided.
+    var cands = [];
+    var html = dt.getData("text/html");
+    if (html) {
+      var m = /<img[^>]+src=["']([^"']+)["']/i.exec(html);
+      if (m) cands.push(m[1].replace(/&amp;/g, "&"));
+    }
+    ["text/uri-list", "text/x-moz-url", "text/plain"].forEach(function (k) {
+      var v = dt.getData(k);
+      if (v) cands.push(v.split("\n")[0].trim());
+    });
+    var url = "";
+    for (var i = 0; i < cands.length; i++) {
+      if (/^data:image\//i.test(cands[i])) { cb(cands[i]); return; }
+      if (!url && /^https?:\/\//i.test(cands[i])) url = cands[i];
+    }
+    if (!url) return;
+    fetch(url).then(function (res) { return res.blob(); }).then(function (blob) {
+      if (!/^image\//.test(blob.type)) throw new Error("not an image");
+      readBlob(blob, cb);
+    }).catch(function () { cb(url); });
+  }
+  function initCoverDrop() {
+    var depth = 0;
+    function panelEl() {
+      var p = document.getElementById(PANEL_ID);
+      return p && p.style.display !== "none" ? p : null;
+    }
+    function setDragging(on) {
+      var p = document.getElementById(PANEL_ID);
+      if (p) p.classList.toggle("st-dragging", on);
+      if (!on) {
+        document.querySelectorAll(".st-tile-ov.st-hot, .st-thumb-clip.st-dropover").forEach(function (n) {
+          n.classList.remove("st-hot", "st-dropover");
+        });
+      }
+    }
+    function targetOf(e) {
+      var t = e.target && e.target.closest ? e.target : null;
+      if (!t) return null;
+      var tile = t.closest(".st-cover-option");
+      if (tile && tile.querySelector(".st-tile-ov")) return { kind: "tile", el: tile, row: tile.closest(".st-row") };
+      var clip = t.closest(".st-thumb-clip");
+      var p = document.getElementById(PANEL_ID);
+      if (clip && p && !p.classList.contains("st-panel-solo") && !(p.classList.contains("st-cover-card") && p.classList.contains("st-banner-layout"))) return { kind: "clip", el: clip, row: clip.closest(".st-row") };
+      return null;
+    }
+    document.addEventListener("dragenter", function (e) {
+      if (!panelEl() || !dragHasImage(e)) return;
+      depth++;
+      setDragging(true);
+    });
+    document.addEventListener("dragleave", function () {
+      depth = Math.max(0, depth - 1);
+      if (!depth) setDragging(false);
+    });
+    document.addEventListener("dragover", function (e) {
+      if (!panelEl() || !dragHasImage(e)) return;
+      e.preventDefault();
+      var tg = targetOf(e);
+      document.querySelectorAll(".st-tile-ov.st-hot, .st-thumb-clip.st-dropover").forEach(function (n) {
+        if (!tg || (n !== tg.el.querySelector(".st-tile-ov") && n !== tg.el)) n.classList.remove("st-hot", "st-dropover");
+      });
+      if (tg && tg.kind === "tile") tg.el.querySelector(".st-tile-ov").classList.add("st-hot");
+      if (tg && tg.kind === "clip") tg.el.classList.add("st-dropover");
+    });
+    document.addEventListener("drop", function (e) {
+      if (!panelEl() || !dragHasImage(e)) return;
+      e.preventDefault();
+      var tg = targetOf(e);
+      depth = 0;
+      setDragging(false);
+      if (!tg || !tg.row) return;
+      var id = tg.row.id.replace(/^st-row-/, "");
+      dropImageSource(e.dataTransfer, function (src) {
+        var r = state.rows[id];
+        if (!r || !src) return;
+        r.customCover = src;
+        r.coverChoice = "custom";
+        renderRow(id);
+      });
+    });
+  }
+  initCoverDrop();
+
   window.stPickCover = function (id, choice) {
     var r = state.rows[id];
     if (!r) return;
@@ -3522,7 +4019,10 @@
   function loadScenes() {
     var token = ++_loadScenesToken;
     updateStatus("Loading scenes...");
-    waitForSceneCards(3000).then(function (ids) {
+    var idsPromise = _host
+      ? _host.fetchIds(state.currentPage || 1).then(function (r) { _hostInfo = r; return r.ids; })
+      : waitForSceneCards(3000);
+    idsPromise.then(function (ids) {
       if (token !== _loadScenesToken) return;
       if (!ids.length) { updateStatus("No scene visible in the grid."); return; }
       return gql("FindScenesByIds", Q_FIND_BY_IDS, { ids: ids }).then(function (d) {
@@ -3540,7 +4040,7 @@
             state.rows[scene.id].scene = scene;
         });
         buildAllRows();
-        var pageInfo = getPageInfoFromDOM();
+        var pageInfo = _host ? { page: _hostInfo.page, total: _hostInfo.total } : getPageInfoFromDOM();
         state.currentPage = pageInfo ? pageInfo.page  : 1;
         state.totalPages  = pageInfo ? pageInfo.total : 1;
         updatePageNav();
@@ -3578,6 +4078,20 @@
 
   // ── Build the panel ────────────────────────────────────────────────────────
 
+  // Mode classes carried by #st-panel (compact / fullscreen / banner layout).
+  function panelBaseClassName() {
+    return [
+      pluginConfig.compactMode ? "st-compact" : "",
+      pluginConfig.fullscreenOnDesktop ? "st-fullscreen" : "",
+      pluginConfig.studioBannerLayout ? "st-banner-layout" : "",
+      pluginConfig.coverCard ? "st-cover-card" : "",
+      pluginConfig.oneCard ? "st-one-card" : "",
+      (pluginConfig.oneCard && pluginConfig.oneCardCols) ? "st-one-card-cols" : "",
+      pluginConfig.scrapedOutline ? "" : "st-no-outline",
+      pluginConfig.copyIconAlways ? "st-copy-always" : ""
+    ].filter(Boolean).join(" ");
+  }
+
   function buildPanel(scrapers) {
     var panel = document.createElement("div");
     panel.id = PANEL_ID;
@@ -3588,7 +4102,7 @@
     // for the same already-documented pitfall.
     if (!state.visible) panel.style.display = "none";
 
-    panel.className = pluginConfig.compactMode ? "st-compact" : "";
+    panel.className = panelBaseClassName();
     applyLayoutClasses();
 
     panel.innerHTML =
@@ -3723,6 +4237,27 @@
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-edit-btn"> Hide "sceneTagger" button on scene Edit tab</label>' +
           '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-fullscreen-desktop"> Fullscreen panel on desktop</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-banner-layout"> Banner layout (details beside the video, studio banner)</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-cover-card"> Cover card under the video (needs Banner layout)</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-one-card"> Details in one card (needs Banner layout)</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-one-card-cols"> &nbsp;&nbsp;Two columns inside the card (otherwise stacked)</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scraped-outline"> Blue outline around scraped rows</label>' +
+          '</div>' +
+          '<div class="st-setting-row">' +
+            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-copy-always"> Copy icon on existing Details always visible (otherwise on hover)</label>' +
+          '</div>' +
         '</div>' +
         '<div class="st-setting-row st-blacklist-row">' +
           '<div class="st-blacklist-label">Studio blacklist (VA)</div>' +
@@ -3742,6 +4277,7 @@
         '<button class="st-btn st-btn-ghost" id="st-btn-scraper-mode" title="Toggle between automatic fallback and manual choice">' +
           (pluginConfig.scraperMode === "manual" ? "Manual" : "Auto") +
         '</button>' +
+        '<button class="st-btn st-btn-ghost' + (pluginConfig.nsfwBlur ? ' st-btn-nsfw-on' : '') + '" id="st-btn-nsfw" title="SFW mode: blur thumbnails and previews">SFW</button>' +
         // Custom combobox instead of a native <select> - Firefox styles a
         // native select's popup from the element's own CSS, but Chrome
         // ignores it and shows its generic OS-themed dropdown regardless
@@ -4033,6 +4569,24 @@
       });
     }
 
+    // ── NSFW mode (blur) ────────────────────────────────────────────────────
+    // body class so the floating hover previews (appended to <body>, outside
+    // #st-panel) are blurred too.
+    function applyNsfwBlur() {
+      document.body.classList.toggle("st-nsfw-on", !!pluginConfig.nsfwBlur);
+      var nb = document.getElementById("st-btn-nsfw");
+      if (nb) nb.classList.toggle("st-btn-nsfw-on", !!pluginConfig.nsfwBlur);
+    }
+    applyNsfwBlur();
+    var nsfwBtn = document.getElementById("st-btn-nsfw");
+    if (nsfwBtn) {
+      nsfwBtn.addEventListener("click", function () {
+        pluginConfig.nsfwBlur = !pluginConfig.nsfwBlur;
+        savePluginConfig();
+        applyNsfwBlur();
+      });
+    }
+
     // ── Manual / auto mode ──────────────────────────────────────────────────
     var modeBtn = document.getElementById("st-btn-scraper-mode");
     var manualSelect = document.getElementById("st-scraper-select-manual"); // wrapper div, see buildPanel()
@@ -4126,6 +4680,7 @@
       buildAllRows(); renderScraperFilterOptions(); updateStatus("Results cleared");
     });
     document.getElementById("st-btn-reload").addEventListener("click", function () {
+      if (_host) { state.scenes = []; loadScenes(); return; }
       try { sessionStorage.setItem(REOPEN_FLAG, "1"); } catch (e) {}
       window.location.reload();
     });
@@ -4172,7 +4727,8 @@
         savePluginConfig();
         var panelEl = document.getElementById(PANEL_ID);
         if (panelEl) {
-          panelEl.className = pluginConfig.compactMode ? "st-compact" : "";
+          var wasNarrow = panelEl.classList.contains("st-narrow");
+          panelEl.className = panelBaseClassName() + (wasNarrow ? " st-narrow" : "");
           // Clear the inline styles set by manual drag/resize, otherwise
           // they override the position/size defined by the CSS class.
           panelEl.style.top = "";
@@ -4355,6 +4911,103 @@
         savePluginConfig();
         var panelEl = document.getElementById(PANEL_ID);
         if (panelEl) panelEl.classList.toggle("st-hide-scene-mode-toggle", pluginConfig.hideSceneModeToggle);
+      });
+    })();
+
+    // Fullscreen panel on desktop - takes effect immediately via a class on
+    // #st-panel; the inline drag/resize styles are cleared so the CSS wins
+    // (the CSS also uses !important, this just avoids stale values when it
+    // is switched back off).
+    (function () {
+      var fsEl = document.getElementById("st-cfg-fullscreen-desktop");
+      if (!fsEl) return;
+      fsEl.checked = !!pluginConfig.fullscreenOnDesktop;
+      fsEl.addEventListener("change", function () {
+        pluginConfig.fullscreenOnDesktop = fsEl.checked;
+        savePluginConfig();
+        var panelEl = document.getElementById(PANEL_ID);
+        if (!panelEl) return;
+        panelEl.classList.toggle("st-fullscreen", pluginConfig.fullscreenOnDesktop);
+        ["top", "left", "right", "bottom", "width", "height", "transform"].forEach(function (k) { panelEl.style[k] = ""; });
+      });
+    })();
+
+    // Banner layout - class on #st-panel, takes effect immediately (the
+    // layout is pure CSS; the multi-studio banner card is built at render
+    // time, so rows rendered before the change pick it up on the next
+    // render / Reload).
+    (function () {
+      var blEl = document.getElementById("st-cfg-banner-layout");
+      if (!blEl) return;
+      blEl.checked = !!pluginConfig.studioBannerLayout;
+      blEl.addEventListener("change", function () {
+        pluginConfig.studioBannerLayout = blEl.checked;
+        savePluginConfig();
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl) panelEl.classList.toggle("st-banner-layout", pluginConfig.studioBannerLayout);
+        Object.keys(state.rows).forEach(function (rid) { renderRow(rid); });
+      });
+    })();
+
+    // Cover card under the video - class on #st-panel + re-render (the Cover
+    // markup switches to the tile card of the single-scene panel).
+    (function () {
+      var ccEl = document.getElementById("st-cfg-cover-card");
+      if (!ccEl) return;
+      ccEl.checked = !!pluginConfig.coverCard;
+      ccEl.addEventListener("change", function () {
+        pluginConfig.coverCard = ccEl.checked;
+        savePluginConfig();
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl) panelEl.classList.toggle("st-cover-card", pluginConfig.coverCard);
+        Object.keys(state.rows).forEach(function (rid) { renderRow(rid); });
+      });
+    })();
+
+    // Details in one card (+ its two-column variant): classes on #st-panel and
+    // a re-render (the detail fields get wrapped in .st-onecard at render time).
+    (function () {
+      var ocEl = document.getElementById("st-cfg-one-card");
+      var ocColsEl = document.getElementById("st-cfg-one-card-cols");
+      if (!ocEl || !ocColsEl) return;
+      ocEl.checked = !!pluginConfig.oneCard;
+      ocColsEl.checked = !!pluginConfig.oneCardCols;
+      function apply() {
+        savePluginConfig();
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl) {
+          panelEl.classList.toggle("st-one-card", pluginConfig.oneCard);
+          panelEl.classList.toggle("st-one-card-cols", pluginConfig.oneCard && pluginConfig.oneCardCols);
+        }
+        Object.keys(state.rows).forEach(function (rid) { renderRow(rid); });
+      }
+      ocEl.addEventListener("change", function () { pluginConfig.oneCard = ocEl.checked; apply(); });
+      ocColsEl.addEventListener("change", function () { pluginConfig.oneCardCols = ocColsEl.checked; apply(); });
+    })();
+
+    // Blue outline around scraped rows - a class on #st-panel, immediate.
+    (function () {
+      var soEl = document.getElementById("st-cfg-scraped-outline");
+      if (!soEl) return;
+      soEl.checked = !!pluginConfig.scrapedOutline;
+      soEl.addEventListener("change", function () {
+        pluginConfig.scrapedOutline = soEl.checked;
+        savePluginConfig();
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl) panelEl.classList.toggle("st-no-outline", !pluginConfig.scrapedOutline);
+      });
+    })();
+
+    // Copy icon always visible - class on #st-panel, immediate.
+    (function () {
+      var caEl = document.getElementById("st-cfg-copy-always");
+      if (!caEl) return;
+      caEl.checked = !!pluginConfig.copyIconAlways;
+      caEl.addEventListener("change", function () {
+        pluginConfig.copyIconAlways = caEl.checked;
+        savePluginConfig();
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl) panelEl.classList.toggle("st-copy-always", pluginConfig.copyIconAlways);
       });
     })();
 
@@ -4584,6 +5237,18 @@
     renderBlacklistChips();
     document.addEventListener("st-blacklist-updated", renderBlacklistChips);
 
+    // Narrow panel (phone, or a desktop panel dragged small): class st-narrow
+    // makes Banner layout / one card / cover card fall back to one column.
+    (function () {
+      var narrowPanel = document.getElementById(PANEL_ID);
+      if (!narrowPanel || typeof ResizeObserver === "undefined") return;
+      var applyNarrow = function () {
+        narrowPanel.classList.toggle("st-narrow", narrowPanel.getBoundingClientRect().width < 760);
+      };
+      new ResizeObserver(applyNarrow).observe(narrowPanel);
+      applyNarrow();
+    })();
+
     var titlebar = document.getElementById("st-titlebar-drag");
     var panel    = document.getElementById(PANEL_ID);
     if (titlebar && panel) {
@@ -4701,6 +5366,7 @@
   var _injectedPath = "";
 
   function setup() {
+    if (_host || _hostSolo) return;  // opened from Stash UI: the panel is not tied to a classic page
     var pathname = window.location.pathname;
     // Include the query string (filters): pathname alone stays "/scenes"
     // regardless of the active filter, so a filter change without a path
@@ -4792,7 +5458,7 @@
   // systematically force the full-rebuild path, even for a simple page
   // change (1 -> 2) - the panel would close/reopen on every pagination
   // instead of refreshing its list in place.
-  window.PluginApi.Event.addEventListener("stash:location", function () { setTimeout(setup, 150); });
+  PluginEvent.addEventListener("stash:location", function () { setTimeout(setup, 150); });
   setTimeout(setup, 800);
 
   // Safety net: on a studio page, switching from the "Scenes" tab to
@@ -4846,6 +5512,7 @@
         if (panelEl) {
           panelEl.classList.add("st-panel-solo");
           panelEl.classList.toggle("st-hide-scene-mode-toggle", !!pluginConfig.hideSceneModeToggle);
+          panelEl.classList.toggle("st-fullscreen", !!pluginConfig.fullscreenOnDesktop);
           var titleEl = document.getElementById("st-titlebar-drag");
           if (titleEl) titleEl.textContent = "Scrape scene";
           // Meaningless in solo (a single scene is already "compact") and
@@ -4972,7 +5639,7 @@
   // early load here, "Hide ST button" wouldn't take effect until the panel
   // was opened once per page load.
   loadPluginConfig().then(sceneButtonTick);
-  window.PluginApi.Event.addEventListener("stash:location", function () { setTimeout(sceneButtonTick, 150); });
+  PluginEvent.addEventListener("stash:location", function () { setTimeout(sceneButtonTick, 150); });
   setTimeout(sceneButtonTick, 800);
 
   // Same pitfall as the listing button above: switching Details <-> Edit on
@@ -4981,5 +5648,73 @@
   // navigation. Near-zero cost once present (bails out immediately above).
   new MutationObserver(function () { sceneButtonTick(); })
     .observe(document.body, { childList: true, subtree: true });
+
+  // ── Stash UI entry point ───────────────────────────────────────────────────
+  // Called by assets/stashui.js (the Stash UI extension module). The same
+  // floating panel is shown over the Stash UI list; `host.fetchIds(page)`
+  // gives the scene ids of that page for the list's current filter.
+
+  function ensureHostPanel() {
+    var sp = state.scrapers.length > 0
+      ? Promise.resolve(state.scrapers)
+      : Promise.all([getSceneScrapers(), getStashBoxes()]).then(function (results) {
+          var s = results[0].concat(results[1]);
+          state.scrapers = s;
+          return s;
+        });
+    return sp.then(function (scrapers) {
+      if (!scrapers.length) scrapers = [{ id: "", name: "No scene scraper" }];
+      return loadPluginConfig().then(function () {
+        reconcileScraperChain();
+        if (!document.getElementById(PANEL_ID)) {
+          document.body.appendChild(buildPanel(scrapers));
+          attachPanelEvents();
+        }
+      });
+    });
+  }
+
+  function setHostVisible(visible) {
+    state.visible = visible;
+    var panel = document.getElementById(PANEL_ID);
+    if (panel) panel.style.display = visible ? "" : "none";
+  }
+
+  window.stSceneTaggerHost = {
+    isOpen: function () { return state.visible; },
+    // Solo panel for one scene (the scene page of Stash UI): same panel as the classic scene button
+    openSolo: function (sceneID) {
+      _hostSolo = true;
+      _host = null;
+      openPanelForScene(String(sceneID));
+    },
+    toggle: function (host) {
+      if (state.visible) { setHostVisible(false); return Promise.resolve(); }
+      _host = host;
+      return ensureHostPanel().then(function () {
+        // back from a solo panel: restore the list layout
+        _hostSolo = false;
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl && panelEl.classList.contains("st-panel-solo")) {
+          panelEl.classList.remove("st-panel-solo");
+          var titleEl = document.getElementById("st-titlebar-drag");
+          if (titleEl) titleEl.innerHTML = "&#9776; Scene Tagger";
+          var compactBtn = document.getElementById("st-titlebar-compact");
+          if (compactBtn) compactBtn.style.display = "";
+        }
+        setHostVisible(true);
+        state.currentPage = 1;
+        state.scenes = [];
+        loadScenes();
+      });
+    },
+    // The list's filter/sort changed in Stash UI: start over from page 1
+    refresh: function () {
+      if (!_host || !state.visible) return;
+      state.currentPage = 1;
+      state.scenes = [];
+      loadScenes();
+    }
+  };
 
 })();
