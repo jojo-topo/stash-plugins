@@ -5,7 +5,7 @@
 - id: sceneTagger
   name: Scene Tagger
   description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-  version: "1.27.10"
-  date: "2026-10-18 18:44:51"
+  version: "1.27.11"
+  date: "2026-10-18 18:56:18"
   path: sceneTagger.zip
-  sha256: 34271fd88e3d32256a0214c00aca40a42ca55ad1f2b55deea43fddd50ea10059
+  sha256: 96ca593b7a20e5ffb086da5e0d864a4352c794941619f72fa90b7e45cc472984
