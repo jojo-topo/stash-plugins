@@ -13,6 +13,7 @@ on:
       - "sceneTagger/sceneTagger.yml"
       - "sceneTagger/sceneTagger.js"
       - "sceneTagger/sceneTagger.css"
+      - "sceneTagger/assets/**"
   workflow_dispatch: # lets you trigger it manually from the Actions tab too
 
 permissions:
@@ -30,7 +31,8 @@ jobs:
       - name: Zip sceneTagger package
         run: |
           cd sceneTagger
-          zip -j ../sceneTagger.zip sceneTagger.yml sceneTagger.js sceneTagger.css
+          rm -f ../sceneTagger.zip
+          zip -r ../sceneTagger.zip sceneTagger.yml sceneTagger.js sceneTagger.css assets
 
       - name: Update index.yml (path, sha256, version, date)
         run: python3 .github/scripts/update_index.py

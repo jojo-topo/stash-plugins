@@ -751,6 +751,8 @@
 
 /* ── Rows container ── */
 #st-rows {
+  background: #13151a; /* darker than the row cards sitting on it */
+  padding: 3px 0;
   overflow-y: auto;
   overflow-x: hidden;
   flex: 1 1 0;
@@ -763,10 +765,13 @@
 
 /* ── Row ── */
 .st-row {
-  border-bottom: 1px solid #1e2128;
+  /* each scene is its own rounded card (separated from the next one) */
+  background: #1a1d23;
+  border: 1px solid #2a303b;
+  border-radius: 10px;
+  margin: 5px 8px;
   transition: background 0.1s;
 }
-.st-row:last-child { border-bottom: none; }
 .st-row:hover { background: #1c1f27; }
 .st-state-scraping  { background: #181d2a; }
 /* Scraped: a thin azure "neon" outline (#4286c4) all around the row, rounded
@@ -779,14 +784,22 @@
   background: rgba(66, 134, 196, 0.04);
   border-radius: 10px;
   margin: 5px 8px;
-  border-bottom-color: transparent;
+  border-color: transparent;
   box-shadow: inset 0 0 0 2px #4286c4, inset 0 0 14px rgba(66, 134, 196, 0.18);
 }
 .st-row.st-state-scraped:hover {
   background: rgba(66, 134, 196, 0.07);
 }
 .st-state-applying  { background: #181d2a; }
-.st-state-done      { background: #132640; }
+/* Done (applied): same blue as the progress veil for the tint, plus the same azure
+   outline as a scraped row (same margin/radius, so nothing shifts on Apply). */
+.st-state-done {
+  background: rgba(66, 134, 196, 0.15);
+  border-radius: 10px;
+  margin: 5px 8px;
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px #4286c4, inset 0 0 14px rgba(66, 134, 196, 0.18);
+}
 .st-state-error     { background: rgba(191, 97, 106, 0.04); }
 .st-state-skipped   { opacity: 0.42; }
 
@@ -3905,6 +3918,13 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
   border-radius: 0;
   border-bottom-color: #1e2128;
 }
+/* A done row keeps its blue tint but loses the outline, margin and rounded corners. */
+#st-panel.st-no-outline .st-row.st-state-done {
+  box-shadow: none;
+  margin: 0;
+  border-radius: 0;
+  border-bottom-color: #1e2128;
+}
 
 /* Copy button on the existing Details text: top right of the grey box, shown
    when the box is hovered (or the button focused with the keyboard). */
@@ -3964,7 +3984,7 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
   background: rgba(191, 97, 106, 0.04);
   border-radius: 10px;
   margin: 5px 8px;
-  border-bottom-color: transparent;
+  border-color: transparent;
   box-shadow: inset 0 0 0 2px #bf616a, inset 0 0 14px rgba(191, 97, 106, 0.2);
 }
 #st-panel .st-row.st-state-error:hover,
@@ -3977,4 +3997,692 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
   margin: 5px 8px;
   border-radius: 10px;
   box-shadow: inset 0 0 0 2px #bf616a, inset 0 0 14px rgba(191, 97, 106, 0.2);
+}
+
+/* Title bar fullscreen button (same look as the compact one); hidden when the
+   panel is already forced fullscreen (touch screens / windows up to 1100px). */
+#st-titlebar-fullscreen {
+  background: none; border: none;
+  border-radius: 6px;
+  color: #616975;
+  cursor: pointer; padding: 3px 7px;
+  line-height: 1; transition: color 0.15s, background 0.15s;
+  display: inline-flex; align-items: center;
+}
+#st-titlebar-fullscreen:hover { color: #88c0d0; background: #88c0d01e; }
+@media (max-width: 1100px), (pointer: coarse) {
+  #st-titlebar-fullscreen { display: none; }
+}
+
+/* Scrape progress veil: a translucent azure layer that grows from the left over
+   the row being scraped (width driven by JS, simulated curve), with a glowing
+   leading edge. Behind the content (z-index), never catches clicks. */
+.st-state-scraping { position: relative; overflow: hidden; }
+.st-state-scraping > .st-row-top { position: relative; z-index: 2; }
+.st-prog-veil {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: rgba(66, 134, 196, 0.15);
+  border-right: 2px solid rgba(66, 134, 196, 0.9);
+  box-shadow: inset -22px 0 26px -22px rgba(66, 134, 196, 0.6);
+  pointer-events: none; z-index: 1;
+}
+.st-prog-label {
+  display: block; margin-top: 4px; min-height: 16px;
+  font-size: 12px; color: #88c0d0; letter-spacing: 0.02em;
+}
+
+/* Veil -> result hand-over (animations set inline by progReveal() in the JS). */
+@keyframes st-reveal { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes st-flare {
+  from { box-shadow: inset 0 0 0 2px #8cc8ff, inset 0 0 34px rgba(120, 190, 255, 0.6); }
+}
+@keyframes st-flare-fail {
+  from { box-shadow: inset 0 0 0 2px #ff8c95, inset 0 0 34px rgba(255, 130, 140, 0.55); }
+}
+
+/* Collapsible sub-groups inside the Display settings. */
+.st-setting-subgroup-toggle {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 0; margin: 2px 0;
+  border-top: 1px solid #232830;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: #8ea0b3; cursor: pointer; user-select: none;
+}
+.st-setting-subgroup-toggle:hover { color: #d8dee9; }
+.st-sg-chev { color: #6b8299; font-size: 10px; display: inline-block; transition: transform 0.15s ease; }
+.st-setting-subgroup-toggle.st-open .st-sg-chev { transform: rotate(90deg); }
+.st-sg-count { color: #5c6773; font-weight: 500; }
+.st-setting-subgroup-body { display: none; padding-left: 2px; }
+.st-setting-subgroup-toggle.st-open + .st-setting-subgroup-body { display: block; }
+.st-setting-row-sub2 .st-setting-label { padding-left: 44px; }
+
+/* ==========================================================================
+   Stash UI skin - ONLY active when html.st-sui is set (assets/stashui.js, i.e. the
+   separate Stash UI app). Everything below is scoped "html.st-sui #st-panel", so the
+   classic Stash look above is untouched. Colors come from Stash UI's own variables
+   (--pink = accent, --bg/--bg-2/--bg-3/--base, --text...), so it follows the theme
+   chosen there; under html.kb-glass the surfaces turn into Stash UI's liquid glass.
+   The azure scraped/done halo and the progress veil are kept (recolored to the accent).
+   ========================================================================== */
+html.st-sui #st-panel {
+  --st-acc: var(--pink, #137cbd);
+  --st-acc2: var(--pink-2, #2b95d6);
+  --st-s1: var(--bg, #202b33);
+  --st-s2: var(--bg-2, #293742);
+  --st-s3: var(--bg-3, #394b59);
+  --st-deep: var(--base, #182026);
+  --st-tx: var(--text, #f5f8fa);
+  --st-tx2: var(--text-2, #c5d0d8);
+  --st-fa: var(--faint, #8a9ba8);
+  --st-ok: var(--ok, #5ee39a);
+  --st-bad: var(--danger, #ff5a5a);
+  --st-vio: var(--violet, #a78bfa);
+  font-family: var(--f-text, Bahnschrift, "Segoe UI", system-ui, sans-serif);
+  color: var(--st-tx);
+  background: var(--st-deep);
+  border: 1px solid var(--st-s3);
+  border-radius: 10px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .45);
+}
+html.st-sui.kb-glass #st-panel {
+  background: var(--glass-shine), var(--glass-deep);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-color: var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Title bar + header + status bar: open, then the header becomes a card */
+html.st-sui #st-titlebar { background: transparent; border: 0; border-radius: 10px 10px 0 0; padding: 10px 16px 6px; }
+html.st-sui #st-titlebar-drag { color: var(--st-tx2); }
+html.st-sui #st-titlebar-drag::before { background: var(--st-acc2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-acc) 28%, transparent); }
+html.st-sui #st-panel-header {
+  margin: 4px 12px 8px;
+  padding: 12px 14px;
+  background: var(--st-s2);
+  border: 1px solid var(--st-s3);
+  border-radius: 8px;
+}
+html.st-sui.kb-glass #st-panel-header { background: var(--glass-shine), var(--glass); border-color: var(--glass-edge); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14); }
+html.st-sui #st-status-bar { background: transparent; border: 0; padding: 2px 18px 10px; color: var(--st-fa); }
+html.st-sui #st-progress-wrap { height: 4px; border-radius: 2px; background: var(--st-s3); }
+html.st-sui #st-progress-bar { background: var(--st-acc); }
+html.st-sui #st-rows { padding: 0 12px; }
+html.st-sui #st-rows::-webkit-scrollbar-track { background: transparent; }
+html.st-sui #st-rows::-webkit-scrollbar-thumb { background: var(--st-s3); }
+html.st-sui #st-panel-footer { background: transparent; border-top: 1px solid var(--st-s3); border-radius: 0 0 10px 10px; }
+
+/* Buttons */
+html.st-sui #st-panel .st-btn { height: 34px; padding: 0 14px; border-radius: 4px; font-family: inherit; letter-spacing: 0; }
+html.st-sui #st-panel .st-page-nav .st-btn { height: auto; padding: 3px 9px; }
+html.st-sui #st-panel .st-btn-primary { background: var(--st-acc); color: #fff; }
+html.st-sui #st-panel .st-btn-primary:hover:not(:disabled) { background: var(--st-acc2); box-shadow: none; }
+html.st-sui #st-panel .st-btn-success { background: color-mix(in srgb, var(--st-ok) 16%, transparent); border: 1px solid color-mix(in srgb, var(--st-ok) 55%, transparent); color: var(--st-ok); }
+html.st-sui #st-panel .st-btn-success:hover:not(:disabled) { background: color-mix(in srgb, var(--st-ok) 26%, transparent); box-shadow: none; }
+html.st-sui #st-panel .st-btn-danger { border-color: color-mix(in srgb, var(--st-bad) 50%, transparent); color: color-mix(in srgb, var(--st-bad) 80%, #fff); }
+html.st-sui #st-panel .st-btn-ghost { background: color-mix(in srgb, var(--st-s2) 60%, transparent); border: 1px solid var(--st-s3); color: var(--st-tx); }
+html.st-sui #st-panel .st-btn-ghost:hover:not(:disabled) { border-color: var(--st-fa); background: var(--st-s3); color: var(--st-tx); }
+html.st-sui #st-panel .st-btn-organized-on { background: var(--st-acc); color: #fff; }
+html.st-sui #st-panel .st-btn-organized-off { border: 1px solid var(--st-s3); color: var(--st-fa); }
+html.st-sui #st-panel .st-combo-btn { height: 34px; background: var(--st-deep); border: 1px solid var(--st-s3); border-radius: 4px; color: var(--st-tx); }
+html.st-sui #st-panel .st-combo-btn:hover { border-color: var(--st-fa); }
+html.st-sui #st-panel .st-combo-btn:focus { border-color: var(--st-acc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-acc) 20%, transparent); }
+html.st-sui #st-panel .st-combo-list { background: var(--st-s2); border-color: var(--st-s3); border-radius: 6px; }
+html.st-sui #st-panel .st-combo-option { color: var(--st-tx2); border-radius: 4px; }
+html.st-sui #st-panel .st-combo-option-active { background: var(--st-s3); color: var(--st-tx); }
+html.st-sui #st-panel .st-combo-option-selected { color: var(--st-acc2); }
+
+/* Segmented filter (All / New / Existing / Failed) */
+html.st-sui #st-panel .st-filter-group { background: var(--st-deep); border-color: var(--st-s3); border-radius: 4px; }
+html.st-sui #st-panel .st-filter-indicator { background: var(--st-acc); border-radius: 2px; }
+html.st-sui #st-panel .st-filter-item { color: var(--st-tx2); border-radius: 2px; padding: 7px 11px; font-size: 12.5px; }
+html.st-sui #st-panel .st-filter-item:hover { color: var(--st-tx); }
+html.st-sui #st-panel .st-filter-item:has(input:checked) { color: #fff; font-weight: 600; }
+
+/* Rows = separate cards (instead of a list divided by lines) */
+html.st-sui #st-panel .st-row {
+  margin: 0 0 8px;
+  background: var(--st-s2);
+  border: 1px solid var(--st-s3);
+  border-radius: 8px;
+}
+html.st-sui #st-panel .st-row:last-child { border: 1px solid var(--st-s3); }
+html.st-sui #st-panel .st-row:hover { background: color-mix(in srgb, var(--st-s2) 80%, var(--st-s3)); }
+html.st-sui.kb-glass #st-panel .st-row { background: var(--glass-shine), var(--glass); border-color: var(--glass-edge); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14); }
+html.st-sui #st-panel .st-state-skipped { opacity: .42; }
+html.st-sui #st-panel .st-state-error { border-color: color-mix(in srgb, var(--st-bad) 55%, transparent); }
+/* scraped / done: the azure halo is kept, in the accent color */
+html.st-sui #st-panel .st-state-scraped,
+html.st-sui #st-panel .st-state-done {
+  margin: 0 0 8px;
+  border-color: transparent;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 2px var(--st-acc), inset 0 0 14px color-mix(in srgb, var(--st-acc) 28%, transparent);
+}
+html.st-sui #st-panel .st-state-scraped { background: color-mix(in srgb, var(--st-acc) 5%, var(--st-s2)); }
+html.st-sui #st-panel .st-state-done { background: color-mix(in srgb, var(--st-acc) 15%, var(--st-s2)); }
+html.st-sui #st-panel .st-state-scraping,
+html.st-sui #st-panel .st-state-applying { background: var(--st-s2); }
+html.st-sui.kb-glass #st-panel .st-state-scraped,
+html.st-sui.kb-glass #st-panel .st-state-done {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--st-acc), inset 0 0 14px color-mix(in srgb, var(--st-acc) 28%, transparent);
+}
+/* progress veil: same behavior, accent colors */
+html.st-sui #st-panel .st-prog-veil {
+  background: color-mix(in srgb, var(--st-acc) 16%, transparent);
+  border-right-color: var(--st-acc2);
+  box-shadow: inset -22px 0 26px -22px var(--st-acc2);
+}
+html.st-sui #st-panel .st-prog-label { color: var(--st-acc2); font-weight: 600; }
+
+/* Thumbnail + state stamp (from the row's state class, no JS) */
+html.st-sui #st-panel .st-thumb-clip { border-radius: 4px; }
+html.st-sui #st-panel .st-thumb { border: 0; border-radius: 4px; background: var(--st-deep); }
+html.st-sui #st-panel .st-thumb-scrub-bar-fill { background: var(--st-acc2); }
+html.st-sui #st-panel .st-state-scraping .st-thumb-clip::after,
+html.st-sui #st-panel .st-state-applying .st-thumb-clip::after,
+html.st-sui #st-panel .st-state-scraped .st-thumb-clip::after,
+html.st-sui #st-panel .st-state-done .st-thumb-clip::after,
+html.st-sui #st-panel .st-state-error .st-thumb-clip::after {
+  content: "SCRAPING";
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  z-index: 3;
+  padding: 3px 5px;
+  border-radius: 3px;
+  background: var(--st-acc);
+  color: #fff;
+  font: 700 9px/1 var(--f-label, inherit);
+  letter-spacing: .08em;
+  pointer-events: none;
+}
+html.st-sui #st-panel .st-state-applying .st-thumb-clip::after { content: "APPLYING"; }
+html.st-sui #st-panel .st-state-scraped .st-thumb-clip::after { content: "TO APPLY"; background: #e0a63e; color: #10181e; }
+html.st-sui #st-panel .st-state-done .st-thumb-clip::after { content: "APPLIED"; background: var(--st-ok); color: #10181e; }
+html.st-sui #st-panel .st-state-error .st-thumb-clip::after { content: "FAILED"; background: var(--st-bad); color: #fff; }
+
+/* Text, hints, inputs */
+html.st-sui #st-panel .st-filename,
+html.st-sui #st-panel .st-scene-link { color: var(--st-tx2); }
+html.st-sui #st-panel .st-scene-link:hover { color: var(--st-tx); }
+html.st-sui #st-panel .st-hint { color: var(--st-fa); }
+html.st-sui #st-panel .st-manual-url-input,
+html.st-sui #st-panel .st-url-add-input,
+html.st-sui #st-panel .st-details-edit,
+html.st-sui #st-panel .st-studio-search-input {
+  background: color-mix(in srgb, var(--st-deep) 75%, transparent);
+  border: 1px solid var(--st-s3);
+  border-radius: 4px;
+  color: var(--st-tx);
+}
+html.st-sui #st-panel .st-manual-url-input:focus,
+html.st-sui #st-panel .st-url-add-input:focus,
+html.st-sui #st-panel .st-details-edit:focus,
+html.st-sui #st-panel .st-studio-search-input:focus {
+  border-color: var(--st-acc);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-acc) 20%, transparent);
+}
+html.st-sui #st-panel .st-manual-url-input::placeholder { color: var(--st-fa); }
+html.st-sui #st-panel .st-ts-result { background: var(--st-s2); border-color: var(--st-s3); border-radius: 6px; }
+
+/* Field groups: no box, an underlined heading (tags / performers / urls / details / date / cover / artists) */
+html.st-sui #st-panel :is(.st-inline-tags, .st-inline-performers, .st-inline-artists, .st-inline-urls, .st-inline-details, .st-inline-date, .st-inline-cover) > .st-inline-label {
+  width: 100%;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--st-s3);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--st-tx);
+}
+html.st-sui.kb-glass #st-panel :is(.st-inline-tags, .st-inline-performers, .st-inline-artists, .st-inline-urls, .st-inline-details, .st-inline-date, .st-inline-cover) > .st-inline-label { border-color: var(--glass-edge); }
+html.st-sui #st-panel .st-inline-label { color: var(--st-tx2); }
+html.st-sui #st-panel .st-inline-label input[type="checkbox"],
+html.st-sui #st-panel .st-tag-item input[type="checkbox"] { accent-color: var(--st-acc); }
+html.st-sui #st-panel .st-label-static { color: var(--st-fa); }
+html.st-sui #st-panel .st-existing-caption { color: var(--st-fa); }
+/* solo mode: its boxed cards go back to open sections, like the list */
+html.st-sui #st-panel :is(.st-inline-tags, .st-inline-performers, .st-inline-artists, .st-inline-urls, .st-inline-details, .st-inline-date, .st-inline-cover) {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+html.st-sui #st-panel.st-panel-solo :is(.st-inline-tags, .st-inline-performers, .st-inline-artists, .st-inline-urls, .st-inline-details, .st-inline-date, .st-inline-cover) > .st-inline-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--st-tx);
+}
+
+/* Chips: Stash UI "kb-chip" look (left stripe) */
+html.st-sui #st-panel .st-chip,
+html.st-sui #st-panel .st-tag-item {
+  border: 0;
+  border-radius: 3px;
+  padding: 4px 10px 4px 11px;
+  background: color-mix(in srgb, var(--st-vio) 17%, transparent);
+  box-shadow: inset 3px 0 0 var(--st-vio);
+  color: var(--st-tx);
+}
+html.st-sui #st-panel .st-tag-item:hover { background: color-mix(in srgb, var(--st-vio) 28%, transparent); }
+html.st-sui #st-panel .st-chip-title { background: none; box-shadow: none; padding: 0; font-weight: 700; font-size: 14px; color: var(--st-tx); border-radius: 0; max-width: none; }
+html.st-sui #st-panel .st-chip-studio { background: color-mix(in srgb, var(--st-acc) 30%, transparent); box-shadow: inset 3px 0 0 var(--st-acc2); font-weight: 600; }
+html.st-sui #st-panel .st-chip-performer { background: color-mix(in srgb, var(--st-ok) 16%, transparent); box-shadow: inset 3px 0 0 var(--st-ok); font-weight: 600; }
+html.st-sui #st-panel .st-chip-date { background: color-mix(in srgb, var(--st-vio) 30%, transparent); font-weight: 600; }
+html.st-sui #st-panel .st-chip-url,
+html.st-sui #st-panel .st-url-item { background: color-mix(in srgb, var(--st-acc) 16%, transparent); box-shadow: none; color: var(--st-acc2); }
+html.st-sui #st-panel .st-chip-details { color: var(--st-fa); }
+html.st-sui #st-panel .st-tag-item.st-tag-new { background: color-mix(in srgb, var(--st-acc) 22%, transparent); box-shadow: inset 3px 0 0 var(--st-acc2); color: var(--st-tx); }
+html.st-sui #st-panel .st-tag-item:has(input:checked) { background: var(--st-acc); box-shadow: none; color: #fff; font-weight: 600; }
+html.st-sui #st-panel .st-tag-item:has(input:checked):hover { background: var(--st-acc2); }
+html.st-sui #st-panel .st-tag-item:has(input:checked) input[type="checkbox"] { accent-color: #fff; }
+html.st-sui #st-panel .st-new-badge,
+html.st-sui #st-panel .st-tag-item.st-tag-new .st-new-badge,
+html.st-sui #st-panel .st-url-badge-new {
+  background: var(--st-acc);
+  color: #fff;
+  border-radius: 2px;
+  padding: 2px 4px;
+  letter-spacing: .06em;
+}
+html.st-sui #st-panel .st-url-row.st-url-row-new { background: color-mix(in srgb, var(--st-acc) 14%, transparent); border-color: color-mix(in srgb, var(--st-acc) 40%, transparent); }
+html.st-sui #st-panel .st-url-row.st-url-row-new .st-url-link { color: var(--st-acc2); }
+
+/* Apply / Skip / Organized row */
+html.st-sui #st-panel .st-inline-actions { gap: 8px; }
+
+/* Mass list: the file/scene title pill becomes a plain bold title (like the scraped title) */
+html.st-sui #st-panel:not(.st-panel-solo):not(.st-compact) .st-filename,
+html.st-sui #st-panel:not(.st-panel-solo):not(.st-compact) .st-filename:hover {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text, #f5f8fa);
+}
+html.st-sui #st-panel:not(.st-panel-solo):not(.st-compact) .st-r34-link {
+  background: color-mix(in srgb, var(--pink, #137cbd) 16%, transparent);
+  border-radius: 3px;
+  color: var(--pink-2, #2b95d6);
+}
+
+/* Stash UI skin - second pass: the "details in one card" wrapper, section icons, "already on this scene"
+   pills, the search inputs and their drop-down lists (all were still on the old palette) */
+html.st-sui #st-panel .st-onecard,
+html.st-sui #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+html.st-sui #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field,
+html.st-sui #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field {
+  border-top: 0;
+  border-left: 0;
+}
+html.st-sui #st-panel .st-onecard .st-inline-label { color: var(--st-tx); font-weight: 700; }
+html.st-sui #st-panel .st-section-icon { background: color-mix(in srgb, var(--st-acc) 18%, transparent); color: var(--st-acc2); border-radius: 4px; }
+html.st-sui #st-panel .st-existing-pill {
+  background: color-mix(in srgb, var(--st-vio) 12%, transparent);
+  border: 0;
+  border-radius: 3px;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--st-vio) 70%, transparent);
+  color: var(--st-tx2);
+  padding: 4px 10px 4px 11px;
+}
+html.st-sui #st-panel .st-tag-search-input,
+html.st-sui #st-panel .st-perf-search-input {
+  background: color-mix(in srgb, var(--st-deep) 75%, transparent);
+  border: 1px solid var(--st-s3);
+  border-radius: 4px;
+  color: var(--st-tx);
+}
+html.st-sui #st-panel .st-tag-search-input:focus,
+html.st-sui #st-panel .st-perf-search-input:focus {
+  border-color: var(--st-acc);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-acc) 20%, transparent);
+}
+html.st-sui #st-panel .st-tag-search-input::placeholder,
+html.st-sui #st-panel .st-perf-search-input::placeholder { color: var(--st-fa); }
+html.st-sui #st-panel .st-tag-search-results,
+html.st-sui #st-panel .st-perf-search-results,
+html.st-sui #st-panel .st-studio-search-results {
+  background: var(--st-s2);
+  border: 1px solid var(--st-s3);
+  border-radius: 6px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .55);
+}
+html.st-sui.kb-glass #st-panel .st-tag-search-results,
+html.st-sui.kb-glass #st-panel .st-perf-search-results,
+html.st-sui.kb-glass #st-panel .st-studio-search-results {
+  background: var(--glass-shine), var(--glass-deep);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-color: var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Stash UI skin - liquid glass: like Stash UI's own controls (html.kb-glass), buttons, segmented filter,
+   chips and pills become capsules with a tinted glass fill and a light top edge; fields get 10px corners */
+html.st-sui.kb-glass #st-panel .st-btn,
+html.st-sui.kb-glass #st-panel .st-combo-btn,
+html.st-sui.kb-glass #st-panel .st-filter-group {
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+html.st-sui.kb-glass #st-panel .st-btn { padding: 0 16px; }
+html.st-sui.kb-glass #st-panel .st-btn-ghost,
+html.st-sui.kb-glass #st-panel .st-combo-btn,
+html.st-sui.kb-glass #st-panel .st-filter-group {
+  background: var(--glass-shine), color-mix(in srgb, var(--st-s3) 38%, transparent);
+  border-color: var(--glass-edge);
+}
+html.st-sui.kb-glass #st-panel .st-btn-primary,
+html.st-sui.kb-glass #st-panel .st-btn-organized-on {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 20px color-mix(in srgb, var(--st-acc) 40%, transparent);
+}
+html.st-sui.kb-glass #st-panel .st-btn-success,
+html.st-sui.kb-glass #st-panel .st-btn-danger { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); }
+html.st-sui.kb-glass #st-panel .st-btn-primary:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 20px color-mix(in srgb, var(--st-acc) 40%, transparent); }
+html.st-sui.kb-glass #st-panel .st-filter-indicator,
+html.st-sui.kb-glass #st-panel .st-filter-item { border-radius: 999px; }
+html.st-sui.kb-glass #st-panel .st-chip,
+html.st-sui.kb-glass #st-panel .st-tag-item,
+html.st-sui.kb-glass #st-panel .st-existing-pill,
+html.st-sui.kb-glass #st-panel .st-r34-link,
+html.st-sui.kb-glass #st-panel .st-url-item {
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
+  padding-left: 11px;
+}
+html.st-sui.kb-glass #st-panel .st-chip-title,
+html.st-sui.kb-glass #st-panel .st-chip-title:hover { box-shadow: none; border-radius: 0; padding: 0; }
+html.st-sui.kb-glass #st-panel .st-tag-item.st-tag-new { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), inset 0 0 0 1px color-mix(in srgb, var(--st-acc2) 60%, transparent); }
+html.st-sui.kb-glass #st-panel .st-tag-item:has(input:checked) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3); }
+html.st-sui.kb-glass #st-panel .st-new-badge,
+html.st-sui.kb-glass #st-panel .st-url-badge-new { border-radius: 999px; padding: 2px 6px; }
+html.st-sui.kb-glass #st-panel .st-manual-url-input,
+html.st-sui.kb-glass #st-panel .st-url-add-input,
+html.st-sui.kb-glass #st-panel .st-details-edit,
+html.st-sui.kb-glass #st-panel .st-studio-search-input,
+html.st-sui.kb-glass #st-panel .st-tag-search-input,
+html.st-sui.kb-glass #st-panel .st-perf-search-input {
+  border-color: var(--glass-edge);
+  border-radius: 10px;
+  background-color: color-mix(in srgb, var(--st-deep) 45%, transparent);
+}
+html.st-sui.kb-glass #st-panel .st-section-icon { border-radius: 999px; }
+
+/* Studio banner: its "Studio" label is a small pill laid over the cover - the underlined-heading rule above
+   must not stretch it into a full-width bar */
+html.st-sui #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists > .st-inline-label {
+  width: auto;
+  padding-bottom: 2px;
+  border-bottom: 0;
+}
+
+/* Button feedback like Stash UI's .kb-btn: quick transitions, a small press on click, visible keyboard focus */
+html.st-sui #st-panel .st-btn { transition: transform .1s ease, box-shadow .1s ease, background .15s ease, border-color .15s ease, color .15s ease; }
+html.st-sui #st-panel .st-btn:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+html.st-sui #st-panel .st-btn:focus-visible,
+html.st-sui #st-panel .st-combo-btn:focus-visible { outline: 2px solid var(--shine, #8fe3ff); outline-offset: 2px; }
+html.st-sui #st-panel .st-btn-ghost:hover:not(:disabled) { border-color: var(--st-fa); }
+html.st-sui.kb-glass #st-panel .st-btn-ghost:hover:not(:disabled),
+html.st-sui.kb-glass #st-panel .st-combo-btn:hover {
+  background: var(--glass-shine), color-mix(in srgb, var(--st-s3) 62%, transparent);
+  border-color: color-mix(in srgb, var(--st-fa) 70%, transparent);
+}
+html.st-sui.kb-glass #st-panel .st-btn-primary:active:not(:disabled) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 2px 8px color-mix(in srgb, var(--st-acc) 40%, transparent);
+}
+html.st-sui.kb-glass #st-panel .st-btn-success:hover:not(:disabled),
+html.st-sui.kb-glass #st-panel .st-btn-danger:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .24); }
+
+/* Fixes: studio banner keeps its rounded corners (the card clips the cover), a URL is ONE badge (the link
+   inside the .st-url-item pill stays transparent), the "rule34 ID" link is a capsule in glass too, and tags
+   that already exist in the database (checked, no NEW badge) keep their green */
+html.st-sui #st-panel .st-onecard,
+html.st-sui #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard { border-radius: 10px; }
+html.st-sui #st-panel .st-url-item .st-chip-url,
+html.st-sui.kb-glass #st-panel .st-url-item .st-chip-url { background: none; box-shadow: none; border-radius: 0; }
+html.st-sui.kb-glass #st-panel:not(.st-panel-solo):not(.st-compact) .st-r34-link { border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); }
+html.st-sui #st-panel .st-tag-item:not(.st-tag-new):has(input:checked) { background: color-mix(in srgb, var(--st-ok) 55%, var(--st-deep)); color: #fff; }
+html.st-sui #st-panel .st-tag-item:not(.st-tag-new):has(input:checked):hover { background: color-mix(in srgb, var(--st-ok) 66%, var(--st-deep)); }
+
+/* Multi-studio toggle: same look as the other header buttons */
+html.st-sui #st-panel .st-multi-studio-toggle {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--st-s3);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--st-s2) 60%, transparent);
+  color: var(--st-tx2);
+  font-size: 13px;
+  font-weight: 600;
+}
+html.st-sui #st-panel .st-multi-studio-toggle:hover { color: var(--st-tx); border-color: var(--st-fa); }
+html.st-sui #st-panel .st-multi-studio-toggle:has(input:checked) {
+  color: #fff;
+  background: var(--st-acc);
+  border-color: var(--st-acc);
+}
+html.st-sui.kb-glass #st-panel .st-multi-studio-toggle {
+  border-radius: 999px;
+  border-color: var(--glass-edge);
+  background: var(--glass-shine), color-mix(in srgb, var(--st-s3) 38%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+html.st-sui.kb-glass #st-panel .st-multi-studio-toggle:has(input:checked) { background: var(--st-acc); border-color: var(--st-acc); }
+
+/* Performers from the scrape (and added by search): same pill as "Already on this scene" */
+html.st-sui #st-panel .st-perf-item,
+html.st-sui #st-panel .st-perf-added-chip {
+  gap: 8px;
+  padding: 3px 12px 3px 9px;
+  border: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--st-vio) 12%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--st-vio) 70%, transparent);
+  color: var(--st-tx2);
+}
+html.st-sui #st-panel .st-perf-added-chip { padding-left: 3px; }
+html.st-sui #st-panel .st-perf-item:hover { background: color-mix(in srgb, var(--st-vio) 22%, transparent); }
+html.st-sui #st-panel .st-perf-item .st-perf-chip-avatar,
+html.st-sui #st-panel .st-perf-added-chip .st-perf-chip-avatar { width: 34px; height: 34px; }
+html.st-sui #st-panel .st-perf-item.st-perf-new,
+html.st-sui #st-panel .st-perf-item.st-perf-new:hover {
+  background: color-mix(in srgb, var(--st-acc) 22%, transparent);
+  box-shadow: inset 3px 0 0 var(--st-acc2);
+  color: var(--st-tx);
+}
+html.st-sui #st-panel .st-perf-item input[type="checkbox"] { accent-color: var(--st-acc); }
+html.st-sui.kb-glass #st-panel .st-perf-item,
+html.st-sui.kb-glass #st-panel .st-perf-added-chip {
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+html.st-sui.kb-glass #st-panel .st-perf-item.st-perf-new,
+html.st-sui.kb-glass #st-panel .st-perf-item.st-perf-new:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), inset 0 0 0 1px color-mix(in srgb, var(--st-acc2) 60%, transparent);
+}
+
+/* Stash UI: the list area stays transparent (rows are glass / surface cards there) */
+html.st-sui #st-panel #st-rows { background: transparent; padding-top: 0; padding-bottom: 0; }
+
+/* Segmented filter + Multi-studio: plugged into Stash UI's button effects (class kb-btn added by assets/stashui.js), without the button box */
+html.st-sui #st-panel .st-filter-item.kb-btn { height: auto; background: transparent; border: 0; box-shadow: none; }
+html.st-sui #st-panel .st-filter-item.kb-btn:hover { background: transparent; }
+
+/* Stash UI skin, liquid glass: the left column card (video + title + Cover, "Cover card under
+   the video") was an opaque dark box next to the glass right side. It is now a glass "bubble"
+   with the same recipe as a row (glass fill + shine, blur, glass edge, top highlight); the thin
+   line above Cover uses the glass edge colour. */
+@media (min-width: 769px) {
+  html.st-sui.kb-glass #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row:has(> .st-inline-results) > .st-row-top {
+    background: var(--glass-shine), var(--glass);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+    border-color: var(--glass-edge);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14);
+  }
+  html.st-sui.kb-glass #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row-info .st-inline-cover {
+    border-top-color: var(--glass-edge);
+  }
+}
+
+/* Stash UI skin: legible settings. The classic greys (#616975, #7a8590, #a0a8b0) were made for a
+   solid dark panel and nearly vanish on the translucent glass. Brighter text from the Stash UI
+   palette, sub-options no longer dimmer than their parent, and a darker backing behind the panel. */
+html.st-sui #st-settings-panel { background: rgba(8, 12, 18, .5); }
+html.st-sui #st-settings-panel .st-setting-section-title { color: var(--st-tx2); opacity: .8; }
+html.st-sui #st-settings-panel .st-setting-subtitle { color: var(--st-tx2); }
+html.st-sui #st-settings-panel .st-setting-label,
+html.st-sui #st-settings-panel .st-setting-label-inline { color: var(--st-tx); }
+html.st-sui #st-settings-panel .st-setting-row-sub .st-setting-label,
+html.st-sui #st-settings-panel .st-setting-row-sub .st-setting-label-inline,
+html.st-sui #st-settings-panel .st-setting-row.dep .st-setting-label { color: var(--st-tx2); }
+html.st-sui #st-settings-panel .st-setting-label:hover { color: #fff; }
+html.st-sui #st-settings-panel .st-setting-subgroup-toggle { color: var(--st-tx2); border-top-color: var(--glass-edge, rgba(255, 255, 255, .12)); }
+html.st-sui #st-settings-panel .st-setting-subgroup-toggle:hover { color: #fff; }
+html.st-sui #st-settings-panel .st-sg-count { color: var(--st-fa); }
+html.st-sui #st-settings-panel .st-setting-disclosure-label { color: var(--st-tx2); }
+html.st-sui #st-settings-panel .st-setting-label input[type="checkbox"] { accent-color: var(--st-acc2); }
+
+/* Stash UI skin: other dark-grey texts made for a solid dark panel (pagination, footer count,
+   status line, hints and captions) lifted to the palette's secondary text; disabled buttons
+   kept readable. */
+html.st-sui #st-panel #st-page-nav-label,
+html.st-sui #st-panel #st-page-info,
+html.st-sui #st-panel #st-status-bar,
+html.st-sui #st-panel .st-hint,
+html.st-sui #st-panel .st-existing-caption,
+html.st-sui #st-panel .st-split-empty,
+html.st-sui #st-panel .st-cover-caption,
+html.st-sui #st-panel .st-date-dow,
+html.st-sui #st-panel .st-studio-no-result,
+html.st-sui #st-panel .st-existing-pill { color: var(--st-tx2); }
+html.st-sui #st-panel #st-page-info,
+html.st-sui #st-panel .st-hint,
+html.st-sui #st-panel .st-cover-caption { opacity: .85; }
+html.st-sui #st-panel .st-studio-search-input::placeholder,
+html.st-sui #st-panel input::placeholder { color: color-mix(in srgb, var(--st-tx2) 70%, transparent); }
+html.st-sui #st-panel .st-btn:disabled { opacity: .55; }
+
+/* Stash UI skin: solid Apply / Skip buttons (same family as Scrape All and Stash UI's own
+   is-danger): Skip = Stash UI's solid red, Apply = solid green with white text. Disabled ones
+   stay coloured (opacity .6) so they remain identifiable. */
+html.st-sui #st-panel .st-btn-success {
+  background: #27a86f; border: 1px solid #27a86f; color: #fff; font-weight: 700;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .25);
+}
+html.st-sui.kb-glass #st-panel .st-btn-success {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 6px 20px rgba(94, 227, 154, .28);
+}
+html.st-sui #st-panel .st-btn-success:hover:not(:disabled),
+html.st-sui.kb-glass #st-panel .st-btn-success:hover:not(:disabled) {
+  background: #33c083; border-color: #33c083; color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 22px rgba(94, 227, 154, .4);
+}
+html.st-sui #st-panel .st-btn-danger {
+  background: #b3243e; border: 1px solid #b3243e; color: #f5f8fa; font-weight: 700;
+}
+html.st-sui.kb-glass #st-panel .st-btn-danger {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28), 0 6px 20px rgba(179, 36, 62, .3);
+}
+html.st-sui #st-panel .st-btn-danger:hover:not(:disabled),
+html.st-sui.kb-glass #st-panel .st-btn-danger:hover:not(:disabled) {
+  background: #d22c4a; border-color: #d22c4a; color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 22px rgba(210, 44, 74, .4);
+}
+html.st-sui #st-panel .st-btn:disabled { opacity: .6; }
+
+/* Stash UI skin: title bar icons (fullscreen, compact, settings, close) were #616975, almost
+   invisible on the glass. Palette secondary text, white on hover. */
+html.st-sui #st-panel :is(#st-titlebar-fullscreen, #st-titlebar-compact, #st-titlebar-settings, #st-titlebar-close) { color: var(--st-tx2); }
+html.st-sui #st-panel :is(#st-titlebar-fullscreen, #st-titlebar-compact, #st-titlebar-settings, #st-titlebar-close):hover { color: #fff; }
+html.st-sui #st-panel #st-titlebar-close:hover { color: color-mix(in srgb, var(--st-bad) 80%, #fff); }
+
+/* Stash UI skin: the "Search title" bar (source select + query input + Search button) takes the
+   look of Stash UI's own "Search this view" field: rounded 10px, translucent dark fill, glass
+   edge, 40px tall, a magnifier on the left of the query input, accent ring on focus. */
+html.st-sui #st-panel :is(.st-ts-input, .st-ts-source) {
+  height: 40px;
+  border: 1px solid var(--glass-edge, var(--st-s3));
+  border-radius: 10px;
+  background-color: color-mix(in srgb, var(--st-deep) 45%, transparent);
+  color: var(--st-tx);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 12px;
+}
+html.st-sui #st-panel .st-ts-input {
+  padding-left: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a9ba8' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6.5'/%3E%3Cpath d='m16 16 4.5 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 12px center;
+  background-size: 16px 16px;
+}
+html.st-sui #st-panel .st-ts-input::placeholder { color: var(--st-fa); }
+html.st-sui #st-panel .st-ts-source {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%238a9ba8' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 11px 7px;
+}
+html.st-sui #st-panel .st-ts-source option { background: var(--st-deep); color: var(--st-tx); }
+html.st-sui #st-panel :is(.st-ts-input, .st-ts-source):hover { border-color: var(--st-fa); }
+html.st-sui #st-panel :is(.st-ts-input, .st-ts-source):focus {
+  border-color: var(--st-acc);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-acc) 22%, transparent);
+}
+html.st-sui #st-panel .st-ts-search-row .st-btn { height: 40px; }
+
+/* Stash UI skin, phones: the header (Scrape All / Apply All / Skip All / filters...) took about
+   40% of the screen with 37px buttons and wide padding. Tighter: 34px tall buttons (still easy to
+   hit with a thumb, 5px between them), 11px side padding, 12px text, smaller header padding. */
+@media (max-width: 768px) {
+  html.st-sui #st-panel #st-panel-header { padding: 8px 10px; gap: 5px; }
+  html.st-sui #st-panel #st-panel-header :is(.st-btn, .st-combo-btn, .st-multi-studio-toggle) {
+    height: 34px; min-height: 34px; padding: 0 11px; font-size: 12px;
+  }
+  html.st-sui #st-panel #st-panel-header .st-filter-item { padding: 6px 9px; font-size: 12px; }
+  html.st-sui #st-panel #st-panel-header .st-filter-radios { gap: 4px; }
+  html.st-sui #st-panel #st-panel-header .st-multi-studio-toggle svg { width: 12px; height: 12px; }
+}
+/* ...and the secondary buttons (Clear, Auto, Multi-studio) share the last row instead of each
+   wrapping onto its own line: 3 rows in total instead of 4. */
+@media (max-width: 768px) {
+  html.st-sui #st-panel #st-panel-header :is(#st-btn-clear, #st-btn-scraper-mode, #st-scraper-select-manual, .st-multi-studio-toggle) { order: 3; }
+}
+@media (max-width: 768px) {
+  /* The filter group and Multi-studio live in .st-filter-radios; flattening it lets Multi-studio
+     join Clear / Auto on the last row. */
+  html.st-sui #st-panel #st-panel-header .st-filter-radios { display: contents; }
+}
+
+/* Phone header: round chevron button at the end of the first row folds the filter rows
+   (All scrapers, All/New/Existing/Failed, Clear, Auto, Multi-studio), leaving Scrape All - SFW.
+   Hidden on larger screens and in solo mode. The visible circle is 34px but an invisible ring
+   around it enlarges the touch area to about 44px for a thumb. */
+.st-btn-collapse { display: none; }
+@media (max-width: 768px) {
+  #st-panel:not(.st-panel-solo) #st-panel-header .st-btn-collapse {
+    display: inline-grid; place-items: center; position: relative;
+    width: 34px; height: 34px; margin-left: auto; padding: 0; flex: none;
+    border-radius: 999px; border: 1px solid rgba(255, 255, 255, .14);
+    background: rgba(70, 85, 100, .35); color: #bfccd6; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #st-panel .st-btn-collapse::before { content: ""; position: absolute; inset: -5px; border-radius: 999px; }
+  #st-panel .st-btn-collapse svg { transition: transform .25s ease; }
+  #st-panel.st-hdr-collapsed .st-btn-collapse svg { transform: rotate(180deg); }
+  #st-panel .st-btn-collapse:active { background: rgba(255, 255, 255, .16); }
+  #st-panel.st-hdr-collapsed #st-panel-header :is(#st-btn-clear, #st-btn-scraper-mode, #st-scraper-select-manual, .st-filter-radios) { display: none; }
 }

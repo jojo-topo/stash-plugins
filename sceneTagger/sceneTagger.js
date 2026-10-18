@@ -175,6 +175,132 @@
       (r.tags && r.tags.length) || (r.performers && r.performers.length));
   }
 
+  // -- Scrape progress veil ------------------------------------------------
+  // Stash returns ONE response per scrape (no progress), so the veil is a
+  // simulated curve: fast start, then slower, capped below 100% until the
+  // answer arrives. Only REAL events change anything: a new scraper tried in
+  // the fallback chain, the title update, the URL lookup - each gives a small
+  // surge and a matching status line. No fake step numbers or percentages.
+  var PROG_EXPECTED = 2.5;   // seconds a typical scrape takes (measured)
+  var PROG_CAP = 0.985;      // asymptote: the veil keeps creeping towards it, never reaches 100%
+  var progRaf = null;
+
+  // Veil position (0..1) after t seconds of waiting. Phase 1 (up to the expected
+  // duration): fast ease-out to 82%. Phase 2: logarithmic crawl whose speed matches
+  // the end of phase 1 and then keeps falling like 1/t - no sudden stop, still
+  // visibly moving after tens of seconds, never reaching 100%.
+  function progTarget(t) {
+    if (t <= PROG_EXPECTED) return 0.82 * (1 - Math.exp(-3.2 * t / PROG_EXPECTED)) / (1 - Math.exp(-3.2));
+    return 0.82 + 0.03 * Math.log(1 + (t - PROG_EXPECTED) / 0.67);
+  }
+
+  function progEvent(id, label, bump) {
+    var r = state.rows[id];
+    if (!r || r.status !== "scraping") return;
+    if (label) r.progLabel = label;
+    if (bump) { (r.progBumps = r.progBumps || []).push(performance.now()); }
+    var lab = document.querySelector("#st-row-" + id + " .st-prog-label");
+    if (lab && label) lab.textContent = label;
+  }
+
+  function progStart(id) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.progT0 = performance.now(); r.progLast = r.progT0; r.progP = 0;
+    r.progBumps = []; r.progLabel = "Scraping..."; r.progBumpAcc = 0;
+    if (!progRaf) progRaf = requestAnimationFrame(progFrame);
+  }
+
+  function progFrame(now) {
+    progRaf = null;
+    var any = false;
+    Object.keys(state.rows).forEach(function (id) {
+      var r = state.rows[id];
+      if (!r || r.status !== "scraping" || r.progT0 === undefined) return;
+      any = true;
+      var veil = document.querySelector("#st-row-" + id + " .st-prog-veil");
+      var dt = Math.min(0.1, (now - r.progLast) / 1000); r.progLast = now;
+      var target = progTarget((now - r.progT0) / 1000);
+      // each new scraper tried in the chain gives a small push towards the cap
+      (r.progBumps || []).forEach(function (b) {
+        r.progBumpAcc += Math.max(0, PROG_CAP - 0.003 - target - r.progBumpAcc) * Math.exp(-((now - b) / 1000) / 0.35) * dt;
+      });
+      r.progP = Math.max(r.progP, Math.min(PROG_CAP - 0.003, target + r.progBumpAcc));
+      if (veil) veil.style.width = (r.progP * 100).toFixed(2) + "%";
+    });
+    if (any) progRaf = requestAnimationFrame(progFrame);
+  }
+
+  // Short run to 100% before the row re-renders as scraped; resolves at once
+  // when the veil is off or not on screen.
+  function progFinish(id) {
+    var r = state.rows[id];
+    var el = document.getElementById("st-row-" + id);
+    var veil = el ? el.querySelector(".st-prog-veil") : null;
+    // Kept for progReveal(): the old veil element and the row height before it re-renders.
+    if (r) r.progCtx = { veil: veil, h0: el ? el.offsetHeight : 0 };
+    if (!pluginConfig.progressVeil || !veil) return Promise.resolve();
+    veil.style.transition = "width .16s ease-out";
+    veil.style.width = "100%";
+    return new Promise(function (res) { setTimeout(res, 170); });
+  }
+
+  // Called right after the row re-rendered with the scrape result: the old veil
+  // fades out on top (0.5s), the result block fades in and slides down (0.35s),
+  // the row grows from its old height (0.2s) and the outline flares then settles
+  // (0.3s). All inline + cleaned up afterwards; skipped for reduced motion.
+  function progReveal(id) {
+    var r = state.rows[id];
+    var ctx = r && r.progCtx;
+    if (!ctx) return;
+    r.progCtx = null;
+    if (!pluginConfig.progressTransition) return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var el = document.getElementById("st-row-" + id);
+    if (!el || (r.status !== "scraped" && r.status !== "error")) return;
+
+    var h1 = el.offsetHeight;
+    var prevPos = el.style.position;
+    el.style.position = "relative";
+
+    // D: outline flare (scraped = azure, failed = red); not when the outline is off
+    var panelEl = document.getElementById(PANEL_ID);
+    var noOutline = panelEl && panelEl.classList.contains("st-no-outline");
+    if (!noOutline) {
+      el.style.animation = ((r.manualFallback || r.status === "error") ? "st-flare-fail" : "st-flare") + " .3s ease-out";
+    }
+
+    // B: everything except the header line fades in and slides down
+    Array.prototype.forEach.call(el.children, function (ch) {
+      if (ch.classList.contains("st-row-top") || ch.classList.contains("st-prog-veil")) return;
+      ch.style.animation = "st-reveal .35s ease-out both";
+    });
+
+    // A: old veil on top, fading out
+    if (ctx.veil) {
+      ctx.veil.style.cssText = "position:absolute;left:0;top:0;bottom:0;width:100%;z-index:5;opacity:1;transition:opacity .5s ease;pointer-events:none";
+      el.appendChild(ctx.veil);
+      requestAnimationFrame(function () { requestAnimationFrame(function () { ctx.veil.style.opacity = "0"; }); });
+    }
+
+    // C: height from the old size to the new one
+    var grow = ctx.h0 > 0 && h1 > ctx.h0 + 4;
+    if (grow) {
+      el.style.height = ctx.h0 + "px";
+      el.style.overflow = "hidden";
+      void el.offsetHeight;
+      el.style.transition = "height .2s cubic-bezier(.2,.7,.2,1)";
+      el.style.height = h1 + "px";
+    }
+
+    setTimeout(function () {
+      if (ctx.veil && ctx.veil.parentNode) ctx.veil.parentNode.removeChild(ctx.veil);
+      el.style.animation = ""; el.style.height = ""; el.style.overflow = ""; el.style.transition = "";
+      el.style.position = prevPos;
+      Array.prototype.forEach.call(el.children, function (ch) { ch.style.animation = ""; });
+    }, 560);
+  }
+
   // Tries the enabled scrapers from pluginConfig.scraperChain in order,
   // stopping at the first usable result. Returns {scraped, scraperID, scraperName}
   // or {scraped:null} if they all failed.
@@ -183,6 +309,10 @@
     function tryNext(i) {
       if (i >= chain.length) return Promise.resolve({ scraped: null });
       var entry = chain[i];
+      if (i > 0) {
+        var sc0 = state.scrapers.filter(function (sc) { return sc.id === entry.id; })[0];
+        progEvent(sceneID, "Scraper " + (i + 1) + "/" + chain.length + " \u00b7 " + (sc0 ? sc0.name : entry.id), true);
+      }
       return scrapeSingleScene(entry.id, sceneID)
         .then(function (result) {
           if (isUsableScrapedResult(result)) {
@@ -209,6 +339,7 @@
     // behavior exactly. Explicit user intent, takes priority over URL-based
     // lookups too.
     if (r && r.manualTitle) {
+      progEvent(sceneID, "Updating title...", false);
       return updateSceneTitle(sceneID, r.manualTitle).then(function () {
         if (r.scene) r.scene.title = r.manualTitle;
         return scrapeOneByMode(sceneID);
@@ -217,6 +348,7 @@
     // URL entered manually on the row: absolute priority, an explicit
     // user action for this specific scene.
     if (r && r.manualUrl) {
+      progEvent(sceneID, "Reading URL...", false);
       return scrapeSceneURL(r.manualUrl).then(function (result) {
         if (isUsableScrapedResult(result)) {
           return { scraped: result, scraperID: "url", scraperName: "Entered URL" };
@@ -225,6 +357,7 @@
       }).catch(function () { return scrapeOneByMode(sceneID); });
     }
     if (pluginConfig.useUrlIfPresent && scene && scene.urls && scene.urls.length) {
+      progEvent(sceneID, "Reading URL...", false);
       return scrapeSceneURL(scene.urls[0]).then(function (result) {
         if (isUsableScrapedResult(result)) {
           return { scraped: result, scraperID: "url", scraperName: "Existing URL" };
@@ -779,7 +912,12 @@
     // Blue outline around a scraped row (state "scraped, ready to apply").
     scrapedOutline:            true,
     // Copy icon on the existing Details text: always visible (otherwise on hover).
-    copyIconAlways:            false
+    copyIconAlways:            false,
+    // Progress veil over a row being scraped (simulated curve) + status line.
+    progressVeil:              true,
+    progressText:              true,
+    // Smooth hand-over from the veil to the scraped result (fade, grow, flare).
+    progressTransition:        true
   };
 
   function loadPluginConfig() {
@@ -830,6 +968,9 @@
           if (cfg.oneCardCols !== undefined) pluginConfig.oneCardCols = !!cfg.oneCardCols;
           if (cfg.scrapedOutline !== undefined) pluginConfig.scrapedOutline = !!cfg.scrapedOutline;
           if (cfg.copyIconAlways !== undefined) pluginConfig.copyIconAlways = !!cfg.copyIconAlways;
+          if (cfg.progressVeil !== undefined) pluginConfig.progressVeil = !!cfg.progressVeil;
+          if (cfg.progressText !== undefined) pluginConfig.progressText = !!cfg.progressText;
+          if (cfg.progressTransition !== undefined) pluginConfig.progressTransition = !!cfg.progressTransition;
           if (cfg.scraperChain !== undefined) {
             try {
               var parsed = typeof cfg.scraperChain === "string" ? JSON.parse(cfg.scraperChain) : cfg.scraperChain;
@@ -2590,7 +2731,13 @@
     var headerThumb = (r.customCover && !(panelElForThumb && (panelElForThumb.classList.contains("st-panel-solo") || (panelElForThumb.classList.contains("st-cover-card") && panelElForThumb.classList.contains("st-banner-layout")))))
       ? r.customCover : thumb;
 
+    var progVeilHTML = (status === "scraping" && pluginConfig.progressVeil)
+      ? '<div class="st-prog-veil" style="width:' + (((r.progP || 0) * 100).toFixed(2)) + '%"></div>' : "";
+    var progLabelHTML = (status === "scraping" && pluginConfig.progressText)
+      ? '<span class="st-prog-label">' + esc(r.progLabel || "Scraping...") + '</span>' : "";
+
     el.innerHTML =
+      progVeilHTML +
       '<div class="st-row-top">' +
         // .st-thumb-clip does the clipping (size + overflow:hidden) - see
         // the CSS comment on that class: Stash's native SFW blur targets
@@ -2623,6 +2770,7 @@
         '<div class="st-row-info">' +
           '<span class="st-filename st-scene-link" title="' + esc(headerShowsTitle ? headerLabel + '\n' + fname : fname) + '">' + esc(headerLabel) + '</span>' +
           foundViaHTML +
+          progLabelHTML +
           hintHTML +
           manualUrlHTML +
           coverMovedHTML +
@@ -3324,6 +3472,14 @@
       var el = document.getElementById("st-row-" + scene.id);
       if (!el) return;
       var r = state.rows[scene.id];
+      // "Failed" filter: only the rows whose scrape failed (error, or kept as
+      // manual fill-in after a failed scrape); none when a scraper / multi-studio
+      // filter is also active (a failed row has neither).
+      if (f === "failed") {
+        var isFail = !!r && (r.status === "error" || (r.status === "scraped" && !!r.manualFallback));
+        el.style.display = (isFail && sf === "all" && !multiOnly) ? "" : "none";
+        return;
+      }
       // Errors: no new/existing status since there's no scraped result to
       // classify - hidden under New/Existing, stay visible under All so
       // failures needing a retry aren't lost from view.
@@ -3610,19 +3766,27 @@
     var r = state.rows[id];
     if (!r) return;
     r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false; r.viaTitleSearch = false;
+    progStart(id);
     renderRow(id);
     updateStatus("Scraping " + getFilename(r.scene) + "...");
 
     scrapeOneEffective(id)
+      .then(function (res) { return progFinish(id).then(function () { return res; }); })
       .then(function (res) {
         if (!res.scraped) { handleScrapeFailure(r, "No result"); }
         else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; applyOrganizedAutoDefault(r); }
         renderRow(id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
+        progReveal(id);
         if (r.status === "scraped") { refreshStudioAliasBadges(id); fetchStoredPerformerImages(id); }
       })
       .catch(function (err) {
-        handleScrapeFailure(r, err.message || String(err));
-        renderRow(id); updatePageInfo();
+        // A thrown scrape error skips the .then() above, so the veil never got
+        // its run to 100% nor the hand-over context: do it here, then fail.
+        (r.progCtx ? Promise.resolve() : progFinish(id)).then(function () {
+          handleScrapeFailure(r, err.message || String(err));
+          renderRow(id); updatePageInfo();
+          progReveal(id);
+        });
       });
   };
 
@@ -3868,20 +4032,26 @@
       updateProgress(i, todo.length);
       updateStatus("Scraping " + (i + 1) + "/" + todo.length + " : " + getFilename(scene));
       r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false; r.viaTitleSearch = false;
+      progStart(scene.id);
       renderRow(scene.id);
 
       scrapeOneEffective(scene.id)
+        .then(function (res) { return progFinish(scene.id).then(function () { return res; }); })
         .then(function (res) {
           if (!res.scraped) { handleScrapeFailure(r, "No result"); }
           else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; applyOrganizedAutoDefault(r); }
           renderRow(scene.id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
+          progReveal(scene.id);
           if (r.status === "scraped") { refreshStudioAliasBadges(scene.id); fetchStoredPerformerImages(scene.id); }
           setTimeout(function () { next(i + 1); }, 700);
         })
         .catch(function (err) {
-          handleScrapeFailure(r, err.message || String(err));
-          renderRow(scene.id); updatePageInfo();
-          setTimeout(function () { next(i + 1); }, 700);
+          (r.progCtx ? Promise.resolve() : progFinish(scene.id)).then(function () {
+            handleScrapeFailure(r, err.message || String(err));
+            renderRow(scene.id); updatePageInfo();
+            progReveal(scene.id);
+            setTimeout(function () { next(i + 1); }, 700);
+          });
         });
     })(0);
   }
@@ -4098,6 +4268,25 @@
   // ── Build the panel ────────────────────────────────────────────────────────
 
   // Mode classes carried by #st-panel (compact / fullscreen / banner layout).
+  // Collapsible sub-group of the Display settings. Open/closed state is kept in
+  // localStorage (first group open by default); toggled by a delegated click
+  // handler on #st-settings-panel (see buildPanel's settings wiring).
+  var SG_STORE = "stSettingsOpenGroups";
+  function settingsGroupOpen(key) {
+    try {
+      var saved = JSON.parse(localStorage.getItem(SG_STORE) || "null");
+      if (saved && typeof saved[key] === "boolean") return saved[key];
+    } catch (e) {}
+    return key === "layout";
+  }
+  function settingsSubGroup(key, title, count, innerHTML) {
+    var open = settingsGroupOpen(key);
+    return '<div class="st-setting-subgroup-toggle' + (open ? ' st-open' : '') + '" data-sg="' + key + '">' +
+        '<span class="st-sg-chev">&#9656;</span>' + title + ' <span class="st-sg-count">(' + count + ')</span>' +
+      '</div>' +
+      '<div class="st-setting-subgroup-body">' + innerHTML + '</div>';
+  }
+
   function panelBaseClassName() {
     return [
       pluginConfig.compactMode ? "st-compact" : "",
@@ -4128,6 +4317,7 @@
       '<div id="st-titlebar">' +
         '<span id="st-titlebar-drag">&#9776; Scene Tagger</span>' +
         '<div id="st-titlebar-actions">' +
+          '<button id="st-titlebar-fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>' +
           '<button id="st-titlebar-compact" title="Compact mode">&#8644;&#xFE0E;</button>' +
           '<button id="st-titlebar-settings" title="Settings">&#9881;&#xFE0E;</button>' +
           '<button id="st-titlebar-close" title="Close">&#10005;</button>' +
@@ -4172,7 +4362,7 @@
           // skExtra-Multiple-Studios-Custom, which isn't published. Uncomment
           // if that plugin is ever published separately.
           // '<div class="st-setting-row">' +
-          // '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
+            // '<label class="st-setting-label"><input type="checkbox" id="st-cfg-auto-other-studios"> Add the other artists (Artists:) as "Other studios" (skExtra-Multiple-Studios-Custom)</label>' +
           // '</div>' +
           '<div class="st-setting-row">' +
             '<label class="st-setting-label"><input type="checkbox" id="st-cfg-performer"> Auto-check new performers</label>' +
@@ -4192,91 +4382,105 @@
         '</div>' +
         '<div class="st-setting-group">' +
           '<div class="st-setting-section-title">Display</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-studio-banner"> Hide studio banner</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-studio-logo"> Hide studio logo</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-cover-under-thumb"> Cover under the thumbnail (instead of aligned with the title)</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-details-editor"> Full Details editor in the mass list (instead of the short preview)</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scene-title-header"> Show the scene title instead of the file name (when it has one)</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-split-existing-new"> Split existing / new data</label>' +
-          '</div>' +
-          '<div class="st-setting-row st-setting-row-sub">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-split-side"> Side by side instead of stacked</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Thumbnail hover preview</label>' +
-          '</div>' +
-          '<div class="st-setting-row st-setting-row-sub">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scrub-enable-grid"> Enable scrub controls - mass scrape panel</label>' +
-          '</div>' +
-          '<div class="st-setting-row st-setting-row-sub">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scrub-enable-solo"> Enable scrub controls - Scrape Scene popup</label>' +
-          '</div>' +
-          '<div class="st-setting-row st-setting-row-sub">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scrub-bar"> Show scrub progress bar</label>' +
-          '</div>' +
-          '<div class="st-setting-row st-setting-row-sub">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-keyboard-seek"> Keyboard seek (arrow keys)</label>' +
-          '</div>' +
-          '<div class="st-setting-disclosure" id="st-scrub-adv-toggle">' +
-            '<span class="st-setting-disclosure-chevron">&#9656;</span>' +
-            '<span class="st-setting-disclosure-label">Advanced scrub settings (step %, acceleration...)</span>' +
-          '</div>' +
-          '<div class="st-setting-adv-box" id="st-scrub-adv-box" style="display:none">' +
-            '<div class="st-setting-row-inline">' +
-              '<label class="st-setting-label-inline">Scroll step %: ' +
-                '<input type="number" id="st-cfg-scrub-slow" min="0" step="0.5" style="width:48px"> slow / ' +
-                '<input type="number" id="st-cfg-scrub-normal" min="0" step="0.5" style="width:48px"> normal / ' +
-                '<input type="number" id="st-cfg-scrub-fast" min="0" step="0.5" style="width:48px"> fast' +
-              '</label>' +
+          settingsSubGroup("layout", "Panel layout", 7,
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-fullscreen-desktop"> Fullscreen panel on desktop</label>' +
             '</div>' +
-            '<div class="st-setting-row-inline">' +
-              '<label class="st-setting-label-inline">Max acceleration (x): <input type="number" id="st-cfg-scrub-max-mult" min="1" step="0.5" style="width:48px"></label>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-banner-layout"> Banner layout (details beside the video, studio banner)</label>' +
             '</div>' +
-            '<div class="st-setting-row-inline">' +
-              '<label class="st-setting-label-inline">Keyboard seek step (s): <input type="number" id="st-cfg-keyboard-seek-step" min="1" step="1" style="width:48px"></label>' +
+            '<div class="st-setting-row st-setting-row-sub">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-cover-card"> Cover card under the video (needs Banner layout)</label>' +
             '</div>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-scene-mode"> Hide Auto/Manual toggle on scene page</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-toolbar-btn"> Hide "ST" button in scene toolbar</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-edit-btn"> Hide "sceneTagger" button on scene Edit tab</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-fullscreen-desktop"> Fullscreen panel on desktop</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-banner-layout"> Banner layout (details beside the video, studio banner)</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-cover-card"> Cover card under the video (needs Banner layout)</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-one-card"> Details in one card (needs Banner layout)</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-one-card-cols"> &nbsp;&nbsp;Two columns inside the card (otherwise stacked)</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scraped-outline"> Blue outline around scraped rows</label>' +
-          '</div>' +
-          '<div class="st-setting-row">' +
-            '<label class="st-setting-label"><input type="checkbox" id="st-cfg-copy-always"> Copy icon on existing Details always visible (otherwise on hover)</label>' +
-          '</div>' +
+            '<div class="st-setting-row st-setting-row-sub">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-one-card"> Details in one card (needs Banner layout)</label>' +
+            '</div>' +
+            '<div class="st-setting-row st-setting-row-sub st-setting-row-sub2">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-one-card-cols"> Two columns inside the card (otherwise stacked)</label>' +
+            '</div>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-split-existing-new"> Split existing / new data</label>' +
+            '</div>' +
+            '<div class="st-setting-row st-setting-row-sub">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-split-side"> Side by side instead of stacked</label>' +
+            '</div>') +
+          settingsSubGroup("content", "Row content", 6,
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-studio-banner"> Hide studio banner</label>' +
+            '</div>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-studio-logo"> Hide studio logo</label>' +
+            '</div>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-cover-under-thumb"> Cover under the thumbnail (instead of aligned with the title)</label>' +
+            '</div>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-details-editor"> Full Details editor in the mass list (instead of the short preview)</label>' +
+            '</div>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scene-title-header"> Show the scene title instead of the file name (when it has one)</label>' +
+            '</div>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-copy-always"> Copy icon on existing Details always visible (otherwise on hover)</label>' +
+            '</div>') +
+          settingsSubGroup("states", "Row states & progress", 4,
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scraped-outline"> Blue outline around scraped rows</label>' +
+            '</div>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-prog-veil"> Progress veil on rows being scraped</label>' +
+            '</div>' +
+            '<div class="st-setting-row st-setting-row-sub">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-prog-text"> Status line under the file name while scraping</label>' +
+            '</div>' +
+            '<div class="st-setting-row st-setting-row-sub">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-prog-transition"> Smooth transition from the veil to the scraped result</label>' +
+            '</div>') +
+          settingsSubGroup("preview", "Thumbnail preview & scrub", 5,
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-native-hover"> Thumbnail hover preview</label>' +
+            '</div>' +
+            '<div class="st-setting-row st-setting-row-sub">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scrub-enable-grid"> Enable scrub controls - mass scrape panel</label>' +
+            '</div>' +
+            '<div class="st-setting-row st-setting-row-sub">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scrub-enable-solo"> Enable scrub controls - Scrape Scene popup</label>' +
+            '</div>' +
+            '<div class="st-setting-row st-setting-row-sub">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-scrub-bar"> Show scrub progress bar</label>' +
+            '</div>' +
+            '<div class="st-setting-row st-setting-row-sub">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-keyboard-seek"> Keyboard seek (arrow keys)</label>' +
+            '</div>' +
+            '<div class="st-setting-disclosure" id="st-scrub-adv-toggle">' +
+              '<span class="st-setting-disclosure-chevron">&#9656;</span>' +
+              '<span class="st-setting-disclosure-label">Advanced scrub settings (step %, acceleration...)</span>' +
+            '</div>' +
+            '<div class="st-setting-adv-box" id="st-scrub-adv-box" style="display:none">' +
+              '<div class="st-setting-row-inline">' +
+                '<label class="st-setting-label-inline">Scroll step %: ' +
+                  '<input type="number" id="st-cfg-scrub-slow" min="0" step="0.5" style="width:48px"> slow / ' +
+                  '<input type="number" id="st-cfg-scrub-normal" min="0" step="0.5" style="width:48px"> normal / ' +
+                  '<input type="number" id="st-cfg-scrub-fast" min="0" step="0.5" style="width:48px"> fast' +
+                '</label>' +
+              '</div>' +
+              '<div class="st-setting-row-inline">' +
+                '<label class="st-setting-label-inline">Max acceleration (x): <input type="number" id="st-cfg-scrub-max-mult" min="1" step="0.5" style="width:48px"></label>' +
+              '</div>' +
+              '<div class="st-setting-row-inline">' +
+                '<label class="st-setting-label-inline">Keyboard seek step (s): <input type="number" id="st-cfg-keyboard-seek-step" min="1" step="1" style="width:48px"></label>' +
+              '</div>' +
+            '</div>') +
+          settingsSubGroup("stash", "Stash integration", 3,
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-scene-mode"> Hide Auto/Manual toggle on scene page</label>' +
+            '</div>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-toolbar-btn"> Hide "ST" button in scene toolbar</label>' +
+            '</div>' +
+            '<div class="st-setting-row">' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-hide-edit-btn"> Hide "sceneTagger" button on scene Edit tab</label>' +
+            '</div>') +
         '</div>' +
         '<div class="st-setting-row st-blacklist-row">' +
           '<div class="st-blacklist-label">Studio blacklist (VA)</div>' +
@@ -4297,6 +4501,10 @@
           (pluginConfig.scraperMode === "manual" ? "Manual" : "Auto") +
         '</button>' +
         '<button class="st-btn st-btn-ghost' + (pluginConfig.nsfwBlur ? ' st-btn-nsfw-on' : '') + '" id="st-btn-nsfw" title="SFW mode: blur thumbnails and previews">SFW</button>' +
+        // Phones only (hidden by CSS elsewhere): shows / hides the filter rows of this header
+        '<button type="button" class="st-btn-collapse" id="st-btn-collapse" aria-expanded="true" title="Show / hide filters">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>' +
+        '</button>' +
         // Custom combobox instead of a native <select> - Firefox styles a
         // native select's popup from the element's own CSS, but Chrome
         // ignores it and shows its generic OS-themed dropdown regardless
@@ -4332,6 +4540,7 @@
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="all" checked> All</label>' +
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="new"> New</label>' +
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="existing"> Existing</label>' +
+            '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="failed" title="Scrapes that failed"> Failed</label>' +
           '</div>' +
           '<label class="st-multi-studio-toggle" title="Only scenes with multiple detected studio candidates">' +
             '<input type="checkbox" id="st-multi-studio-filter">' +
@@ -4597,6 +4806,26 @@
       if (nb) nb.classList.toggle("st-btn-nsfw-on", !!pluginConfig.nsfwBlur);
     }
     applyNsfwBlur();
+    // Phone header: the chevron button folds the filter rows (state kept between openings)
+    (function () {
+      var cb = document.getElementById("st-btn-collapse");
+      var pn = document.getElementById(PANEL_ID);
+      if (!cb || !pn) return;
+      var KEY = "stHeaderCollapsed";
+      function apply(collapsed) {
+        pn.classList.toggle("st-hdr-collapsed", collapsed);
+        cb.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      }
+      var saved = false;
+      try { saved = localStorage.getItem(KEY) === "1"; } catch (e) {}
+      apply(saved);
+      cb.addEventListener("click", function () {
+        var c = !pn.classList.contains("st-hdr-collapsed");
+        apply(c);
+        try { localStorage.setItem(KEY, c ? "1" : "0"); } catch (e) {}
+      });
+    })();
+
     var nsfwBtn = document.getElementById("st-btn-nsfw");
     if (nsfwBtn) {
       nsfwBtn.addEventListener("click", function () {
@@ -4720,6 +4949,7 @@
         if (btn) { btn.textContent = "Scene Tagger"; btn.style.color = ""; btn.style.border = ""; }
         var toolbarBtn = document.getElementById(TOOLBAR_BTN_GROUP_ID);
         if (toolbarBtn) toolbarBtn.classList.remove("st-active");
+        notifyVisibility();
       });
     }
 
@@ -4733,6 +4963,33 @@
     // solo's own max-height rules no longer applied). Hidden entirely
     // instead of trying to make toggling behave in solo - there's nothing
     // useful for it to toggle between there.
+    // Fullscreen button: same switch as the "Fullscreen panel on desktop"
+    // setting (kept in sync), for batch and solo.
+    var fullscreenBtn = document.getElementById("st-titlebar-fullscreen");
+    if (fullscreenBtn) {
+      var syncFullscreenBtn = function () {
+        fullscreenBtn.classList.toggle("st-titlebar-on", !!pluginConfig.fullscreenOnDesktop);
+        fullscreenBtn.title = pluginConfig.fullscreenOnDesktop ? "Exit fullscreen" : "Fullscreen";
+      };
+      syncFullscreenBtn();
+      fullscreenBtn.addEventListener("click", function () {
+        pluginConfig.fullscreenOnDesktop = !pluginConfig.fullscreenOnDesktop;
+        savePluginConfig();
+        var panelEl = document.getElementById(PANEL_ID);
+        if (panelEl) {
+          panelEl.classList.toggle("st-fullscreen", pluginConfig.fullscreenOnDesktop);
+          ["top", "left", "right", "bottom", "width", "height", "transform"].forEach(function (k) { panelEl.style[k] = ""; });
+        }
+        var fsCb = document.getElementById("st-cfg-fullscreen-desktop");
+        if (fsCb) fsCb.checked = pluginConfig.fullscreenOnDesktop;
+        syncFullscreenBtn();
+      });
+      // The settings checkbox can change it too: keep the button's state in sync.
+      document.addEventListener("change", function (e) {
+        if (e.target && e.target.id === "st-cfg-fullscreen-desktop") syncFullscreenBtn();
+      });
+    }
+
     var compactBtn = document.getElementById("st-titlebar-compact");
     if (compactBtn) {
       // Solo mode isn't applied yet at this point (attachPanelEvents() runs
@@ -4791,7 +5048,7 @@
     bindSettingCb("st-cfg-studio",              "autoCheckStudio");
     bindSettingCb("st-cfg-prioritize-existing", "prioritizeExistingStudio");
     bindSettingCb("st-cfg-use-url",             "useUrlIfPresent");
-    // bindSettingCb("st-cfg-auto-other-studios", "autoAddOtherStudios"); // row hidden, see buildPanel()
+    // bindSettingCb("st-cfg-auto-other-studios",  "autoAddOtherStudios"); // row hidden, see buildPanel()
     bindSettingCb("st-cfg-hide-studio-banner",  "hideStudioBanner");
     bindSettingCb("st-cfg-hide-studio-logo",    "hideStudioLogo");
     bindSettingCb("st-cfg-cover-under-thumb",   "coverUnderThumb");
@@ -5029,6 +5286,33 @@
         if (panelEl) panelEl.classList.toggle("st-copy-always", pluginConfig.copyIconAlways);
       });
     })();
+
+    // Collapsible Display sub-groups
+    (function () {
+      var sp = document.getElementById("st-settings-panel");
+      if (!sp) return;
+      sp.addEventListener("click", function (e) {
+        var t = e.target.closest ? e.target.closest(".st-setting-subgroup-toggle") : null;
+        if (!t || !sp.contains(t)) return;
+        var open = t.classList.toggle("st-open");
+        try {
+          var saved = JSON.parse(localStorage.getItem(SG_STORE) || "null") || {};
+          saved[t.getAttribute("data-sg")] = open;
+          localStorage.setItem(SG_STORE, JSON.stringify(saved));
+        } catch (err) {}
+      });
+    })();
+
+    // Progress veil / status line - apply on the next scrape.
+    [["st-cfg-prog-veil", "progressVeil"], ["st-cfg-prog-text", "progressText"], ["st-cfg-prog-transition", "progressTransition"]].forEach(function (pair) {
+      var el2 = document.getElementById(pair[0]);
+      if (!el2) return;
+      el2.checked = !!pluginConfig[pair[1]];
+      el2.addEventListener("change", function () {
+        pluginConfig[pair[1]] = el2.checked;
+        savePluginConfig();
+      });
+    });
 
     // Hide the "ST" scene-toolbar button - takes effect immediately by
     // removing/re-injecting it, no rebuild needed (it lives outside the
@@ -5693,10 +5977,17 @@
     });
   }
 
+  // Tells the host app (Stash UI's "Scene Tagger [ON]" toolbar button) that the panel was shown
+  // or hidden, including when it is closed with the cross.
+  function notifyVisibility() {
+    try { window.dispatchEvent(new CustomEvent("st-visibility-changed")); } catch (e) {}
+  }
+
   function setHostVisible(visible) {
     state.visible = visible;
     var panel = document.getElementById(PANEL_ID);
     if (panel) panel.style.display = visible ? "" : "none";
+    notifyVisibility();
   }
 
   window.stSceneTaggerHost = {
