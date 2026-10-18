@@ -206,7 +206,7 @@
   function progStart(id) {
     var r = state.rows[id];
     if (!r) return;
-    r.progT0 = performance.now(); r.progLast = r.progT0; r.progP = 0;
+    r.progT0 = performance.now(); r.progLast = r.progT0; r.progP = 0; r.progFinishing = false;
     r.progBumps = []; r.progLabel = "Scraping..."; r.progBumpAcc = 0;
     if (!progRaf) progRaf = requestAnimationFrame(progFrame);
   }
@@ -218,6 +218,7 @@
       var r = state.rows[id];
       if (!r || r.status !== "scraping" || r.progT0 === undefined) return;
       any = true;
+      if (r.progFinishing) return;   // progFinish() animates the last stretch by CSS transition
       var veil = document.querySelector("#st-row-" + id + " .st-prog-veil");
       var dt = Math.min(0.1, (now - r.progLast) / 1000); r.progLast = now;
       var target = progTarget((now - r.progT0) / 1000);
@@ -240,9 +241,15 @@
     // Kept for progReveal(): the old veil element and the row height before it re-renders.
     if (r) r.progCtx = { veil: veil, h0: el ? el.offsetHeight : 0 };
     if (!pluginConfig.progressVeil || !veil) return Promise.resolve();
-    veil.style.transition = "width .16s ease-out";
+    if (r) r.progFinishing = true;
+    // Glide into 100%: the nearer the veil already is, the shorter the run, with a long
+    // ease-out tail (no sudden jump). Waits for the whole run: progReveal() resets the veil's
+    // inline style, which would cut the transition short.
+    var left = Math.max(0, 1 - (r && r.progP ? r.progP : 0));
+    var dur = Math.max(0.3, Math.min(0.75, 0.3 + left * 0.8));
+    veil.style.transition = "width " + dur.toFixed(2) + "s cubic-bezier(.2,.75,.25,1)";
     veil.style.width = "100%";
-    return new Promise(function (res) { setTimeout(res, 170); });
+    return new Promise(function (res) { setTimeout(res, Math.round(dur * 1000) + 30); });
   }
 
   // Called right after the row re-rendered with the scrape result: the old veil
@@ -3298,6 +3305,7 @@
           var sid  = item.getAttribute("data-id");
           var sname = item.getAttribute("data-name");
           // Store the override
+          pinRowToFilter(el.id.replace("st-row-", ""));
           overrideInput.value = sname;
           overrideInput.setAttribute("data-studio-id", sid);
           // Show the selected studio as a bordered chip + remove (✕),
@@ -3340,6 +3348,7 @@
         // Reset the override on click on selectedSpan
         if (selectedSpan) {
           selectedSpan.addEventListener("click", function () {
+            pinRowToFilter(el.id.replace("st-row-", ""));
             overrideInput.value = "";
             overrideInput.setAttribute("data-studio-id", "");
             selectedSpan.style.display = "none";
@@ -3481,6 +3490,19 @@
     return candidateRadios.length > 1;
   }
 
+  // A row the user is editing (a studio picked / removed in its search box changes its
+  // new/existing status) must not leave the filter it is shown under: remember the filter
+  // combo it was visible under. The pins are dropped as soon as the user changes a filter.
+  function pinRowToFilter(id) {
+    var r = state.rows[id], el = document.getElementById("st-row-" + id);
+    if (!r || !el) return;
+    r.filterPin = el.style.display !== "none"
+      ? { f: state.studioFilter, sf: state.scraperFilter, multi: state.multiStudioOnly } : null;
+  }
+  function clearFilterPins() {
+    Object.keys(state.rows).forEach(function (k) { if (state.rows[k]) state.rows[k].filterPin = null; });
+  }
+
   function applyStudioFilter() {
     var f = state.studioFilter;
     var sf = state.scraperFilter;
@@ -3519,6 +3541,9 @@
         if (f === "all") { el.style.display = ""; return; }
         el.style.display = (snap.studio === f) ? "" : "none";
         return;
+      }
+      if (r && r.status === "scraped" && r.filterPin && r.filterPin.f === f && r.filterPin.sf === sf && r.filterPin.multi === multiOnly) {
+        el.style.display = ""; return;   // being edited: stays where the user sees it
       }
       if (!r || r.status !== "scraped") {
         // Not scraped yet: no new/existing status either, so hide under
@@ -5429,6 +5454,7 @@
       radio.addEventListener("change", function() {
         if (radio.checked) {
           state.studioFilter = radio.value;
+          clearFilterPins();
           applyStudioFilter();
           updateFilterIndicator();
         }
@@ -5447,6 +5473,7 @@
       multiStudioCb.checked = state.multiStudioOnly;
       multiStudioCb.addEventListener("change", function() {
         state.multiStudioOnly = multiStudioCb.checked;
+        clearFilterPins();
         applyStudioFilter();
       });
     }
@@ -5515,6 +5542,7 @@
         filterOptions().forEach(function (o) { o.classList.toggle("st-combo-option-selected", o === opt); });
         filterCloseList();
         filterBtn.focus();
+        clearFilterPins();
         applyStudioFilter();
       }
       filterBtn.addEventListener("click", function () {
