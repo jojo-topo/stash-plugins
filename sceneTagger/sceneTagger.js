@@ -1665,7 +1665,9 @@
     var el = document.getElementById("st-row-" + id);
     if (!el) return;
 
-    el.className = "st-row st-state-" + status;
+    // A failed scrape kept as "manual fill-in" is status "scraped" but gets the
+    // red failure outline (class st-state-failed) instead of the blue one.
+    el.className = "st-row st-state-" + status + ((r && r.manualFallback && status === "scraped") ? " st-state-failed" : "");
 
     // Solo mode's floating "re-scrape" button (bottom-right of the panel,
     // see buildPanel()) - only relevant once this row is "done", and only

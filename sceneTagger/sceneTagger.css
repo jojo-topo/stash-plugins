@@ -773,20 +773,21 @@
    corners and a soft inner glow, marks "scraped, ready to apply" - it replaced a
    dark green gradient that no longer matched the card colours. Inset shadows,
    so nothing shifts (an outer glow would be clipped by the scrolling list);
-   a small margin keeps the rounded outline off the panel edges. */
+   a small margin keeps the rounded outline off the panel edges. A very light
+   blue tint (4 %, same weight as the red one of failed rows) sits behind it. */
 .st-state-scraped {
-  background: transparent;
+  background: rgba(66, 134, 196, 0.04);
   border-radius: 10px;
   margin: 5px 8px;
   border-bottom-color: transparent;
   box-shadow: inset 0 0 0 2px #4286c4, inset 0 0 14px rgba(66, 134, 196, 0.18);
 }
 .st-row.st-state-scraped:hover {
-  background: #1c1f27;
+  background: rgba(66, 134, 196, 0.07);
 }
 .st-state-applying  { background: #181d2a; }
-.st-state-done      { background: #152b49; }
-.st-state-error     { background: #1d1414; }
+.st-state-done      { background: #132640; }
+.st-state-error     { background: rgba(191, 97, 106, 0.04); }
 .st-state-skipped   { opacity: 0.42; }
 
 /* ── Row top (thumb + info + right button) ── */
@@ -1017,9 +1018,9 @@
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #5db0ff;
+  background: #4d9be0;
   color: #0a1626;
-  box-shadow: 0 0 10px #5db0ff44;
+  box-shadow: 0 0 8px #4d9be033;
   font-size: 15px;
   line-height: 1;
 }
@@ -3898,6 +3899,7 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
 /* Setting "Blue outline around scraped rows" off: a scraped row looks like any
    other row again (no outline, no margin, square corners). */
 #st-panel.st-no-outline .st-row.st-state-scraped {
+  background: transparent;
   box-shadow: none;
   margin: 0;
   border-radius: 0;
@@ -3951,4 +3953,28 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
   color: #eceff4;
   cursor: text;
   user-select: text;
+}
+
+/* Failed scrape: a red outline (same shape as the blue "scraped" one, with a very
+   light red tint behind it) on rows in error and on rows kept as "manual fill-in" after a
+   failed scrape. Kept
+   even when the blue outline setting is off - it signals a problem. */
+#st-panel .st-row.st-state-error,
+#st-panel .st-row.st-state-failed {
+  background: rgba(191, 97, 106, 0.04);
+  border-radius: 10px;
+  margin: 5px 8px;
+  border-bottom-color: transparent;
+  box-shadow: inset 0 0 0 2px #bf616a, inset 0 0 14px rgba(191, 97, 106, 0.2);
+}
+#st-panel .st-row.st-state-error:hover,
+#st-panel .st-row.st-state-failed:hover { background: rgba(191, 97, 106, 0.07); }
+
+/* ...also when the blue outline is switched off in the settings (that rule
+   would otherwise win on specificity and flatten the red one too). */
+#st-panel.st-no-outline .st-row.st-state-failed,
+#st-panel.st-no-outline .st-row.st-state-error {
+  margin: 5px 8px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 2px #bf616a, inset 0 0 14px rgba(191, 97, 106, 0.2);
 }
