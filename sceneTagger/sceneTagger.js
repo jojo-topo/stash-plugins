@@ -183,6 +183,7 @@
   // surge and a matching status line. No fake step numbers or percentages.
   var PROG_EXPECTED = 2.5;   // seconds a typical scrape takes (measured)
   var PROG_CAP = 0.985;      // asymptote: the veil keeps creeping towards it, never reaches 100%
+  var PROG_KNEE = 0.90;      // above this the position is compressed smoothly towards PROG_CAP
   var progRaf = null;
 
   // Veil position (0..1) after t seconds of waiting. Phase 1 (up to the expected
@@ -226,7 +227,13 @@
       (r.progBumps || []).forEach(function (b) {
         r.progBumpAcc += Math.max(0, PROG_CAP - 0.003 - target - r.progBumpAcc) * Math.exp(-((now - b) / 1000) / 0.35) * dt;
       });
-      r.progP = Math.max(r.progP, Math.min(PROG_CAP - 0.003, target + r.progBumpAcc));
+      // Soft ceiling (not a hard clamp): the time curve plus the scraper "pushes" can go past the
+      // cap on a slow scrape, and a hard min() froze the veil dead (a speed of 0.7%/s dropping to
+      // 0 within one frame). Above the knee the value is squeezed exponentially towards the cap,
+      // so the veil keeps slowing down smoothly and never stops abruptly.
+      var rawP = target + r.progBumpAcc;
+      if (rawP > PROG_KNEE) rawP = PROG_KNEE + (PROG_CAP - PROG_KNEE) * (1 - Math.exp(-(rawP - PROG_KNEE) / (PROG_CAP - PROG_KNEE)));
+      r.progP = Math.max(r.progP, rawP);
       if (veil) veil.style.width = (r.progP * 100).toFixed(2) + "%";
     });
     if (any) progRaf = requestAnimationFrame(progFrame);
