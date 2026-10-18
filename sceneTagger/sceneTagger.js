@@ -4389,13 +4389,13 @@
               '<label class="st-setting-label"><input type="checkbox" id="st-cfg-fullscreen-desktop"> Fullscreen panel on desktop</label>' +
             '</div>' +
             '<div class="st-setting-row">' +
-              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-banner-layout"> Banner layout (details beside the video, studio banner)</label>' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-banner-layout"> Modern layout (details beside the video, studio header)</label>' +
             '</div>' +
             '<div class="st-setting-row st-setting-row-sub">' +
-              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-cover-card"> Cover card under the video (needs Banner layout)</label>' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-cover-card"> Cover card under the video (needs Modern layout)</label>' +
             '</div>' +
             '<div class="st-setting-row st-setting-row-sub">' +
-              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-one-card"> Details in one card (needs Banner layout)</label>' +
+              '<label class="st-setting-label"><input type="checkbox" id="st-cfg-one-card"> Details in one card (needs Modern layout)</label>' +
             '</div>' +
             '<div class="st-setting-row st-setting-row-sub st-setting-row-sub2">' +
               '<label class="st-setting-label"><input type="checkbox" id="st-cfg-one-card-cols"> Two columns inside the card (otherwise stacked)</label>' +

@@ -3259,7 +3259,17 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
     width: 76px;
     height: 76px;
   }
-  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo img { object-fit: cover; }
+  /* A wide logo is shown whole: the box grows in width (same height) and the image is
+     contained, never cropped. Only round logos are cropped to fill their circle/square. */
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo.st-slogo-wide {
+    width: auto;
+    min-width: 64px;
+    max-width: 220px;
+    border-radius: 12px;
+  }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-has-cover .st-slogo.st-slogo-wide { min-width: 76px; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo.st-slogo-wide img { width: auto; max-width: 100%; height: 100%; object-fit: contain; }
+  #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo:not(.st-slogo-wide) img { object-fit: cover; }
   #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-bl-initial { font-size: 26px; font-weight: 600; color: #9fb0d0; }
   #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-slogo.st-slogo-empty { background: #34405a; color: #9fb0d0; }
   #st-panel.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-inline-artists .st-studio-info {

@@ -253,7 +253,7 @@ the transition is skipped when your system asks for reduced motion.
 
 ### Layouts: banner, one card, phones and tablets
 
-- **Banner layout** puts the details beside the video with the studio banner
+- **Modern layout** (called Banner layout before 1.27.8) puts the details beside the video with the studio banner
   as a cover; **Cover card under the video** and **Details in one card** (with
   an optional two-column layout) build on it.
 - **Fullscreen panel on desktop**, also reachable from a button in the title
@@ -263,7 +263,7 @@ the transition is skipped when your system asks for reduced motion.
 - The Display settings are collapsible sub-groups (open/closed state is
   remembered).
 
-![Banner layout](screenshots/banner-layout.png)
+![Modern layout](screenshots/banner-layout.png)
 ![Phone layout](screenshots/mobile-header.png)
 ![Phone layout, filters folded](screenshots/mobile-header-collapsed.png)
 
@@ -295,7 +295,7 @@ Open the gear icon on the panel header. Settings are grouped into
 - **On apply** - auto-organize on Apply
 - **Display** (all off by default unless noted)
   - Hide studio banner / Hide studio logo
-  - Banner layout, Cover card under the video, Details in one card (+ two
+  - Modern layout, Cover card under the video, Details in one card (+ two
     columns), Fullscreen panel on desktop
   - Progress veil, status line, smooth transition, outline around scraped
     rows, copy icon always visible
