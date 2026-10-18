@@ -1844,9 +1844,7 @@
       var isSoloForRefresh = !!(panelElForRefresh && panelElForRefresh.classList.contains("st-panel-solo"));
       refreshBtn.style.display = (isSoloForRefresh && status === "done") ? "flex" : "none";
       // Same behavior as the mass-list's own "Reload" button (#st-btn-reload,
-      // hidden in solo mode) - a full page reload, not a re-scrape - per
-      // Sina's clarification (session 2026-09-16: "je veux dire le refresh
-      // de la scène comme sur sceneTagger").
+      // hidden in solo mode) - a full page reload, not a re-scrape.
       refreshBtn.onclick = function () {
         try { sessionStorage.setItem(REOPEN_FLAG, "1"); } catch (e) {}
         window.location.reload();
@@ -4127,11 +4125,8 @@
     setApplyAllBtn(true);
     updateStatus("Bulk apply: " + todo.length + " scenes...");
 
-    // Pause optionnelle du watcher Watchtower (plugin watchtowerGuard) : sans effet s'il est absent
-    var guard = window.watchtowerGuard;
-    var guardReady = guard ? guard.pause() : Promise.resolve();
     var pending = [];
-    var seq = guardReady;
+    var seq = Promise.resolve();
     todo.forEach(function (scene) {
       seq = seq.then(function () {
         pending.push(window.stApplyOne(scene.id));
@@ -4140,7 +4135,6 @@
     });
     seq.then(function () { return Promise.all(pending); })
       .catch(function () {})
-      .then(function () { return guard ? guard.resume() : null; })
       .then(function () { updateStatus("All scenes applied"); updatePageInfo(); });
   }
 
@@ -5995,8 +5989,7 @@
     // rating stars, so "ST" is inserted as a bare sibling there instead of
     // as its own top-level group (previous approach anchored on the
     // favourite/heart button from AdvancedRatingHeartFix, which isn't
-    // installed on every instance - confirmed missing on 9999, session
-    // 2026-09-17 - and its "append at the very end" fallback pushed "ST"
+    // installed everywhere - and its "append at the very end" fallback pushed "ST"
     // past every native icon and the "..." menu). Falls back to
     // toolbar.firstChild only if neither anchor is found at all.
     var advRating = toolbar.querySelector("#adv-rating-trigger");
