@@ -3512,6 +3512,8 @@
       // just before the apply - the applied row no longer shows that data).
       if (r && (r.status === "done" || r.status === "applying")) {
         var snap = r.filterSnap || {};
+        // Still visible under the exact filter combo it was applied from.
+        if (snap.pin && snap.pin.f === f && snap.pin.sf === sf && snap.pin.multi === multiOnly) { el.style.display = ""; return; }
         if (sf !== "all" && r.matchedScraperID !== sf) { el.style.display = "none"; return; }
         if (multiOnly && !snap.multi) { el.style.display = "none"; return; }
         if (f === "all") { el.style.display = ""; return; }
@@ -3814,7 +3816,15 @@
     if (!filtered) return;
     // Snapshot for the filters (see applyStudioFilter): taken while the row still
     // shows its scraped data, before it is re-rendered as "applying" / "done".
-    r.filterSnap = { studio: getRowStudioStatus(id), multi: rowHasMultipleStudioCandidates(id) };
+    // "pin*": the filter combo the row was visible under at this very moment. The studio
+    // status can change just before the apply (e.g. a "new" studio replaced by an existing one
+    // picked in the search box), which would drop the row from the filter the user is looking at.
+    var rowElPin = document.getElementById("st-row-" + id);
+    var shownNow = !!rowElPin && rowElPin.style.display !== "none";
+    r.filterSnap = {
+      studio: getRowStudioStatus(id), multi: rowHasMultipleStudioCandidates(id),
+      pin: shownNow ? { f: state.studioFilter, sf: state.scraperFilter, multi: state.multiStudioOnly } : null
+    };
     r.status = "applying"; renderRow(id);
 
     return applyScrapedData(id, filtered)

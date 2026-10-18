@@ -99,13 +99,15 @@ In the Scrape Scene popup every field shows **Already on this scene** next to
 the date. What's already on the scene is always kept when you apply.
 
 The same split is available in the bulk list as an option (**Split existing /
-new data** in Settings → Display), stacked or side by side. Fields with
+new data** in Settings → Display), stacked or side by side. With the side by side option the two columns share the width in proportion to their content, so a long "Already on this scene" list takes more room instead of being squeezed. Fields with
 nothing to compare keep their compact layout, and the "New from scrape" title
 hides itself when nothing is new.
 
 ![Bulk list - existing / new split, side by side](screenshots/split-side-by-side.png)
 
 ### Studio cards with logo and banner
+
+The scene's current studio always stays visible in the bulk list (under "Already on this scene"), even when the scrape finds no studio.
 
 The studio field shows a card: the studio's logo (round when it's roughly
 square, rounded corners when it's wide) and, when the studio has one, a cover
