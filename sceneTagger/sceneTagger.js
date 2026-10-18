@@ -1015,6 +1015,17 @@
       .catch(function (e) { console.error("[sceneTagger] blacklist backup failed:", e); });
   }
 
+  // Width share of the two existing / new columns (Performers, Tags): each gets a share
+  // proportional to its number of items (bounded 30%-70%), so a long "Already on this
+  // scene" list isn't squeezed into a narrow column while the other one is nearly empty.
+  // Read by the CSS through --st-split-l / --st-split-r (falls back to the old widths).
+  function splitShareStyle(nExisting, nNew) {
+    var total = nExisting + nNew;
+    var share = total ? nExisting / total : 0.5;
+    share = Math.max(0.3, Math.min(0.7, share));
+    return ' style="--st-split-l:' + share.toFixed(2) + 'fr;--st-split-r:' + (1 - share).toFixed(2) + 'fr"';
+  }
+
   function isBlacklisted(name) {
     if (!name) return false;
     return pluginConfig.studioBlacklist.indexOf(name.toLowerCase()) !== -1;
@@ -2229,9 +2240,15 @@
         );
       } else {
         // No scraped studio → just the search (mass-list layout)
+        // The scene's current studio stays visible (as in solo and like the
+        // "Already on this scene" performers/tags), so a scene that has a studio
+        // doesn't look like it has none just because the scrape found no studio.
         fields.push(
           '<div class="st-inline-field st-inline-artists">' +
             '<span class="st-inline-label st-label-static">Studio</span>' +
+            (scene.studio && scene.studio.id
+              ? '<div class="st-studio-stack st-studio-current">' + existingStudioRowHTML + '</div>'
+              : '') +
             studioSearchWidget +
           '</div>'
         );
@@ -2371,7 +2388,7 @@
         fields.push(
           '<div class="st-inline-field st-inline-performers' + (isSolo ? '' : ' st-split-list') + '">' +
             '<div class="st-inline-label">' + (isSolo ? sectionIcon("performers") : '') + perfsLabel + '</div>' +
-            '<div class="st-split-cols' + (isSolo ? '' : ' st-split-stack') + '">' +
+            '<div class="st-split-cols' + (isSolo ? '' : ' st-split-stack') + '"' + splitShareStyle(existingPerfCount, newPerfCount) + '>' +
               '<div class="st-split-col">' +
                 '<span class="st-existing-caption">Already on this scene</span>' +
                 (existingPerfsHTML || '<span class="st-split-empty">None</span>') +
@@ -2462,7 +2479,7 @@
           fields.push(
             '<div class="st-inline-field st-inline-tags' + (isSolo ? '' : ' st-split-list') + '">' +
               '<div class="st-inline-label">' + (isSolo ? sectionIcon("tags") : '') + tagsLabel + '</div>' +
-              '<div class="st-split-cols' + (isSolo ? '' : ' st-split-stack') + '">' +
+              '<div class="st-split-cols' + (isSolo ? '' : ' st-split-stack') + '"' + splitShareStyle(existingTagCount, newTagCount) + '>' +
                 '<div class="st-split-col">' +
                   '<span class="st-existing-caption">Already on this scene</span>' +
                   (existingTagsHTML || '<span class="st-split-empty">None</span>') +

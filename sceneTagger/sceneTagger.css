@@ -1264,7 +1264,8 @@
 /* ── Two-column existing/new split (Performers, Tags) ── */
 .st-split-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* widths set per field from the item counts (see splitShareStyle in the JS) */
+  grid-template-columns: minmax(0, var(--st-split-l, 1fr)) minmax(0, var(--st-split-r, 1fr));
   gap: 16px;
 }
 .st-split-col { min-width: 0; }
@@ -2744,7 +2745,7 @@ body.st-split-existing-new #st-panel:not(.st-panel-solo):not(.st-compact) .st-in
 /* Split existing / new, side by side (sub-option): the stacked columns become
    two columns, the "new" one wider (it holds most of the items). */
 body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list .st-split-cols.st-split-stack {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr);
+  grid-template-columns: minmax(180px, var(--st-split-l, 1fr)) minmax(0, var(--st-split-r, 1.7fr));
   gap: 14px;
 }
 
@@ -2762,7 +2763,7 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
 body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list .st-split-cols.st-split-stack {
   align-self: stretch;
   width: 100%;
-  max-width: 1200px;
+  max-width: none;
   box-sizing: border-box;
 }
 
@@ -3879,7 +3880,7 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
 @media (min-width: 769px) {
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-cols,
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-split-cols.st-split-stack {
-    grid-template-columns: minmax(0, 300px) minmax(0, 1fr) !important;
+    grid-template-columns: minmax(240px, var(--st-split-l, 0.3fr)) minmax(0, var(--st-split-r, 0.7fr)) !important;
     max-width: none !important;
     width: 100% !important;
   }
