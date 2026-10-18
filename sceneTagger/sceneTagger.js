@@ -3333,9 +3333,18 @@
       }
       // Skipped by the user: always stays visible, whatever filter is active.
       if (r && r.status === "skipped") { el.style.display = ""; return; }
-      // Applied (validated) scenes stay visible too, whatever the filter, so a
-      // scene does not vanish from the list the moment it is applied.
-      if (r && (r.status === "done" || r.status === "applying")) { el.style.display = ""; return; }
+      // Applied (validated) scenes stay in the list, but only under the filters
+      // they belong to: their scraper, and the studio status (new / existing /
+      // several candidates) the row had when it was applied (r.filterSnap, taken
+      // just before the apply - the applied row no longer shows that data).
+      if (r && (r.status === "done" || r.status === "applying")) {
+        var snap = r.filterSnap || {};
+        if (sf !== "all" && r.matchedScraperID !== sf) { el.style.display = "none"; return; }
+        if (multiOnly && !snap.multi) { el.style.display = "none"; return; }
+        if (f === "all") { el.style.display = ""; return; }
+        el.style.display = (snap.studio === f) ? "" : "none";
+        return;
+      }
       if (!r || r.status !== "scraped") {
         // Not scraped yet: no new/existing status either, so hide under
         // New/Existing too (only visible under All with no other filter).
@@ -3622,6 +3631,9 @@
     if (!r) return;
     var filtered = getCheckedScraped(id);
     if (!filtered) return;
+    // Snapshot for the filters (see applyStudioFilter): taken while the row still
+    // shows its scraped data, before it is re-rendered as "applying" / "done".
+    r.filterSnap = { studio: getRowStudioStatus(id), multi: rowHasMultipleStudioCandidates(id) };
     r.status = "applying"; renderRow(id);
 
     return applyScrapedData(id, filtered)
