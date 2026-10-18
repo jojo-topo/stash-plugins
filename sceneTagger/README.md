@@ -129,6 +129,10 @@ page is fetched for the chosen result, so tags and performers come along too.
 Stash-boxes are listed first: StashDB, ThePornDB, FansDB, other stash-boxes,
 JAVStash, then the other scrapers.
 
+An optional **Clean title in Search title** setting strips the file extension,
+dates, resolutions and punctuation from the text sent to the scraper (some
+scrapers return an error on a raw file name).
+
 ### Stash ID scraping
 
 When a result comes from a stash-box, its Stash ID is shown as a checkable row
@@ -188,7 +192,9 @@ blacklist are skipped automatically unless they're the only option.
 Optional setting: instead of a plain error message, a failed scrape shows
 the same review panel - empty, ready to fill in studio/performers/tags/details
 by hand. A **Retry** button stays available to attempt the automatic scrape
-again. A further sub-option adds a manual title field.
+again. A further sub-option adds a manual title field, which can be
+pre-filled with the file name (extension stripped). A scene kept in this mode
+keeps a red outline so it stays easy to spot.
 
 ![Manual fallback mode](screenshots/manual-fallback.png)
 
@@ -218,16 +224,58 @@ this session keep their result if they're still in view.
 
 ### Live filtering after a bulk scrape
 
-Once several scenes are scraped, filter the list by **All / New / Existing**
-(whether the detected studio is new or already in your database) and by
-which scraper actually matched, to quickly focus on the scenes that need
-attention.
+Once several scenes are scraped, filter the list by **All / New / Existing /
+Failed** (whether the detected studio is new or already in your database, or
+whether the scrape failed) and by which scraper actually matched, to quickly
+focus on the scenes that need attention. Scenes you have already applied only
+show up under the filters they belong to.
 
 ![Filter: All](screenshots/filter-all.png)
 ![Filter: New](screenshots/filter-new.png)
 ![Filter: Existing](screenshots/filter-existing.png)
 ![Filter by scraper - dropdown](screenshots/filter-by-scraper-1.png)
 ![Filter by scraper - applied](screenshots/filter-by-scraper-2.png)
+![Filter: Failed](screenshots/filter-failed.png)
+
+### Progress feedback while scraping
+
+Each row being scraped is covered by a translucent progress veil with a status
+line (which scraper of the chain is being tried, reading the URL, updating the
+title). Stash gives no real percentage, so the veil is a simulated curve that
+never claims to be done before the answer arrives. When the result comes in,
+it fades into the scraped row. Scraped rows get a light blue tint and outline,
+applied rows a softer blue, failed ones red. The veil, the status line, the
+transition and the outline are four independent toggles (Settings → Display);
+the transition is skipped when your system asks for reduced motion.
+
+![Progress veil on a row being scraped](screenshots/progress-veil.png)
+![Failed scrape - red outline](screenshots/failed-row.png)
+
+### Layouts: banner, one card, phones and tablets
+
+- **Banner layout** puts the details beside the video with the studio banner
+  as a cover; **Cover card under the video** and **Details in one card** (with
+  an optional two-column layout) build on it.
+- **Fullscreen panel on desktop**, also reachable from a button in the title
+  bar.
+- On phones and tablets the panel goes fullscreen and the header folds with a
+  chevron button (the state is remembered).
+- The Display settings are collapsible sub-groups (open/closed state is
+  remembered).
+
+![Banner layout](screenshots/banner-layout.png)
+![Phone layout](screenshots/mobile-header.png)
+![Phone layout, filters folded](screenshots/mobile-header-collapsed.png)
+
+### Stash UI
+
+If you use the Stash UI app, Scene Tagger works there too: a toolbar button on
+the scenes list opens the same panel, and the scene page has a solo button.
+The panel follows Stash UI's look (glass buttons, chips, readable settings).
+This relies on the `assets/stashui.js` file shipped inside the plugin package.
+
+![Scene Tagger in the Stash UI scenes list](screenshots/stashui-list.png)
+![Scene Tagger in the Stash UI scene page](screenshots/stashui-solo.png)
 
 ## Settings
 
@@ -236,15 +284,21 @@ Open the gear icon on the panel header. Settings are grouped into
 
 ![Settings panel 1](screenshots/settings-panel-1.png)
 ![Settings panel 2](screenshots/settings-panel-2.png)
+![Settings panel 3](screenshots/settings-panel-3.png)
 
 - **Scraping** - the scraper chain (drag to reorder, toggle scrapers on/off;
   the block is collapsible), "Use existing URL if available", manual fallback
-  on scrape failure (+ manual title sub-option)
+  on scrape failure (+ manual title sub-option, + pre-fill with the file
+  name), "Clean title in Search title"
 - **Checked by default** - auto-check for new studios / performers / tags /
   details, prefer the existing studio
 - **On apply** - auto-organize on Apply
 - **Display** (all off by default unless noted)
   - Hide studio banner / Hide studio logo
+  - Banner layout, Cover card under the video, Details in one card (+ two
+    columns), Fullscreen panel on desktop
+  - Progress veil, status line, smooth transition, outline around scraped
+    rows, copy icon always visible
   - Cover under the thumbnail (instead of aligned with the title)
   - Full Details editor in the mass list (instead of the short preview)
   - Show the scene title instead of the file name (when it has one)
@@ -272,6 +326,8 @@ compact mode.
   older versions.
 - Studio banners need a `bg:<url>` line in the studio's Details; without it
   only the logo is shown.
+- Stash UI support needs the `assets/stashui.js` module from the plugin
+  package (installed automatically with the plugin).
 
 ## License
 

@@ -4290,7 +4290,9 @@
   function panelBaseClassName() {
     return [
       pluginConfig.compactMode ? "st-compact" : "",
-      pluginConfig.fullscreenOnDesktop ? "st-fullscreen" : "",
+      // Compact wins over fullscreen: both classes together left the panel
+      // stretched over the whole window (the .st-fullscreen rules beat .st-compact).
+      (pluginConfig.fullscreenOnDesktop && !pluginConfig.compactMode) ? "st-fullscreen" : "",
       pluginConfig.studioBannerLayout ? "st-banner-layout" : "",
       pluginConfig.coverCard ? "st-cover-card" : "",
       pluginConfig.oneCard ? "st-one-card" : "",
@@ -4965,17 +4967,39 @@
     // useful for it to toggle between there.
     // Fullscreen button: same switch as the "Fullscreen panel on desktop"
     // setting (kept in sync), for batch and solo.
+    // Turning fullscreen on while the panel is compact leaves compact mode
+    // (the two layouts can't be combined; not applicable to the solo panel).
+    function leaveCompactForFullscreen(panelEl) {
+      if (!pluginConfig.compactMode || !panelEl || panelEl.classList.contains("st-panel-solo")) return;
+      pluginConfig.compactMode = false;
+      panelEl.classList.remove("st-compact");
+      var cBtn = document.getElementById("st-titlebar-compact");
+      if (cBtn) cBtn.style.color = "";
+      var rHandle = document.getElementById("st-resize-handle");
+      if (rHandle) rHandle.style.display = "flex";
+      setTimeout(updateFilterIndicator, 0);
+      syncFullscreenBtn();
+    }
+    // The fullscreen button only shows "on" when fullscreen is really in effect
+    // (compact mode wins over the saved fullscreen setting).
+    function syncFullscreenBtn() {
+      var fsBtn = document.getElementById("st-titlebar-fullscreen");
+      if (!fsBtn) return;
+      var on = !!pluginConfig.fullscreenOnDesktop && !pluginConfig.compactMode;
+      fsBtn.classList.toggle("st-titlebar-on", on);
+      fsBtn.title = on ? "Exit fullscreen" : "Fullscreen";
+    }
     var fullscreenBtn = document.getElementById("st-titlebar-fullscreen");
     if (fullscreenBtn) {
-      var syncFullscreenBtn = function () {
-        fullscreenBtn.classList.toggle("st-titlebar-on", !!pluginConfig.fullscreenOnDesktop);
-        fullscreenBtn.title = pluginConfig.fullscreenOnDesktop ? "Exit fullscreen" : "Fullscreen";
-      };
       syncFullscreenBtn();
       fullscreenBtn.addEventListener("click", function () {
-        pluginConfig.fullscreenOnDesktop = !pluginConfig.fullscreenOnDesktop;
-        savePluginConfig();
         var panelEl = document.getElementById(PANEL_ID);
+        // From the compact panel the button means "go fullscreen" (the saved
+        // setting may already be on, since compact only hides it).
+        var fromCompact = pluginConfig.compactMode && panelEl && !panelEl.classList.contains("st-panel-solo");
+        pluginConfig.fullscreenOnDesktop = fromCompact ? true : !pluginConfig.fullscreenOnDesktop;
+        if (pluginConfig.fullscreenOnDesktop) leaveCompactForFullscreen(panelEl);
+        savePluginConfig();
         if (panelEl) {
           panelEl.classList.toggle("st-fullscreen", pluginConfig.fullscreenOnDesktop);
           ["top", "left", "right", "bottom", "width", "height", "transform"].forEach(function (k) { panelEl.style[k] = ""; });
@@ -5017,6 +5041,7 @@
           panelEl.style.borderRadius = "";
         }
         compactBtn.style.color = pluginConfig.compactMode ? "rgba(var(--accent-rgb,94,129,172),1)" : "";
+        syncFullscreenBtn();
         var handle = document.getElementById("st-resize-handle");
         if (handle) handle.style.display = pluginConfig.compactMode ? "none" : "flex";
         // Compact mode shrinks the filter labels' font-size, so the sliding
@@ -5200,8 +5225,9 @@
       fsEl.checked = !!pluginConfig.fullscreenOnDesktop;
       fsEl.addEventListener("change", function () {
         pluginConfig.fullscreenOnDesktop = fsEl.checked;
-        savePluginConfig();
         var panelEl = document.getElementById(PANEL_ID);
+        if (pluginConfig.fullscreenOnDesktop) leaveCompactForFullscreen(panelEl);
+        savePluginConfig();
         if (!panelEl) return;
         panelEl.classList.toggle("st-fullscreen", pluginConfig.fullscreenOnDesktop);
         ["top", "left", "right", "bottom", "width", "height", "transform"].forEach(function (k) { panelEl.style[k] = ""; });
