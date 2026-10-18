@@ -3284,7 +3284,9 @@
     var options = [];
     state.scenes.forEach(function (scene) {
       var r = state.rows[scene.id];
-      if (r && r.status === "scraped" && r.matchedScraperID && !seen[r.matchedScraperID]) {
+      // Applied scenes still count, so the selected scraper stays in the list
+      // (and the filter is not reset to "All scrapers") once they are applied.
+      if (r && (r.status === "scraped" || r.status === "done") && r.matchedScraperID && !seen[r.matchedScraperID]) {
         seen[r.matchedScraperID] = true;
         options.push({ id: r.matchedScraperID, name: r.matchedScraperName || r.matchedScraperID });
       }
@@ -3331,6 +3333,9 @@
       }
       // Skipped by the user: always stays visible, whatever filter is active.
       if (r && r.status === "skipped") { el.style.display = ""; return; }
+      // Applied (validated) scenes stay visible too, whatever the filter, so a
+      // scene does not vanish from the list the moment it is applied.
+      if (r && (r.status === "done" || r.status === "applying")) { el.style.display = ""; return; }
       if (!r || r.status !== "scraped") {
         // Not scraped yet: no new/existing status either, so hide under
         // New/Existing too (only visible under All with no other filter).
@@ -3621,7 +3626,7 @@
 
     return applyScrapedData(id, filtered)
       .then(function () {
-        r.status = "done"; renderRow(id); updatePageInfo();
+        r.status = "done"; renderRow(id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
         updateStatus("Applied: " + getFilename(r.scene));
       })
       .catch(function (err) {
