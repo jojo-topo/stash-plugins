@@ -4168,6 +4168,16 @@ html.st-sui.kb-glass #st-panel .st-state-done {
   border-color: transparent;
   box-shadow: inset 0 0 0 2px var(--st-acc), inset 0 0 14px color-mix(in srgb, var(--st-acc) 28%, transparent);
 }
+/* failed scrape kept as "manual fill-in" (classes scraped + failed): stays red, not the accent */
+html.st-sui #st-panel .st-state-scraped.st-state-failed,
+html.st-sui.kb-glass #st-panel .st-state-scraped.st-state-failed {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--st-bad) 5%, var(--st-s2));
+  box-shadow: inset 0 0 0 2px var(--st-bad), inset 0 0 14px color-mix(in srgb, var(--st-bad) 28%, transparent);
+}
+html.st-sui.kb-glass #st-panel .st-state-scraped.st-state-failed {
+  background: var(--glass-shine), var(--glass);
+}
 /* progress veil: same behavior, accent colors */
 html.st-sui #st-panel .st-prog-veil {
   background: color-mix(in srgb, var(--st-acc) 16%, transparent);
