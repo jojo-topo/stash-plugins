@@ -2399,6 +2399,10 @@
           ? '<label><input type="checkbox" data-cb="perfs-all" checked> Performers' + (perfsCountText ? ' <span class="st-count-hint">(' + perfsCountText + ')</span>' : '') + '</label>'
           : '<span>Performers' + (perfsCountText ? ' <span class="st-count-hint">(' + perfsCountText + ')</span>' : '') + '</span>';
 
+        // The search box sits under the existing items (left) in "Details in one card", and in the
+        // other mass-list layouts whenever the scrape brings nothing new: no "New from scrape"
+        // column to hold it, so it must not float alone on the far right.
+        var perfSearchLeft = searchInExisting || (!isSolo && !perfItemsHTML);
         fields.push(
           '<div class="st-inline-field st-inline-performers' + (isSolo ? '' : ' st-split-list') + '">' +
             '<div class="st-inline-label">' + (isSolo ? sectionIcon("performers") : '') + perfsLabel + '</div>' +
@@ -2406,12 +2410,12 @@
               '<div class="st-split-col">' +
                 '<span class="st-existing-caption">Already on this scene</span>' +
                 (existingPerfsHTML || '<span class="st-split-empty">None</span>') +
-                (searchInExisting ? perfSearchWidget : '') +
+                (perfSearchLeft ? perfSearchWidget : '') +
               '</div>' +
               '<div class="st-split-col">' +
                 ((isSolo || perfItemsHTML) ? '<span class="st-existing-caption st-new">New from scrape</span>' : '') +
                 (perfItemsHTML ? '<div class="st-perfs-grid">' + perfItemsHTML + '</div>' : (isSolo ? '<span class="st-split-empty">None found</span>' : '')) +
-                (searchInExisting ? '' : perfSearchWidget) +
+                (perfSearchLeft ? '' : perfSearchWidget) +
               '</div>' +
             '</div>' +
           '</div>'
@@ -2490,6 +2494,7 @@
             ? '<label><input type="checkbox" data-cb="tags-all" checked> Tags' + (tagsCountText ? ' <span class="st-count-hint">(' + tagsCountText + ')</span>' : '') + '</label>'
             : '<span>Tags' + (tagsCountText ? ' <span class="st-count-hint">(' + tagsCountText + ')</span>' : '') + '</span>';
 
+          var tagSearchLeft = searchInExisting || (!isSolo && !tagItems);
           fields.push(
             '<div class="st-inline-field st-inline-tags' + (isSolo ? '' : ' st-split-list') + '">' +
               '<div class="st-inline-label">' + (isSolo ? sectionIcon("tags") : '') + tagsLabel + '</div>' +
@@ -2497,12 +2502,12 @@
                 '<div class="st-split-col">' +
                   '<span class="st-existing-caption">Already on this scene</span>' +
                   (existingTagsHTML || '<span class="st-split-empty">None</span>') +
-                  (searchInExisting ? tagSearchWidget : '') +
+                  (tagSearchLeft ? tagSearchWidget : '') +
                 '</div>' +
                 '<div class="st-split-col">' +
                   ((isSolo || tagItems) ? '<span class="st-existing-caption st-new">New from scrape</span>' : '') +
                   (tagItems ? '<div class="st-tags-grid">' + tagItems + '</div>' : (isSolo ? '<span class="st-split-empty">None found</span>' : '')) +
-                  (searchInExisting ? '' : tagSearchWidget) +
+                  (tagSearchLeft ? '' : tagSearchWidget) +
                 '</div>' +
               '</div>' +
             '</div>'
