@@ -1054,6 +1054,35 @@
     if (old) old.remove();
     var logo = imgUrl && imgUrl.indexOf("default=true") === -1 ? imgUrl : null;
     if (pluginConfig.hideStudioLogo) logo = null;
+
+    // Modern layout: the picked studio becomes a second card NEXT TO the
+    // header card (two columns in .it-inline-artists) instead of being
+    // stacked inside the narrow search wrap. Shown even without any image
+    // (compact card with the initial), so the pick is always visible.
+    var artistsField = pluginConfig.studioBannerLayout ? wrap.closest(".it-inline-artists") : null;
+    if (artistsField) {
+      var oldPair = artistsField.querySelector(":scope > .it-bl-picked");
+      if (oldPair) oldPair.remove();
+      artistsField.classList.remove("it-bl-has-picked");
+      var ov = el.querySelector('[data-cb="studio-override"]');
+      var pickedName = ov ? String(ov.value || "") : "";
+      if (!pickedName) return;
+      var pair = document.createElement("div");
+      pair.className = "it-bl-picked";
+      // "Manually added" sits next to the name, below the banner (not over it).
+      pair.innerHTML = studioCardHTMLIT(logo, bannerUrl,
+        '<span class="it-chip it-chip-studio it-bl-name">' + esc(pickedName) + '</span>' +
+        '<span class="it-existing-caption it-new it-bl-manual-badge">Manually added</span>',
+        "it-card-stacked", null, studioId);
+      if (!logo) {
+        var ph = pair.querySelector(".it-slogo");
+        if (ph) ph.innerHTML = '<span class="it-bl-initial">' + esc(pickedName.charAt(0).toUpperCase()) + '</span>';
+      }
+      artistsField.appendChild(pair);
+      artistsField.classList.add("it-bl-has-picked");
+      return;
+    }
+
     if (!logo && !bannerUrl) return;
     var holder = document.createElement("div");
     holder.className = "it-studio-picked";
@@ -4889,8 +4918,9 @@
       return;
     }
 
-    // Hors de /images : nettoyage complet (inclut le bouton solo si present)
-    if (!pathname.startsWith("/images")) {
+    // Hors de /images (et de l'onglet Images d'un studio) : nettoyage complet
+    // (inclut le bouton solo si present)
+    if (!pathname.startsWith("/images") && !/^\/studios\/\d+\/images\/?$/.test(pathname)) {
       [PANEL_ID, BTN_ID, SOLO_BTN_ID].forEach(function(id) {
         var el = document.getElementById(id); if (el) el.remove();
       });
