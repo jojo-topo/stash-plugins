@@ -9,3 +9,11 @@
   date: "2026-10-18 19:25:09"
   path: sceneTagger.zip
   sha256: e2a5027aff7e664f40a9791876b25e15238cd7cf48b702664766f8262b90859f
+
+- id: imageTagger
+  name: Image Tagger
+  description: "Bulk scraping panel for images — uses scrapeSingleImage"
+  version: "7.1.0"
+  date: "2026-10-23 00:00:00"
+  path: imageTagger.zip
+  sha256: "0000000000000000000000000000000000000000000000000000000000000000"

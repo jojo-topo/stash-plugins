@@ -1,11 +1,11 @@
-name: Build plugin package
+name: Build plugin packages
 
-# Runs whenever sceneTagger's actual source files change on master or test -
-# NOT when index.yml or the zip itself change, so the bot's own commit below
-# never re-triggers this workflow (no infinite loop, [skip ci] kept anyway
-# as a belt-and-suspenders safety net). "test" is a separate preview branch
-# with its own index.yml/zip, used to validate changes via Stash's real
-# Add Source install flow before merging into master (production).
+# Runs whenever a plugin's actual source files change on master or test -
+# NOT when index.yml or the zips themselves change, so the bot's own commit
+# below never re-triggers this workflow (no infinite loop, [skip ci] kept
+# anyway as a belt-and-suspenders safety net). "test" is a separate preview
+# branch with its own index.yml/zips, used to validate changes via Stash's
+# real Add Source install flow before merging into master (production).
 on:
   push:
     branches: [master, test]
@@ -14,10 +14,14 @@ on:
       - "sceneTagger/sceneTagger.js"
       - "sceneTagger/sceneTagger.css"
       - "sceneTagger/assets/**"
+      - "imageTagger/imageTagger.yml"
+      - "imageTagger/imageTagger.js"
+      - "imageTagger/imageTagger.css"
+      - "imageTagger/assets/**"
   workflow_dispatch: # lets you trigger it manually from the Actions tab too
 
 permissions:
-  contents: write # needed so the bot can push the updated zip/index.yml back
+  contents: write # needed so the bot can push the updated zips/index.yml back
 
 jobs:
   build:
@@ -34,6 +38,12 @@ jobs:
           rm -f ../sceneTagger.zip
           zip -r ../sceneTagger.zip sceneTagger.yml sceneTagger.js sceneTagger.css assets
 
+      - name: Zip imageTagger package
+        run: |
+          cd imageTagger
+          rm -f ../imageTagger.zip
+          zip -r ../imageTagger.zip imageTagger.yml imageTagger.js imageTagger.css assets
+
       - name: Update index.yml (path, sha256, version, date)
         run: python3 .github/scripts/update_index.py
 
@@ -41,10 +51,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add sceneTagger.zip index.yml
+          git add sceneTagger.zip imageTagger.zip index.yml
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Auto-build sceneTagger.zip [skip ci]"
+            git commit -m "Auto-build plugin zips [skip ci]"
             git push
           fi
