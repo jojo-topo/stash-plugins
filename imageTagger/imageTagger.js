@@ -323,7 +323,7 @@
   // des courses de timing).
   // ────────────────────────────────────────────────────────────────────────
 
-  var Q_FIND_BY_IDS = "query FindImagesByIds($ids:[ID!]){findImages(ids:$ids){count images{id title urls date details organized paths{thumbnail}files{path basename}studio{id name image_path details}performers{id name image_path}tags{id name}}}}";
+  var Q_FIND_BY_IDS = "query FindImagesByIds($ids:[ID!]){findImages(ids:$ids){count images{id title urls date details organized paths{thumbnail image}files{path basename}studio{id name image_path details}performers{id name image_path}tags{id name}}}}";
 
   // IDs des images visibles dans la grille native, dans l'ordre d'affichage.
   // Selecteur generique a[href*='/images/'] : robuste meme sans connaitre le
@@ -754,7 +754,9 @@
     showImageTitleInHeader:    false,
     // Several studios per image: a "+" next to each candidate adds it as an "Other studio".
     // Only active when the skExtra-Multiple-Studios-Custom plugin is installed and enabled.
-    multiStudioSelect:         false
+    multiStudioSelect:         false,
+    // Hovering a row thumbnail shows the whole image (uncropped) in a floating card.
+    imageHoverPreview:         true
   };
 
   function loadPluginConfig() {
@@ -791,6 +793,7 @@
           if (cfg.ejectSkipped             !== undefined) pluginConfig.ejectSkipped             = !!cfg.ejectSkipped;
           if (cfg.showImageTitleInHeader   !== undefined) pluginConfig.showImageTitleInHeader   = !!cfg.showImageTitleInHeader;
           if (cfg.multiStudioSelect        !== undefined) pluginConfig.multiStudioSelect        = !!cfg.multiStudioSelect;
+          if (cfg.imageHoverPreview        !== undefined) pluginConfig.imageHoverPreview        = !!cfg.imageHoverPreview;
           if (cfg.autoAddOtherStudios      !== undefined) pluginConfig.autoAddOtherStudios      = !!cfg.autoAddOtherStudios;
           if (cfg.scraperMode === "auto" || cfg.scraperMode === "manual") pluginConfig.scraperMode = cfg.scraperMode;
           if (cfg.useUrlIfPresent !== undefined) pluginConfig.useUrlIfPresent = !!cfg.useUrlIfPresent;
@@ -1193,6 +1196,97 @@
     if (itStudioHoverEl || itStudioHoverCurrent) hideStudioHoverIT();
     if (label) showStudioHoverIT(label);
   });
+
+  // ── Full image preview on hover (setting "imageHoverPreview") ─────────────
+  // The row thumbnails are cropped to a square; hovering one shows a floating
+  // card with the WHOLE image, uncropped. The thumbnail is shown first, then
+  // swapped for the full-size image once it has loaded (only if the pointer
+  // stays on the thumbnail, so sweeping over a list does not download them all).
+  var itImgPrevEl = null, itImgPrevTimer = null, itImgPrevFullTimer = null, itImgPrevCur = null, itImgPrevToken = 0;
+
+  function hideImagePreviewIT() {
+    itImgPrevToken++;
+    clearTimeout(itImgPrevTimer); clearTimeout(itImgPrevFullTimer);
+    itImgPrevTimer = itImgPrevFullTimer = null;
+    itImgPrevCur = null;
+    if (itImgPrevEl) { itImgPrevEl.remove(); itImgPrevEl = null; }
+  }
+
+  function showImagePreviewIT(clip) {
+    var rowEl = clip.closest(".it-row");
+    var id = rowEl ? rowEl.id.replace("it-row-", "") : "";
+    var r = state.rows[id], imgObj = r && r.image;
+    if (!imgObj) return;
+    var thumbUrl = getThumb(imgObj);
+    var fullUrl = imgObj.paths && imgObj.paths.image ? imgObj.paths.image : "";
+    var firstUrl = thumbUrl || fullUrl;
+    if (!firstUrl) return;
+    var token = ++itImgPrevToken;
+    var rect = clip.getBoundingClientRect();
+    // Fixed display box: the card is sized ONCE, from the first image to load (the thumbnail, which has the
+    // same proportions as the full image), so swapping in the full-size image never changes its size.
+    // At most 420 px on the long side, and never more than the room beside the thumbnail / the window height.
+    var room = Math.max(rect.left, window.innerWidth - rect.right) - 24;
+    var boxW = Math.max(160, Math.min(420, room));
+    var boxH = Math.max(160, Math.min(420, Math.floor(window.innerHeight * 0.7)));
+    var sized = false;
+    var el = document.createElement("div");
+    el.className = "it-image-preview";
+    var im = document.createElement("img");
+    el.appendChild(im);
+    document.body.appendChild(el);
+    itImgPrevEl = el;
+    function place() {
+      if (token !== itImgPrevToken) return;
+      var w = el.offsetWidth, h = el.offsetHeight;
+      var left = rect.right + 12;
+      if (left + w > window.innerWidth - 8) left = Math.max(8, rect.left - w - 12);
+      var top = Math.min(Math.max(8, rect.top - 6), Math.max(8, window.innerHeight - h - 8));
+      el.style.left = left + "px";
+      el.style.top = top + "px";
+      el.classList.add("it-ready");
+    }
+    im.onload = function () {
+      if (token !== itImgPrevToken) return;
+      if (!sized && im.naturalWidth && im.naturalHeight) {
+        sized = true;
+        var scale = Math.min(boxW / im.naturalWidth, boxH / im.naturalHeight);
+        im.style.width = Math.round(im.naturalWidth * scale) + "px";
+        im.style.height = Math.round(im.naturalHeight * scale) + "px";
+      }
+      place();
+    };
+    im.src = firstUrl;
+    if (fullUrl && fullUrl !== firstUrl) {
+      itImgPrevFullTimer = setTimeout(function () {
+        if (token !== itImgPrevToken) return;
+        var pre = new Image();
+        pre.onload = function () {
+          if (token !== itImgPrevToken) return;
+          im.src = fullUrl;   // already in cache: swaps at once, then place() runs again
+        };
+        pre.src = fullUrl;
+      }, 300);
+    }
+  }
+
+  document.addEventListener("mouseover", function (e) {
+    if (!pluginConfig.imageHoverPreview) return;
+    var clip = e.target && e.target.closest ? e.target.closest("#it-panel .it-thumb-clip") : null;
+    if (clip === itImgPrevCur) return;
+    if (itImgPrevEl || itImgPrevCur) hideImagePreviewIT();
+    if (!clip) return;
+    if (window.matchMedia && window.matchMedia("(hover: none)").matches) return;   // touch screens
+    if (clip.closest(".it-panel-solo")) return;   // the single image panel already shows the image large
+    itImgPrevCur = clip;
+    itImgPrevTimer = setTimeout(function () { showImagePreviewIT(clip); }, 150);
+  });
+  // mouseout misses fast pointer moves: also check on every move (see CLAUDE.md, mouseleave rule).
+  document.addEventListener("mousemove", function () {
+    if (itImgPrevCur && !itImgPrevCur.matches(":hover")) hideImagePreviewIT();
+  }, true);
+  document.addEventListener("mousedown", function () { if (itImgPrevCur) hideImagePreviewIT(); }, true);
+  window.addEventListener("scroll", function () { if (itImgPrevCur) hideImagePreviewIT(); }, true);
 
   function getFilename(img) {
     if (img.files && img.files.length) return img.files[0].basename || img.files[0].path || img.id;
@@ -2651,13 +2745,23 @@
           if (!perfHoverPreview) {
             perfHoverPreview = document.createElement("img");
             perfHoverPreview.className = "it-perf-hover-preview";
-            perfSearchResults.parentNode.appendChild(perfHoverPreview);
+            // Appended to document.body (not the wrap) and positioned with fixed viewport
+            // coordinates: the preview is position:fixed, so "left: 100%" / a top relative to
+            // the wrap put it in the window's top-left corner, and the row's overflow would clip it.
+            document.body.appendChild(perfHoverPreview);
           }
           perfHoverPreview.src = img;
           var wrapRect = perfSearchResults.parentNode.getBoundingClientRect();
           var itemRect = item.getBoundingClientRect();
-          perfHoverPreview.style.left = "100%";
-          perfHoverPreview.style.top = (itemRect.top - wrapRect.top) + "px";
+          perfHoverPreview.style.top = itemRect.top + "px";
+          // Default spot is to the right of the wrap; flip to its left side when the 120px
+          // preview would not fit on screen (the search box can sit near the panel's right edge).
+          var previewW = 120, gap = 8;
+          if (wrapRect.right + gap + previewW > window.innerWidth) {
+            perfHoverPreview.style.left = (wrapRect.left - previewW - gap) + "px";
+          } else {
+            perfHoverPreview.style.left = (wrapRect.right + gap) + "px";
+          }
           perfHoverPreview.style.display = "block";
         });
         perfSearchResults.addEventListener("mouseleave", function () {
@@ -3130,13 +3234,24 @@
       if (!preview) {
         preview = document.createElement("img");
         preview.className = "it-perf-hover-preview";
-        container.appendChild(preview);
+        // Appended to document.body, not the container: the preview is position:fixed, so
+        // coordinates relative to the container put it in the window's top-left corner, and the
+        // container sits inside #it-rows (overflow) which would clip it anyway. Body level +
+        // viewport coordinates (same as sceneTagger).
+        document.body.appendChild(preview);
       }
       preview.src = avatar.src;
-      var wrapRect = container.getBoundingClientRect();
       var chipRect = avatar.closest(chipSelector).getBoundingClientRect();
-      preview.style.top  = (chipRect.top - wrapRect.top - 106 - 6) + "px";
-      preview.style.left = (chipRect.left - wrapRect.left) + "px";
+      var previewW = 120, previewH = 160, margin = 8;
+      // Popped above the chip/item (like a tooltip), not on top of it.
+      var top = chipRect.top - previewH - margin;
+      // Clamped to the viewport: a chip near the panel's edge would push the preview off screen.
+      var left = chipRect.left;
+      if (left + previewW + margin > window.innerWidth) left = window.innerWidth - previewW - margin;
+      if (left < margin) left = margin;
+      if (top < margin) top = chipRect.bottom + margin;   // no room above: pop below the chip
+      preview.style.top  = top + "px";
+      preview.style.left = left + "px";
       preview.style.display = "block";
     });
     container.addEventListener("mouseleave", function () {
@@ -3736,7 +3851,8 @@
             settingRow("it-cfg-one-card-cols", "Two columns inside the card (otherwise stacked)", true) +
             settingRow("it-cfg-split-existing", "Split existing / new data") +
             settingRow("it-cfg-split-side", "Side by side instead of stacked", true)) +
-          settingsSubGroup("content", "Row content", 8,
+          settingsSubGroup("content", "Row content", 9,
+            settingRow("it-cfg-image-hover-preview", "Full image preview when hovering a thumbnail (uncropped)") +
             settingRow("it-cfg-hide-studio-banner", "Hide studio banner") +
             settingRow("it-cfg-hide-studio-logo", "Hide studio logo") +
             settingRow("it-cfg-details-editor", "Full Details editor in the mass list (instead of the short preview)") +
@@ -4353,6 +4469,7 @@
     bindSettingCb("it-cfg-hide-studio-logo",      "hideStudioLogo");
     bindSettingCb("it-cfg-opaque-panel",          "opaquePanel");
     bindSettingCb("it-cfg-image-title-header",    "showImageTitleInHeader");
+    bindSettingCb("it-cfg-image-hover-preview",   "imageHoverPreview");
     function bindSettingRange(elId, key, unit) {
       var el = document.getElementById(elId), out = document.getElementById(elId + "-out");
       if (!el) return;

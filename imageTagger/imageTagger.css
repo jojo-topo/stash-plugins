@@ -5004,3 +5004,30 @@ html.it-sui.kb-glass #it-panel .it-multi-studio-toggle.it-multi-exclude {
   background: var(--it-bad);
   border-color: var(--it-bad);
 }
+
+/* Full image preview when hovering a row thumbnail (setting "Full image preview..."): a floating card with the whole
+   image, uncropped (the thumbnail itself is cropped to a square). Outside #it-panel, so SFW mode blurs it separately. */
+.it-image-preview {
+  position: fixed;
+  z-index: 2147483000;
+  padding: 6px;
+  background: var(--base, #1f252d);
+  border: 1px solid #2e3440;
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  visibility: hidden;
+}
+.it-image-preview.it-ready { visibility: visible; }
+.it-image-preview img {
+  display: block;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 9px;
+  background: #13151a;
+}
+body.it-nsfw-on .it-image-preview img {
+  filter: blur(14px);
+  clip-path: inset(0 round 8px);
+}

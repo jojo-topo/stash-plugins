@@ -1,6 +1,6 @@
 name: imageTagger
 description: "Mass scrape panel for images - uses ScrapeSingleImage"
-version: "7.1.1"
+version: "7.2.3"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/imageTagger"
 
 settings:
@@ -201,6 +201,11 @@ settings:
   #   displayName: "Allow several studios per image"
   #   description: "A '+' next to each studio candidate adds it as an Other studio. Needs the skExtra-Multiple-Studios-Custom plugin."
   #   type: BOOLEAN
+
+  imageHoverPreview:
+    displayName: "Full image preview on hover"
+    description: "If enabled (default), hovering a thumbnail in the panel shows the whole image, uncropped, in a floating card."
+    type: BOOLEAN
 
 ui:
   javascript:

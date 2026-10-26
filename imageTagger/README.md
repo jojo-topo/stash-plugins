@@ -22,6 +22,13 @@ look), adapted to what images allow: scrapers go through Stash's
 `scrapeSingleImage`, and there is a side-by-side comparison of the current
 image and the scraped one in the single-image panel.
 
+**Works best with the [rule34-python scraper](https://github.com/jojo-topo/stash-scrapers)
+if you use rule34.xxx.** Image Tagger started around that workflow: that
+scraper returns the real publication date, the artists as studio candidates
+(the `Artists:` line, see below) and the scraped image for the side-by-side
+view in the single-image panel. It works with any scraper that supports images,
+but with rule34-python you get all of that out of the box.
+
 This is a personal tool, shared as-is because it turned out complete enough
 to be useful to others - not actively maintained for every environment or
 edge case, but it's held up well for daily use.
@@ -113,6 +120,15 @@ its dark frame. Both the banner and the logo can be hidden in Settings.
 When a scraped studio matches a studio you already have that is missing its
 logo or banner, the missing part is filled in on Apply - what is already
 there is never overwritten.
+
+### Full image preview on hover
+
+Row thumbnails are cropped to a square. Hover one and a floating card shows
+the **whole image, uncropped**, in its real proportions: the thumbnail first,
+then the full-size image once it has loaded (only if the pointer stays on the
+thumbnail, so sweeping over the list does not download every image). It
+follows the **SFW** blur, is off on touch screens, and can be turned off in
+Settings → Display → Row content.
 
 ### Search and create on the fly
 
