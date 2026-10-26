@@ -1,0 +1,216 @@
+name: imageTagger
+description: "Mass scrape panel for images - uses ScrapeSingleImage"
+version: "7.2.3"
+url: "https://github.com/jojo-topo/stash-plugins/tree/master/imageTagger"
+
+settings:
+  autoCheckStudio:
+    displayName: "Automatically check new studios"
+    description: "If enabled, studios that are not in Stash yet are checked by default after a scrape."
+    type: BOOLEAN
+
+  prioritizeExistingStudio:
+    displayName: "Prioritize studio already in the database"
+    description: "If enabled, when several studios are scraped and one already exists in Stash, it is selected by default (radio button)."
+    type: BOOLEAN
+
+  autoCheckPerformer:
+    displayName: "Automatically check new performers"
+    description: "If enabled, performers that are not in Stash yet are checked by default after a scrape."
+    type: BOOLEAN
+
+  autoCheckNewTags:
+    displayName: "Automatically check new tags"
+    description: "If enabled, tags that are not in Stash yet are checked by default after a scrape."
+    type: BOOLEAN
+
+  autoCheckDetails:
+    displayName: "Automatically check Details"
+    description: "If enabled, the Details field is checked by default after a scrape."
+    type: BOOLEAN
+
+  compactMode:
+    displayName: "Compact floating panel"
+    description: "If enabled, the panel is a small floating window instead of the wide panel below the toolbar (same as the compact button in the panel title bar)."
+    type: BOOLEAN
+
+  fullscreenOnDesktop:
+    displayName: "Fullscreen panel on desktop (mass list)"
+    description: "If enabled, the panel covers the whole window on desktop too (it already does on touch screens and narrow windows)."
+    type: BOOLEAN
+
+  fullscreenSolo:
+    displayName: "Fullscreen panel on the single image page"
+    description: "Same as 'Fullscreen panel on desktop' but for the single image panel (/images/ID); independent from the mass list."
+    type: BOOLEAN
+
+  studioBlacklist:
+    displayName: "Studio blacklist (VA)"
+    description: "Studio names to ignore, separated by commas. Ex: name1, name2, name3"
+    type: STRING
+
+  # Hidden in the public build: needs the skExtra-Multiple-Studios-Custom companion
+  # plugin, which isn't published. Uncomment if that plugin is ever published separately.
+  # autoAddOtherStudios:
+  #   displayName: "Add other artists as Other studios"
+  #   description: "If enabled, studios detected through the Artists: line but not kept as the main studio are linked as 'Other studios' (compatible with the skExtra-Multiple-Studios-Custom plugin)."
+  #   type: BOOLEAN
+
+  useUrlIfPresent:
+    displayName: "Use existing URL if available"
+    description: "If enabled, tries to scrape through the URL already saved on the image before the scraper chain / manual mode."
+    type: BOOLEAN
+
+  manualFallbackOnFail:
+    displayName: "Manual fill-in when scraping fails"
+    description: "If enabled, a failed scrape shows the usual panel (studio/performers/tags/details) empty, ready to fill by hand, instead of a plain error message."
+    type: BOOLEAN
+
+  manualFallbackAllowTitle:
+    displayName: "Also allow manual title entry"
+    description: "Sub-option of 'Manual fill-in when scraping fails': adds a text field to type the title by hand."
+    type: BOOLEAN
+
+  manualFallbackPrefillFilename:
+    displayName: "Pre-fill manual title with file name"
+    description: "Sub-option of 'Also allow manual title entry': pre-fills the title field with the file name (extension stripped)."
+    type: BOOLEAN
+
+  compareImageOnScrape:
+    displayName: "Compare images when scraping a single image"
+    description: "Single image panel (/images/ID): if enabled and the scraper returns an image, shows the existing and scraped images side by side (useful to spot ID reassignments)."
+    type: BOOLEAN
+
+  hideScraperModeToggle:
+    displayName: "Hide Auto/Manual toggle (single image panel)"
+    description: "Single image panel (/images/ID): hides the Auto/Manual button and its scraper picker (and the bar that holds them when it ends up empty)."
+    type: BOOLEAN
+
+  hideToolbarButton:
+    displayName: "Hide the IT button on the image page"
+    description: "If enabled, the square IT button of the image page toolbar is not shown."
+    type: BOOLEAN
+
+  autoMarkOrganized:
+    displayName: "Mark images as organized on Apply"
+    description: "If enabled, images are marked as organized by default on Apply (can be turned off per row with the Organized button)."
+    type: BOOLEAN
+
+  hideStudioBanner:
+    displayName: "Hide studio banner"
+    description: "If enabled, the studio banner (cover) is not shown in the studio cards; the logo stays visible."
+    type: BOOLEAN
+
+  hideStudioLogo:
+    displayName: "Hide studio logo"
+    description: "If enabled, the studio logo is not shown in the studio cards; the banner stays visible."
+    type: BOOLEAN
+
+  splitExistingNew:
+    displayName: "Split existing / new data (mass list)"
+    description: "Mass list: if enabled, Performers and Tags are split into 'Already on this image' and 'New from scrape' (stacked, or side by side with the sub-option). Off by default."
+    type: BOOLEAN
+
+  splitSideBySide:
+    displayName: "Split existing / new: side by side"
+    description: "Sub-option of 'Split existing / new data': shows 'Already on this image' and 'New from scrape' side by side instead of stacked."
+    type: BOOLEAN
+
+  detailsEditorInList:
+    displayName: "Full Details editor (mass list)"
+    description: "Mass list: if enabled, shows an editable textarea for Details instead of the short preview. The Details checkbox stays."
+    type: BOOLEAN
+
+  studioBannerLayout:
+    displayName: "Modern layout (details beside the image, studio header)"
+    description: "Mass list: puts the details to the right of the image and turns the studio into a banner header."
+    type: BOOLEAN
+
+  oneCard:
+    displayName: "Details in one card"
+    description: "Needs 'Modern layout': Title, Date, Performers, Tags, URLs and Details share one card."
+    type: BOOLEAN
+
+  oneCardCols:
+    displayName: "Two columns inside the card"
+    description: "Sub-option of 'Details in one card': two columns inside the card (otherwise stacked)."
+    type: BOOLEAN
+
+  scrapedOutline:
+    displayName: "Blue outline around scraped rows"
+    description: "If enabled (default), a scraped row waiting to be applied gets a blue outline."
+    type: BOOLEAN
+
+  copyIconAlways:
+    displayName: "Copy icon always visible"
+    description: "If enabled, the copy icon on the existing Details text is always visible (otherwise only on hover)."
+    type: BOOLEAN
+
+  progressVeil:
+    displayName: "Progress veil on rows being scraped"
+    description: "If enabled (default), a row being scraped is covered by a progress veil."
+    type: BOOLEAN
+
+  progressText:
+    displayName: "Status line while scraping"
+    description: "If enabled (default), shows the current step under the file name while a row is being scraped."
+    type: BOOLEAN
+
+  progressTransition:
+    displayName: "Smooth transition from the veil to the result"
+    description: "If enabled (default), the veil fades out and the scraped result slides in."
+    type: BOOLEAN
+
+  opaquePanel:
+    displayName: "Frosted glass panel"
+    description: "Stash UI with Liquid glass on only: the panel and its rows get a more solid, more blurred glass (set the two values below)."
+    type: BOOLEAN
+
+  glassSolid:
+    displayName: "Frosted glass - solid fill (%)"
+    description: "40-100, default 82. Higher = less see-through. Only used when Frosted glass panel is on."
+    type: NUMBER
+
+  glassBlur:
+    displayName: "Frosted glass - blur (px)"
+    description: "0-80, default 40. Only used when Frosted glass panel is on."
+    type: NUMBER
+
+  stashuiPerPage:
+    displayName: "Images per page (Stash UI list)"
+    description: "Stash UI lists scroll without end, so the panel loads its own pages. 5-200, default 40."
+    type: NUMBER
+
+  applyFlare:
+    displayName: "Blue halo flash when an image is applied"
+    description: "If enabled (default), the row flashes with a blue halo after Apply."
+    type: BOOLEAN
+
+  ejectSkipped:
+    displayName: "Eject skipped images from the list"
+    description: "If enabled, Skip removes the row from the mass list instead of keeping it as skipped (Stash UI list: the list is topped back up to Images per page)."
+    type: BOOLEAN
+
+  showImageTitleInHeader:
+    displayName: "Show the image title instead of the file name"
+    description: "If enabled, the row header shows the image's own title (when it has one); the file name stays in the tooltip."
+    type: BOOLEAN
+
+  # Hidden in the public build (same reason as autoAddOtherStudios above).
+  # multiStudioSelect:
+  #   displayName: "Allow several studios per image"
+  #   description: "A '+' next to each studio candidate adds it as an Other studio. Needs the skExtra-Multiple-Studios-Custom plugin."
+  #   type: BOOLEAN
+
+  imageHoverPreview:
+    displayName: "Full image preview on hover"
+    description: "If enabled (default), hovering a thumbnail in the panel shows the whole image, uncropped, in a floating card."
+    type: BOOLEAN
+
+ui:
+  javascript:
+    - imageTagger.js
+  css:
+    - imageTagger.css
+  assets:
+    /: assets

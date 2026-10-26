@@ -1,0 +1,5033 @@
+/* imageTagger.css - ported from sceneTagger.css (st- -> it-), 2026-10-18.
+   Image-specific rules (solo image header, compare block, tags-right) are at the end,
+   before the Stash UI skin. */
+
+/* imageTagger.css v1.4 — full width below toolbar */
+
+/* Stash ships Bootstrap, whose `label { margin-bottom: .5rem }` applies to
+   every <label> we render (tag/performer/studio pills, field checkboxes,
+   settings rows). That 8px of phantom margin inflates row gaps and makes
+   text ride high inside centered flex containers. Neutralised once here
+   rather than per-component. */
+#it-panel label { margin-bottom: 0; }
+
+/* Solo mode: opened from a single scene page's Edit toolbar (it-scene-btn)
+   instead of the /scenes list - same panel/state/row logic, just the
+   mass-scrape chrome (Scrape All/Apply All/Skip All/filters/pagination)
+   hidden since there's only ever the one row to act on. Smaller, docked
+   near the button that opened it instead of spanning the viewport. */
+#it-panel.it-panel-solo {
+  left: auto;
+  right: 16px;
+  top: 90px;
+  bottom: 16px; /* explicit, not just inherited from the base rule - see
+    the overflow bug this caused, session 2026-09-16, comment below */
+  width: 620px;
+  min-width: 0;
+  max-height: calc(100vh - 106px);
+}
+#it-panel.it-panel-solo #it-status-bar,
+#it-panel.it-panel-solo #it-panel-footer {
+  display: none;
+}
+/* Header itself stays (not hidden wholesale like status-bar/footer): the
+   Auto/Manual scraper toggle + manual-scraper picker live in it, and solo
+   still needs them - without a visible way to switch off "Manual" mode
+   or change which single scraper it points at, a scene stuck on the
+   wrong one (confirmed session 2026-09-16: a scene left on "Manual" +
+   the wrong scraper had no way to fix it from this panel) silently fails
+   forever. Only the bulk-list-specific controls (Scrape All/Apply All/
+   Skip All/Clear, the scraper/studio filters - none of which mean
+   anything for a single scene) are hidden individually instead. */
+#it-panel.it-panel-solo #it-panel-header {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+#it-panel.it-panel-solo #it-btn-scrape-all,
+#it-panel.it-panel-solo #it-btn-apply-all,
+#it-panel.it-panel-solo #it-btn-skip-all,
+#it-panel.it-panel-solo #it-btn-clear,
+#it-panel.it-panel-solo .it-filter-radios {
+  display: none;
+}
+/* Settings > Display > "Hide Auto/Manual toggle on scene page" - some
+   users never touch it there and prefer the extra vertical space back. */
+#it-panel.it-panel-solo.it-hide-scene-mode-toggle #it-btn-scraper-mode,
+#it-panel.it-panel-solo.it-hide-scene-mode-toggle #it-scraper-select-manual {
+  display: none !important;
+}
+/* With both of the above hidden, #it-panel-header is empty in solo mode
+   (every other button in it is already hidden by the rules above) - hide
+   the whole bar too instead of leaving a dead empty strip. */
+#it-panel.it-panel-solo.it-hide-scene-mode-toggle #it-panel-header {
+  display: none !important;
+}
+/* Floating re-scrape button, solo mode only (see buildPanel()/renderRow()
+   for the show/hide + click wiring) - anchored to the panel's own corner
+   (#it-panel is position:fixed, so it's already the containing block for
+   an absolute child) rather than to #it-rows, since #it-rows shrinks to
+   its compact content once the row is "done" and no longer reaches the
+   bottom of the panel. */
+#it-panel.it-panel-solo #it-solo-refresh-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+}
+/* #it-rows is already `flex:1 1 0; min-height:0` in the base rule, which
+   is what actually makes it scroll instead of growing the panel past the
+   viewport (position:fixed panels don't get a page scrollbar) - this
+   override only replaces the base rule's specific vh formula (tuned for
+   the header/status-bar/footer this mode hides), not the flex behavior
+   itself. */
+#it-panel.it-panel-solo #it-rows {
+  max-height: none;
+  /* #it-panel-footer is hidden in solo mode (see above), so #it-rows is
+     the last element touching the panel's own bottom edge - its straight
+     rectangular corner (and the scrollbar track right against it) was
+     poking past the panel's rounded 14px corner with nothing clipping it
+     (confirmed session 2026-09-17). Radius-matching alone still left a
+     sliver visible (sub-pixel rendering at this radius) - pulled the
+     scrollable area up a few px off the panel's bottom edge instead, so
+     there's no shared edge left to clip against at all. */
+  border-radius: 0 0 13px 13px;
+  margin-bottom: 7.2px;
+}
+/* The scrollbar TRACK itself doesn't follow #it-rows' own border-radius
+   (WebKit clips overflow *content* to the radius, not necessarily the
+   custom scrollbar it paints on top) - its bottom stayed square next to
+   the now-rounded column beside it. Rounded explicitly here to match. */
+#it-panel.it-panel-solo #it-rows::-webkit-scrollbar-track {
+  border-radius: 0 0 3px 3px;
+}
+
+/* Only one row to show, so instead of the list layout (thumb on the left,
+   fields squeezed to its right - built for scanning many rows at once)
+   this becomes a centered "profile" layout: big thumbnail centered up top,
+   filename/buttons centered under it, fields below at full width (nothing
+   to align under a side thumb anymore, so no padding-left offset). */
+#it-panel.it-panel-solo .it-row-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 22px 20px;
+  gap: 12px;
+}
+#it-panel.it-panel-solo .it-thumb-clip {
+  width: 320px;
+  height: 180px;
+}
+#it-panel.it-panel-solo .it-row-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+#it-panel.it-panel-solo .it-filename {
+  font-size: 15px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#it-panel.it-panel-solo .it-row-btn {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+/* Matches the row-btn button width (108px, see .it-row-btn .it-btn) so
+   "URL (optional)" lines up with Scrape/Search title stacked below it
+   instead of the base 320px max-width. */
+#it-panel.it-panel-solo .it-manual-url-wrap {
+  max-width: 108px;
+  margin-left: auto;
+  margin-right: auto;
+}
+#it-panel.it-panel-solo .it-inline-results,
+#it-panel.it-panel-solo .it-title-search {
+  padding-left: 20px;
+  text-align: left;
+}
+#it-panel.it-panel-solo .it-ts-result {
+  grid-template-columns: 260px 1fr;
+  padding: 10px 12px;
+  gap: 14px;
+}
+#it-panel.it-panel-solo .it-ts-thumb {
+  width: 260px;
+}
+#it-panel.it-panel-solo .it-ts-title {
+  font-size: 14px;
+}
+/* Search title results list: let it use the panel's remaining height down
+   to the bottom of the window instead of capping at a fixed 340px - the
+   x4 thumbnail size above needs the room, and this list is normally the
+   only thing showing once "Search title" is open. Same calc(100vh - Npx)
+   pattern as the panel's own height rules (session 2026-09-16). */
+#it-panel.it-panel-solo .it-ts-results {
+  max-height: calc(100vh - 260px);
+}
+#it-panel.it-panel-solo .it-ts-meta {
+  font-size: 12px;
+}
+
+/* Each field group becomes its own card (background/border/padding)
+   instead of a plain row in a flat stack - the actual visual ask this
+   whole solo mode redesign was for (session 2026-09-16). Section icons
+   (hidden everywhere else, see .it-section-icon) turn on here too. */
+#it-panel.it-panel-solo .it-inline-artists,
+#it-panel.it-panel-solo .it-inline-performers,
+#it-panel.it-panel-solo .it-inline-tags,
+#it-panel.it-panel-solo .it-inline-details,
+#it-panel.it-panel-solo .it-inline-urls,
+#it-panel.it-panel-solo .it-inline-date,
+#it-panel.it-panel-solo .it-inline-cover {
+  background: #20262f;
+  border: 1px solid #2c3542;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+#it-panel.it-panel-solo .it-inline-artists .it-inline-label,
+#it-panel.it-panel-solo .it-inline-performers .it-inline-label,
+#it-panel.it-panel-solo .it-inline-tags .it-inline-label,
+#it-panel.it-panel-solo .it-inline-details .it-inline-label,
+#it-panel.it-panel-solo .it-inline-urls .it-inline-label,
+#it-panel.it-panel-solo .it-inline-date .it-inline-label,
+#it-panel.it-panel-solo .it-inline-cover .it-inline-label {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #e4e7eb;
+  text-transform: none;
+  letter-spacing: normal;
+  margin-bottom: 13px;
+  min-width: 0;
+}
+#it-panel.it-panel-solo .it-section-icon { display: flex; }
+
+/* .it-inline-field's base `align-items:flex-start` makes flex children
+   shrink to their own content width instead of filling the card - once a
+   card is 580px+ wide (solo panel) that leaves a big empty strip on the
+   right of Studio/Details/URLs instead of them using the space (session
+   2026-09-16 screenshot). Stretch instead, so their content areas take
+   the card's full width. */
+#it-panel.it-panel-solo .it-inline-artists,
+#it-panel.it-panel-solo .it-inline-details,
+#it-panel.it-panel-solo .it-inline-urls,
+#it-panel.it-panel-solo .it-inline-date,
+#it-panel.it-panel-solo .it-inline-cover,
+#it-panel.it-panel-solo .it-inline-performers,
+#it-panel.it-panel-solo .it-inline-tags {
+  align-items: stretch;
+}
+#it-panel.it-panel-solo .it-studio-stack-row {
+  justify-content: center;
+  gap: 28px;
+}
+#it-panel.it-panel-solo .it-studio-left {
+  align-items: center;
+  text-align: center;
+}
+#it-panel.it-panel-solo .it-studio-logo-zone {
+  width: 150px;
+  height: 84px;
+}
+#it-panel.it-panel-solo .it-details-edit {
+  min-height: 90px;
+  font-size: 13px;
+}
+#it-panel.it-panel-solo .it-url-add-input,
+#it-panel.it-panel-solo .it-url-row {
+  font-size: 13px;
+}
+
+/* ── Apply row: Apply grows to take most of the width, Skip/Organized
+   stay their normal compact size and end up on the right since they
+   follow it in DOM order. */
+#it-panel.it-panel-solo .it-inline-actions .it-btn-success {
+  flex: 1;
+  padding: 11px 0;
+  font-size: 13.5px;
+}
+
+/* ── Golden "new" treatment for tags/URLs in solo mode - restored per
+   user preference (session 2026-09-16), scoped to solo only since the
+   mass list keeps its own original .it-tag-new/.it-url-row-new colors
+   (reddish-brown) unchanged. Exact values lifted from the original
+   approved mockup (scrape-scene-restructure.html .pill-new/.badge) -
+   an earlier pass here accidentally used the mockup's BADGE color
+   (#3a2f13) as the PILL background, one step too bright; the pill itself
+   is darker (#241d12) with the badge layered brighter on top of it. */
+#it-panel.it-panel-solo .it-tag-item.it-tag-new {
+  background: #241d12;
+  border-color: #4a3a1f;
+  color: #e0c896;
+}
+#it-panel.it-panel-solo .it-tag-item.it-tag-new input[type="checkbox"] {
+  accent-color: #e0a63e;
+}
+#it-panel.it-panel-solo .it-tag-item.it-tag-new .it-new-badge {
+  background: #3a2f13;
+  color: #e0a63e;
+}
+#it-panel.it-panel-solo .it-url-row.it-url-row-new {
+  background: #241d12;
+  border-color: #4a3a1f;
+}
+#it-panel.it-panel-solo .it-url-row.it-url-row-new .it-url-link {
+  color: #e0c896;
+}
+#it-panel.it-panel-solo .it-url-badge-new {
+  background: #3a2f13;
+  color: #e0a63e;
+}
+
+/* ── Manually-added studio chip (solo mode) - a bordered pill with its
+   own ✕, matching the "Already on this scene"/"New from scrape" rows,
+   instead of the mass-list's plain "→ name" link (still shared/unchanged
+   there). Clicking anywhere on the chip still removes it (unchanged
+   behavior), the ✕ is visual, not a separate hit target. */
+#it-panel.it-panel-solo .it-studio-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid #3f7ea3;
+  border-radius: 9px;
+  color: #8fc8e6;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 7px 12px;
+}
+#it-panel.it-panel-solo .it-studio-selected:hover {
+  background: #3a2020;
+  border-color: #bf616a;
+  color: #bf616a;
+}
+#it-panel.it-panel-solo .it-studio-selected-x {
+  font-size: 11px;
+  opacity: 0.8;
+}
+#it-panel.it-panel-solo .it-studio-search-wrap {
+  max-width: 190px;
+  width: 100%;
+}
+#it-panel.it-panel-solo .it-studio-search-input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Fixed width (not just max-width) on the "Manually added" row's left
+   column, so it doesn't reflow/resize between its two states (empty
+   search input vs the picked-studio chip) - each state's own content is
+   narrower than the other's, and without a fixed width the column would
+   shrink-to-fit whichever is currently showing (confirmed session
+   2026-09-16: the search bar visibly changed size when a studio was
+   picked). */
+#it-panel.it-panel-solo .it-studio-manual-left {
+  width: 190px;
+}
+
+/* ── Cover: click one of two thumbnails (existing vs scraped) side by
+   side instead of a checkbox+preview - the chosen one gets a highlight
+   ring, matching the "pick a candidate" feel of Studio/Performers/Tags. */
+#it-panel.it-panel-solo .it-cover-options {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+#it-panel.it-panel-solo .it-cover-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+#it-panel.it-panel-solo .it-cover-option img {
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 9px;
+  border: 2px solid #2c3542;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+#it-panel.it-panel-solo .it-cover-option:hover img {
+  border-color: #4a6070;
+}
+#it-panel.it-panel-solo .it-cover-option.it-cover-selected img {
+  border-color: #5e81ac;
+  box-shadow: 0 0 0 3px #5e81ac33;
+}
+#it-panel.it-panel-solo .it-cover-caption {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5c6773;
+}
+#it-panel.it-panel-solo .it-cover-caption.it-new { color: #d0a868; }
+#it-panel.it-panel-solo .it-cover-option.it-cover-selected .it-cover-caption {
+  color: #88c0d0;
+}
+#it-panel.it-panel-solo .it-cover-empty {
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  border: 2px dashed #2c3542;
+}
+
+/* Other simple fields (Title/Date/Code/Director) stay lighter-weight rows
+   rather than full cards - just given a bit more breathing room to match
+   the card rhythm above instead of sitting flush against it. */
+#it-panel.it-panel-solo .it-inline-field:not(.it-inline-artists):not(.it-inline-performers):not(.it-inline-tags):not(.it-inline-details):not(.it-inline-urls):not(.it-inline-date):not(.it-inline-cover) {
+  padding: 4px 2px;
+}
+/* Only the checkbox-less "found via" hint gets centered - a checkbox+chip
+   row (Title/Code/Director) centered as one group visually detaches the
+   checkbox from the card's left edge, which read as "misplaced" rather
+   than tidy (confirmed session 2026-09-16). Those keep their natural
+   left alignment; just the hint text is centered on its own. */
+#it-panel.it-panel-solo .it-scraper-match-hint {
+  justify-content: center;
+}
+/* The row's leading .it-label-static spacer (82px min-width, normally
+   reserved to line up with the checkbox column of other rows) still
+   counts toward the centered group's width here, since this row has no
+   checkbox to line up with - throws the text off-center vs the thumbnail
+   above it. Collapsed to 0 for this specific hint only. */
+#it-panel.it-panel-solo .it-scraper-match-hint .it-label-static {
+  min-width: 0;
+  width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* .it-state-scraped/.it-state-done etc tint the row background (green for
+   "scraped", visible whenever NOT hovered - :hover's own background
+   otherwise masks it) to help scanning a long list. In solo mode there's
+   only ever the one row, so that tint just reads as "the whole panel is
+   green" instead of information - neutralised back to the panel's own
+   background. */
+#it-panel.it-panel-solo .it-row {
+  background: transparent;
+}
+/* Solo: a scraped row has no green line (the one row IS the panel). */
+#it-panel.it-panel-solo .it-row.it-state-scraped {
+  background: transparent;
+  box-shadow: none;
+}
+
+#it-panel {
+  position: fixed;
+  top: 130px;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 9000;
+  background: #1a1d23;
+  border: 1px solid #3b4252;
+  border-radius: 14px;
+  font-family: inherit;
+  font-size: 14px;
+  color: #d8dee9;
+  box-shadow: 0 8px 48px rgba(0,0,0,0.65);
+  min-width: 500px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* ── Draggable titlebar ── */
+#it-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 16px;
+  background: #0f1115;
+  border-radius: 14px 14px 0 0;
+  border-bottom: 1px solid #2e3440;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+#it-titlebar-drag {
+  font-size: 13px;
+  font-weight: 700;
+  color: #88c0d0;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: grab;
+  user-select: none;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#it-titlebar-drag:active { cursor: grabbing; }
+#it-titlebar-drag::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #88c0d0;
+  box-shadow: 0 0 0 3px #88c0d022;
+  flex-shrink: 0;
+}
+/* Scrape All in progress: dot pulses instead of sitting static — a real
+   status indicator (idle vs running) rather than pure decoration. Toggled
+   in setScrapeAllBtn(), the one place already called at the start/end of
+   every scrape-all run. */
+#it-titlebar-drag.it-titlebar-active::before {
+  animation: it-titlebar-dot-pulse 1.1s ease-in-out infinite;
+}
+@keyframes it-titlebar-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px #88c0d022; }
+  50%      { box-shadow: 0 0 0 6px #88c0d044; }
+}
+
+/* Titlebar action icons (compact/settings/close) grouped with consistent
+   spacing, matching the validated mockup instead of ad-hoc padding per
+   button. */
+#it-titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#it-titlebar-close {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #616975;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 3px 7px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+#it-titlebar-close:hover { color: #bf616a; background: #bf616a1e; }
+
+/* ── Settings panel ── */
+#it-settings-panel {
+  padding: 10px 18px 12px;
+  background: rgba(0,0,0,0.15);
+  border-bottom: 1px solid #2e3440;
+  flex-shrink: 1;
+  min-height: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+#it-settings-panel::-webkit-scrollbar { width: 5px; }
+#it-settings-panel::-webkit-scrollbar-track { background: transparent; }
+#it-settings-panel::-webkit-scrollbar-thumb { background: #3b4252; border-radius: 3px; }
+
+.it-setting-row { padding: 5px 0; }
+
+.it-setting-group {
+  border-bottom: 1px solid #2e3440;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+.it-setting-section-title {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #616975;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.it-setting-subtitle {
+  font-size: 11px;
+  color: #7a8590;
+  margin: 4px 0;
+}
+.it-setting-row-sub .it-setting-label {
+  padding-left: 22px;
+  color: #616975;
+}
+
+.it-setting-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #a0a8b0;
+  cursor: pointer;
+  user-select: none;
+}
+.it-setting-label:hover { color: #d8dee9; }
+.it-setting-label input[type="checkbox"] {
+  accent-color: #88c0d0;
+  width: 14px; height: 14px;
+  cursor: pointer; flex-shrink: 0;
+}
+
+.it-setting-label-inline {
+  font-size: 13px;
+  color: #a0a8b0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.it-setting-row-sub .it-setting-label-inline { padding-left: 22px; color: #616975; }
+.it-setting-label-inline input[type="number"] {
+  background: #2e3440;
+  border: 1px solid #4c566a;
+  border-radius: 3px;
+  color: #d8dee9;
+  font-size: 12px;
+  padding: 2px 4px;
+  margin: 0 2px;
+}
+
+.it-setting-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 4px 22px;
+  cursor: pointer;
+  user-select: none;
+}
+.it-setting-disclosure-chevron {
+  color: #6b8299;
+  font-size: 10px;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+.it-setting-disclosure-open .it-setting-disclosure-chevron { transform: rotate(90deg); }
+.it-setting-disclosure-label {
+  font-size: 12px;
+  color: #8ea0b3;
+  font-weight: 600;
+}
+.it-setting-disclosure:hover .it-setting-disclosure-label { color: #d8dee9; }
+
+.it-setting-adv-box {
+  margin: 4px 0 4px 22px;
+  padding: 8px 10px;
+  background: #232830;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+}
+.it-setting-row-inline { padding: 3px 0; }
+
+#it-titlebar-settings {
+  background: none; border: none;
+  border-radius: 6px;
+  color: #616975; font-size: 18px;
+  cursor: pointer; padding: 3px 7px;
+  line-height: 1; transition: color 0.15s, background 0.15s;
+}
+#it-titlebar-settings:hover { color: #88c0d0; background: #88c0d01e; }
+
+/* ── Header ── */
+#it-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  border-bottom: 1px solid #2e3440;
+  background: #13151a;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+/* Custom combobox (replaces a native <select> so Chrome and Firefox render
+   an identical dropdown - Chrome ignores CSS on a native select's popup,
+   Firefox honors it, see the comment in buildPanel()). #it-scraper-select-manual
+   is the positioning-context wrapper (its display:inline-flex/none is set
+   inline, toggled by the Auto/Manual button). */
+.it-combo { position: relative; }
+.it-combo-btn {
+  background: #252830;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 5px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.it-combo-btn:hover { border-color: #4a6070; }
+.it-combo-btn:focus { outline: none; border-color: #88c0d0; box-shadow: 0 0 0 3px #88c0d022; }
+.it-combo-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #1a1d23;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  box-shadow: 0 12px 28px -8px rgba(0,0,0,.6);
+  z-index: 200;
+  padding: 4px;
+}
+.it-combo-option {
+  padding: 6px 10px;
+  font-size: 13px;
+  color: #b0bcc8;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* No separate :hover rule on purpose - mouse movement drives the same
+   .it-combo-option-active highlight arrow keys use (see the mousemove
+   listener), so there's only ever one highlighted row, not a hover one
+   and a keyboard one landing on different options at once. */
+.it-combo-option-active { background: #2e3f55; color: #a5cfe6; }
+.it-combo-option-selected { color: #88c0d0; font-weight: 600; }
+
+.it-btn {
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+  letter-spacing: 0.02em;
+}
+.it-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+.it-btn-primary  { background: #5e81ac; color: #eceff4; }
+.it-btn-primary:hover:not(:disabled)  { background: #81a1c1; box-shadow: 0 4px 14px -4px #5e81ac66; }
+.it-btn-success  { background: #4c7a3e; color: #d8f0d0; }
+.it-btn-success:hover:not(:disabled)  { background: #5a9049; box-shadow: 0 4px 14px -4px #4c7a3e66; }
+.it-btn-ghost    { background: transparent; border: 1px solid #3b4252; color: #81878f; }
+.it-btn-ghost:hover:not(:disabled)    { border-color: #88c0d0; color: #d8dee9; background: #88c0d014; }
+
+/* Scene-detail-page entry button (Edit toolbar, injected next to native
+   Stash buttons) - a distinct accent color so it doesn't get mistaken for
+   a native Save/Delete/Scrape control while still using their same
+   sizing/shape (inherits .btn from Bootstrap). */
+.it-scene-btn {
+  background: #4c3d78 !important;
+  border-color: #6a55a8 !important;
+  color: #e5defc !important;
+}
+.it-scene-btn:hover { background: #5c4a92 !important; }
+.it-btn-danger   { background: transparent; border: 1px solid #bf616a55; color: #d3838a; }
+.it-btn-organized-on  { background: #3f7ea3; color: #eef6fb; }
+.it-btn-organized-off { background: transparent; border: 1px solid #3b4252; color: #616975; }
+.it-btn-danger:hover:not(:disabled)   { background: #bf616a1e; border-color: #bf616a; color: #e5a0a6; }
+
+/* ── Status bar ── */
+#it-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 18px;
+  font-size: 12px;
+  color: #616975;
+  background: #13151a;
+  border-bottom: 1px solid #2e3440;
+  flex-shrink: 0;
+}
+#it-progress-wrap {
+  flex: 1;
+  height: 2px;
+  background: #2e3440;
+  border-radius: 1px;
+  overflow: hidden;
+}
+#it-progress-bar {
+  height: 100%;
+  background: #88c0d0;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+/* ── Rows container ── */
+#it-rows {
+  background: #13151a; /* darker than the row cards sitting on it */
+  padding: 3px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: calc(100vh - 130px - 200px); /* 130px top + ~200px headers/footer */
+}
+#it-rows::-webkit-scrollbar { width: 5px; }
+#it-rows::-webkit-scrollbar-track { background: #13151a; }
+#it-rows::-webkit-scrollbar-thumb { background: #3b4252; border-radius: 3px; }
+
+/* ── Row ── */
+.it-row {
+  /* each scene is its own rounded card (separated from the next one) */
+  background: #1a1d23;
+  border: 1px solid #2a303b;
+  border-radius: 10px;
+  margin: 5px 8px;
+  transition: background 0.1s;
+}
+.it-row:hover { background: #1c1f27; }
+.it-state-scraping  { background: #181d2a; }
+/* Scraped: a thin azure "neon" outline (#4286c4) all around the row, rounded
+   corners and a soft inner glow, marks "scraped, ready to apply" - it replaced a
+   dark green gradient that no longer matched the card colours. Inset shadows,
+   so nothing shifts (an outer glow would be clipped by the scrolling list);
+   a small margin keeps the rounded outline off the panel edges. A very light
+   blue tint (4 %, same weight as the red one of failed rows) sits behind it. */
+.it-state-scraped {
+  background: rgba(66, 134, 196, 0.04);
+  border-radius: 10px;
+  margin: 5px 8px;
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px #4286c4, inset 0 0 14px rgba(66, 134, 196, 0.18);
+}
+.it-row.it-state-scraped:hover {
+  background: rgba(66, 134, 196, 0.07);
+}
+.it-state-applying  { background: #181d2a; }
+/* Done (applied): same blue as the progress veil for the tint, plus the same azure
+   outline as a scraped row (same margin/radius, so nothing shifts on Apply). */
+.it-state-done {
+  background: rgba(66, 134, 196, 0.15);
+  border-radius: 10px;
+  margin: 5px 8px;
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px #4286c4, inset 0 0 14px rgba(66, 134, 196, 0.18);
+}
+.it-state-error     { background: rgba(191, 97, 106, 0.04); }
+.it-state-skipped   { opacity: 0.42; }
+
+/* ── Row top (thumb + info + right button) ── */
+.it-row-top {
+  display: grid;
+  grid-template-columns: 160px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 16px;
+}
+
+/* Dedicated clipping wrapper for the thumbnail. Stash's native SFW mode
+   applies `filter: blur()` directly to elements carrying the
+   `.scene-card-preview` class (including our `.it-thumb-link`, reused for
+   hover compatibility with videoHoverPreview - see below). An element's own
+   filter always bleeds beyond its own box, even if that SAME element also
+   has `overflow:hidden` (overflow:hidden only clips CHILDREN that overflow,
+   never the element's own filtered rendering) - which is why the blur used
+   to leak across several rows of the panel instead of staying inside the
+   thumbnail. Fix: move the clipping (size + overflow:hidden) to this outer
+   wrapper, which carries none of the blur-triggering classes itself - its
+   child `.it-thumb-link`'s blur is then correctly clipped by it. */
+.it-thumb-clip {
+  width: 160px;
+  height: 90px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: block;
+  position: relative;
+}
+
+/* Native hover preview (no companion plugin) - overlays the thumbnail
+   exactly, clipped by .it-thumb-clip's own overflow:hidden like the SFW
+   blur fix above (this element's blur/effects, if any, stay inside since
+   it's a proper child, not the clipping element itself). */
+.it-thumb-preview-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.it-thumb-scrub-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(0,0,0,0.55);
+  pointer-events: none;
+  z-index: 2;
+}
+.it-thumb-scrub-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: #88c0d0;
+}
+
+.it-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #2e3440;
+  background: #13151a;
+  flex-shrink: 0;
+  display: block;
+}
+
+.it-row-info { min-width: 0; }
+
+.it-filename {
+  display: block;
+  font-size: 13px;
+  color: #8a9099;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.it-scene-link {
+  cursor: context-menu;
+  text-decoration: none;
+  color: #8a9099;
+}
+.it-scene-link:hover {
+  color: #b0bcc8;
+}
+.it-thumb-link {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.it-hint {
+  font-size: 12px;
+  color: #4e5560;
+  margin-top: 3px;
+}
+.it-hint-warn  { color: #7a5a2a; }
+.it-hint-error { color: #9a4040; }
+
+.it-manual-url-wrap { margin-top: 4px; max-width: 320px; }
+.it-manual-url-input {
+  width: 100%;
+  max-width: 320px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 3px 8px;
+  font-size: 11px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.it-manual-url-input:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
+.it-manual-url-input::placeholder { color: #4e5560; }
+
+.it-row-btn { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+/* Scrape/Search title (and Retry, same slot) share one fixed width instead
+   of shrinking to their own text ("Scrape" vs "Search title" otherwise
+   read as mismatched, session 2026-09-16) - wide enough for the longer
+   label. */
+.it-row-btn .it-btn { width: 108px; text-align: center; }
+
+/* ── Search title (query-based, stash-box only) ── */
+.it-title-search {
+  padding: 0 16px 14px 190px; /* matches .it-inline-results: 160px thumb + 14px gap + 16px padding */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* shrink-to-content instead of stretching full
+    width, so .it-ts-source below can be given the row's own content width
+    (input + gap + button) and actually line up with it (session
+    2026-09-16 - previously both were 100% of the container, which is
+    wider than the input+button row actually renders). */
+  gap: 8px;
+}
+.it-ts-source, .it-ts-input {
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 6px 9px;
+  font-size: 12px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.it-ts-source:focus, .it-ts-input:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
+.it-ts-search-row { display: flex; gap: 8px; }
+.it-ts-search-row .it-ts-input { flex: none; width: 340px; }
+/* Matches the search row's own width (340px input + 8px gap + ~72px
+   Search button) so the source dropdown stops at the same right edge as
+   the Search button below it instead of spanning the full panel width. */
+.it-ts-source { width: 420px; max-width: 100%; }
+
+.it-ts-status { font-size: 12px; color: #4e5560; padding: 4px 0; }
+.it-ts-status.it-ts-error { color: #9a4040; }
+
+.it-ts-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.it-ts-result {
+  display: grid;
+  grid-template-columns: 128px 1fr;
+  gap: 10px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  padding: 7px 9px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.it-ts-result:hover { background: #232936; border-color: #3f7ea3; }
+.it-ts-thumb {
+  width: 128px;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #13151a;
+}
+.it-ts-info { min-width: 0; }
+.it-ts-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #d8dee9;
+  line-height: 1.3;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.it-ts-meta { font-size: 11px; color: #7a828d; margin-top: 3px; }
+.it-ts-studio-ok {
+  font-size: 10.5px; font-weight: 600;
+  background: #1e3025; color: #a3be8c;
+  border-radius: 999px; padding: 1px 7px;
+}
+.it-ts-studio-bl {
+  font-size: 10.5px; font-weight: 600;
+  background: #3a2f13; color: #d2aa50;
+  border-radius: 999px; padding: 1px 7px;
+}
+
+.it-spinner {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid #3b4252;
+  border-top-color: #88c0d0;
+  border-radius: 50%;
+  animation: it-spin 0.7s linear infinite;
+  vertical-align: middle;
+}
+@keyframes it-spin { to { transform: rotate(360deg); } }
+
+.it-done-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #4d9be0;
+  color: #0a1626;
+  box-shadow: 0 0 8px #4d9be033;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* ── Inline results ── */
+.it-inline-results {
+  padding: 0 16px 14px 190px; /* 160px thumb + 14px gap + 16px padding */
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.it-inline-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.it-inline-tags, .it-inline-performers, .it-inline-artists, .it-inline-urls, .it-inline-details, .it-inline-date, .it-inline-cover {
+  flex-direction: column;
+  gap: 5px;
+}
+
+.it-inline-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #616975;
+  white-space: nowrap;
+  min-width: 82px;
+  cursor: pointer;
+}
+.it-inline-label input[type="checkbox"] {
+  accent-color: #88c0d0;
+  width: 13px; height: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.it-label-static {
+  font-size: 12px;
+  color: #616975;
+  white-space: nowrap;
+  min-width: 82px;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
+
+.it-inline-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ── Chips ── */
+.it-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.it-chip-title     { background: #2e3040; color: #a0b0c8; }
+/* Solid fills for studio/performer/date instead of a faint tint + border —
+   reads instantly instead of needing to spot a thin outline (session
+   2026-09-12, validated against a mockup before applying). */
+.it-chip-studio    { background: #3f7ea3; color: #eef6fb; font-weight: 600; }
+.it-chip-performer { background: #5a8850; color: #eaf5e6; font-weight: 600; }
+.it-chip-date      { background: #8a5fa3; color: #f5edf9; font-weight: 600; }
+.it-chip-code      { background: #3a3020; color: #d0a868; }
+.it-chip-director  { background: #2e3828; color: #8fa880; }
+.it-chip-details   { background: #282828; color: #707878; max-width: 360px; cursor: help; }
+.it-chip-url       {
+  background: #203040; color: #6090b0;
+  max-width: none;
+  white-space: normal;
+  word-break: break-all;
+  text-decoration: none;
+  cursor: pointer;
+}
+.it-chip-url:hover { color: #88c0d0; text-decoration: underline; }
+
+.it-cover-preview {
+  height: 44px;
+  border-radius: 4px;
+  border: 1px solid #2e3440;
+  object-fit: cover;
+}
+
+/* ── Tags grid inline ── */
+.it-tags-grid, .it-perfs-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+/* Positioning context for the hover-preview <img> (wireAvatarHoverPreview),
+   only actually needed by .it-perfs-grid - harmless on .it-tags-grid too
+   since it has no absolutely-positioned children. */
+.it-perfs-grid { position: relative; }
+
+.it-tag-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #7a9090;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  user-select: none;
+}
+.it-tag-item:hover { background: #252c35; border-color: #4a6070; }
+.it-tag-new { border-color: #5a3030; color: #8a7070; }
+.it-tag-item input[type="checkbox"] {
+  accent-color: #88c0d0;
+  width: 11px; height: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+/* Checked tags get a solid fill instead of being visually identical to
+   unchecked ones (only the checkbox itself showed the state before) —
+   reads instantly when scanning a grid of 20-30 tags. Wins over .it-tag-new
+   thanks to higher specificity (two classes vs one), same as the existing
+   .it-radio-item:has(input:checked) pattern in this file. */
+.it-tag-item:has(input:checked) {
+  background: #5a8850;
+  border-color: #5a8850;
+  color: #eaf5e6;
+  font-weight: 600;
+}
+.it-tag-item:has(input:checked):hover { background: #679c5b; border-color: #679c5b; }
+.it-tag-item:has(input:checked) input[type="checkbox"] { accent-color: #eaf5e6; }
+
+/* ── "Already on this scene" (existing performers/tags, kept as-is on
+   Apply - see the merge step in getCheckedScraped()). Deliberately NOT
+   styled like .it-tag-item/.it-perf-item (no checkbox, not clickable) -
+   these aren't a choice to make, they're already there. */
+.it-existing-block {
+  margin-bottom: 6px;
+}
+.it-existing-caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4e5560;
+  margin-bottom: 6px;
+}
+.it-existing-caption::before {
+  content: "";
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.it-split-empty {
+  font-size: 11px;
+  font-style: italic;
+  color: #4e5560;
+}
+
+/* ── "ST" badge (scene-toolbar entry button, see injectToolbarButton()) -
+   same colors as .it-section-icon below (#1a2028 fill, #2c3542 border,
+   #88c0d0 teal text) so it reads as "this plugin" at a glance rather than
+   a generic icon. */
+.it-toolbar-badge-btn {
+  padding: 2px !important;
+  background: transparent !important;
+}
+.it-toolbar-badge-btn:focus,
+.it-toolbar-badge-btn:active,
+.it-toolbar-badge-btn:focus-visible,
+.it-toolbar-badge-btn:focus:active {
+  outline: none;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.it-toolbar-badge-btn.it-active .it-toolbar-badge {
+  border-color: #88c0d0;
+  background: #1a3040;
+}
+.it-toolbar-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: #1a2028;
+  border: 1px solid #2c3542;
+  color: #88c0d0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ── Section icon (Studio/Performers/Tags/Details/URLs) - hidden in the
+   dense mass-scrape list, shown only in solo mode where each field group
+   becomes its own card (see .it-panel-solo rules further down). */
+.it-section-icon {
+  display: none;
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  background: #1a2028;
+  color: #88c0d0;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 9px;
+}
+.it-section-icon svg { width: 14px; height: 14px; }
+
+/* ── Two-column existing/new split (Performers, Tags) ── */
+.it-split-cols {
+  display: grid;
+  /* widths set per field from the item counts (see splitShareStyle in the JS) */
+  grid-template-columns: minmax(0, var(--it-split-l, 1fr)) minmax(0, var(--it-split-r, 1fr));
+  gap: 16px;
+}
+.it-split-col { min-width: 0; }
+.it-existing-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  position: relative; /* positioning context for wireAvatarHoverPreview, see .it-perfs-grid above */
+}
+.it-existing-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  background: #1a1d23;
+  border: 1px solid #2e3440;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #616975;
+}
+/* Performer pills only: same round avatar treatment as the search-added
+   chips (.it-perf-added-chip) - padding tightened on the avatar side so
+   the circle sits flush with the pill's rounded edge instead of floating
+   inside uniform padding. Absent gracefully for pills with no image_path
+   (tags reuse .it-existing-pill too and never carry an avatar). */
+.it-existing-pill-perf:has(.it-perf-chip-avatar) {
+  padding: 3px 12px 3px 3px;
+}
+.it-existing-pill-perf .it-perf-chip-avatar {
+  width: 34px;
+  height: 34px;
+}
+/* Stacked one-per-row instead of wrapped inline, like the "New from
+   scrape" checkbox list next to it - reads better at the larger avatar
+   size above (session 2026-09-16, confirmed regression: wrapped rows of
+   34px avatars looked cramped/misaligned side by side). */
+.it-existing-pills-perf {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.it-existing-caption.it-new { color: #d0a868; }
+.it-count-hint { color: #616975; font-weight: 400; }
+
+/* ── Studio: stacked existing/new rows with a reserved logo zone.
+   object-fit:contain (not cover) so a wide/rectangular studio logo shows
+   in full instead of being cropped into a square. */
+.it-studio-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.it-studio-stack-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.it-studio-stack-row + .it-studio-stack-row {
+  padding-top: 10px;
+  border-top: 1px solid #262b33;
+}
+.it-studio-left {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.it-studio-name-plain { font-size: 13px; color: #7a828d; }
+.it-studio-logo-zone {
+  flex-shrink: 0;
+  width: 120px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.it-studio-logo-zone img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.it-studio-logo-zone.it-studio-logo-empty { color: #2e3440; }
+.it-studio-logo-zone.it-studio-logo-empty svg { width: 22px; height: 22px; }
+
+/* ── Details: always-editable, split into read-only existing + editable
+   new when the two differ. */
+.it-details-wrap { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.it-details-wrap.it-details-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.it-details-col { display: flex; flex-direction: column; gap: 4px; }
+.it-details-readonly {
+  font-size: 12px;
+  color: #7a828d;
+  background: #181c22;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+.it-details-empty { font-style: italic; color: #4e5560; }
+.it-details-edit {
+  width: 100%;
+  min-height: 60px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.it-details-edit:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
+.it-details-edit::placeholder { color: #4e5560; }
+
+/* ── Custom date picker - a native <input type="date">'s calendar popup
+   can't be restyled (browser/OS-rendered), so this is built from scratch
+   to match the plugin instead. */
+.it-date-field {
+  position: relative;
+  max-width: 220px;
+}
+.it-date-display {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 8px 11px;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.it-date-display:hover { border-color: #3f7ea3; }
+.it-date-display svg { width: 14px; height: 14px; color: #7a828d; flex-shrink: 0; }
+.it-date-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  width: 250px;
+  background: #1a2028;
+  border: 1px solid #313b48;
+  border-radius: 10px;
+  box-shadow: 0 16px 36px -14px rgba(0,0,0,0.7);
+  padding: 12px;
+}
+.it-date-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.it-date-pop-nav {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid #2e3440;
+  background: #1e2229;
+  color: #8b95a3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+}
+.it-date-pop-nav:hover { border-color: #5e81ac; color: #d8dee9; }
+.it-date-pop-month { font-size: 12.5px; font-weight: 650; color: #e4e7eb; }
+.it-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.it-date-dow {
+  font-size: 9px;
+  font-weight: 700;
+  color: #5c6773;
+  text-align: center;
+  padding-bottom: 4px;
+  text-transform: uppercase;
+}
+.it-date-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
+  border-radius: 6px;
+  color: #c3cad3;
+  cursor: pointer;
+}
+.it-date-cell:hover { background: #232a34; }
+.it-date-cell.it-date-muted { color: #3a4048; }
+.it-date-cell.it-date-selected { background: #5e81ac; color: #eceff4; font-weight: 700; }
+.it-date-cell.it-date-today { border: 1px solid #88c0d0; }
+.it-date-pop-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid #2c3542;
+}
+.it-date-pop-link {
+  font-size: 11px;
+  font-weight: 600;
+  color: #88c0d0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.it-date-pop-link:hover { text-decoration: underline; }
+
+/* ── URLs: combined removable stack + add row (see the merge note in
+   getCheckedScraped() - never a silent full replace). */
+.it-url-list-wrap { flex: 1; min-width: 0; }
+.it-url-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 7px; }
+.it-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  padding: 6px 6px 6px 11px;
+}
+.it-url-row.it-url-row-new { border-color: #4a3a1f; background: #201a10; }
+.it-url-link {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: #8fc8e6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.it-url-badge-new {
+  font-size: 9px;
+  font-weight: 700;
+  background: #3a2f13;
+  color: #d2aa50;
+  padding: 1px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.it-url-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #9a5a5a;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, color 0.1s;
+}
+.it-url-remove:hover { background: #3a2020; color: #d3838a; }
+.it-url-add-input {
+  width: 100%;
+  background: #1a2028;
+  border: 1px dashed #313b48;
+  border-radius: 8px;
+  color: #8b95a3;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, border-style 0.15s;
+}
+.it-url-add-input::placeholder { color: #4e5560; }
+.it-url-add-input:focus { border-style: solid; border-color: #5e81ac; }
+
+/* ── Individual performers ── */
+.it-perf-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  background: #1e3025;
+  border: 1px solid #2e4030;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #8ab898;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  user-select: none;
+}
+.it-perf-item:hover { background: #243830; border-color: #4a7055; }
+.it-perf-new { border-color: #5a3030; color: #8a7070; }
+.it-perf-item input[type="checkbox"] {
+  accent-color: #88c0d0;
+  width: 11px; height: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.it-perf-name {
+  user-select: text;
+  cursor: text;
+}
+
+/* ── Multiple-artist radio buttons ── */
+.it-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.it-radio-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: #1e2229;
+  border: 1px solid #3b4252;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #7a8590;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.it-radio-item:hover { background: #252c35; border-color: #4a6070; color: #d8dee9; }
+.it-radio-item input[type="radio"] {
+  accent-color: #88c0d0;
+  width: 12px; height: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.it-radio-logo {
+  flex: none;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #2a303a;
+}
+.it-radio-logo a { display: flex; width: 100%; height: 100%; cursor: pointer; }
+.it-radio-logo:hover { box-shadow: 0 0 0 2px rgba(136,192,208,0.7); }
+.it-radio-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.it-radio-logo.it-radio-logo-empty { display: none; }
+/* Selected studio radio in solid fill — same "solid = active" language
+   as the tag/chip colors above, blue to match the Studio chip. */
+.it-radio-item:has(input:checked) {
+  background: #3f7ea3;
+  border-color: #3f7ea3;
+  color: #eef6fb;
+  font-weight: 600;
+}
+
+/* ── Selectable text ── */
+.it-selectable {
+  user-select: text;
+  cursor: text;
+}
+
+.it-new-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #fceaec;
+  background: #b0505a;
+  padding: 1px 5px;
+  border-radius: 9px;
+  margin-left: 2px;
+}
+
+/* ── Actions inline ── */
+.it-inline-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* ── Page navigation (footer) ── */
+.it-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.it-page-nav .it-btn {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+#it-page-nav-label {
+  font-size: 12px;
+  color: #7a8590;
+  min-width: 42px;
+  text-align: center;
+}
+
+/* ── Footer ── */
+#it-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 8px 16px;
+  border-top: 1px solid #2e3440;
+  background: #13151a;
+  border-radius: 0 0 14px 14px;
+  flex-wrap: wrap;
+  position: relative;
+  flex-shrink: 0;
+  flex-grow: 0;
+}
+#it-page-info {
+  flex: 1;
+  font-size: 12px;
+  color: #4e5560;
+}
+
+/* ── Custom resize corner (bottom-left) ── */
+#it-resize-handle {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: sw-resize;
+  border-radius: 0 0 0 9px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 3px;
+  opacity: 0.30;
+  transition: opacity 0.15s;
+}
+#it-resize-handle:hover { opacity: 0.70; }
+#it-resize-handle svg {
+  width: 10px; height: 10px;
+  fill: none;
+  stroke: #88c0d0;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* ── Performers: right column layout ── */
+.it-perfs-right {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Scraper fallback chain (drag to reorder) ── */
+.it-scraper-chain-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #2e3440;
+  margin-bottom: 4px;
+}
+
+#it-scraper-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.it-chain-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: grab;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+.it-chain-item:active { cursor: grabbing; }
+.it-chain-dragging { opacity: 0.4; border-color: #88c0d0; }
+
+.it-chain-handle {
+  color: #4e5560;
+  font-size: 13px;
+  letter-spacing: -1px;
+  user-select: none;
+}
+
+.it-chain-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #d8dee9;
+  cursor: pointer;
+  flex: 1;
+}
+.it-chain-label input[type="checkbox"] {
+  accent-color: #88c0d0;
+  width: 13px; height: 13px;
+  cursor: pointer;
+}
+
+/* ── Fallback scraper badge on a scraped row ── */
+.it-scraper-match-hint {
+  font-size: 11px;
+  color: #7a8590;
+}
+.it-scraper-match-hint strong { color: #88c0d0; font-weight: 600; }
+
+/* ── "Scrape failed, manual fill-in" banner ── */
+.it-manual-fallback-hint {
+  font-size: 11px;
+  color: #b08a4a;
+}
+
+.it-manual-title-input {
+  width: 100%;
+  max-width: 320px;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 3px 8px;
+  font-size: 12px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.it-manual-title-input:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
+.it-manual-title-input::placeholder { color: #4e5560; }
+
+/* ── Blacklist studios ── */
+.it-blacklist-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid #2e3440;
+  margin-top: 4px;
+}
+
+.it-blacklist-label {
+  font-size: 12px;
+  color: #a0a8b0;
+  font-weight: 600;
+}
+
+#it-blacklist-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 4px;
+}
+
+.it-blacklist-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #2a1e1e;
+  border: 1px solid #5a3030;
+  border-radius: 9px;
+  font-size: 11px;
+  color: #c08080;
+}
+
+.it-blacklist-remove {
+  background: none;
+  border: none;
+  color: #7a5050;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.it-blacklist-remove:hover { color: #bf616a; }
+
+.it-blacklist-input-wrap {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+#it-blacklist-input {
+  flex: 1;
+  background: #1e2229;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 4px 10px;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+#it-blacklist-input:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
+#it-blacklist-input::placeholder { color: #4e5560; }
+
+/* Blacklisted studio shown as fallback */
+.it-radio-blacklisted {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.it-chip-blacklisted {
+  opacity: 0.60;
+  border-style: dashed;
+  border-color: #bf616a55;
+}
+.it-bl-badge {
+  font-size: 10px;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+/* Blacklist button on the artist radios */
+.it-blacklist-btn {
+  background: none;
+  border: none;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  opacity: 0.3;
+  line-height: 1;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.it-blacklist-btn:hover { opacity: 0.9; }
+
+/* "None" radio */
+.it-radio-none {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.it-radio-none:has(input:checked) {
+  opacity: 0.85;
+  border-color: #616975;
+  color: #8a9099;
+}
+
+/* ── Performer search ── */
+.it-perf-search-wrap {
+  position: relative;
+}
+
+.it-perf-search-input {
+  width: 100%;
+  background: #1e2229;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 4px 10px;
+  font-size: 12px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.it-perf-search-input:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
+.it-perf-search-input::placeholder { color: #4e5560; }
+
+.it-perf-search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #1a1d23;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  z-index: 100;
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  margin-top: 2px;
+}
+
+.it-perf-result-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #b0bcc8;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.it-perf-result-item:hover { background: #2e4030; color: #a3be8c; }
+.it-perf-create-item { color: #88c0d0; font-style: italic; }
+.it-perf-create-item:hover { background: #2e3f55; color: #b8dde8; }
+
+/* Performer thumbnail shown on hover in the search dropdown — a single
+   reusable element repositioned per-item (see the mouseover handler),
+   not one <img> per result, so 10 results don't all load their image at
+   once just from opening the dropdown. */
+/* position:fixed + appended to document.body (see wireAvatarHoverPreview /
+   the search-dropdown hover handler) instead of position:absolute inside
+   the row - #it-rows has overflow-x:hidden for its own scroll behavior,
+   which was silently clipping this preview whenever it extended past the
+   row's bounds, regardless of the panel's dragged position (confirmed
+   session 2026-09-16: "hover hides inside the window" after moving the
+   panel - actually an overflow clip, not a z-index/drag issue). z-index
+   well above the panel's own (9000, see #it-panel) since it's a sibling
+   of the panel at the body level now, not a descendant. */
+.it-perf-hover-preview {
+  display: none;
+  position: fixed;
+  width: 120px;
+  height: 160px;
+  object-fit: cover;
+  object-position: top;
+  border-radius: 8px;
+  border: 1px solid #3b4252;
+  background: #13151a;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  pointer-events: none;
+  z-index: 9500;
+}
+
+/* Manually added performer chips */
+.it-perfs-added {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.it-perf-added-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 2px;
+  background: #1e3025;
+  border: 1px solid #4a7055;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #a3be8c;
+}
+/* Round avatar, Refract-Cards-style, when the search result carried one -
+   silently absent otherwise (padding above collapses gracefully to a
+   plain text chip in that case). */
+.it-perf-chip-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  /* Performer images are usually full-body portraits - centering the crop
+     (object-fit's default) lands on the torso, not the face. Anchoring to
+     the top edge instead keeps the head in frame at this tiny size. */
+  object-position: top;
+  flex-shrink: 0;
+  background: #13151a;
+}
+
+.it-perf-chip-remove {
+  background: none;
+  border: none;
+  color: #616975;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.it-perf-chip-remove:hover { color: #bf616a; }
+
+/* ── Tag search ── */
+.it-tag-search-wrap {
+  position: relative;
+  margin-top: 6px;
+}
+
+.it-tag-search-input {
+  width: 100%;
+  background: #1e2229;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 4px 10px;
+  font-size: 12px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.it-tag-search-input:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
+.it-tag-search-input::placeholder { color: #4e5560; }
+
+.it-tag-search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #1a1d23;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  z-index: 100;
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  margin-top: 2px;
+}
+
+.it-tag-result-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #b0bcc8;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.it-tag-result-item:hover { background: #2e4030; color: #a3be8c; }
+.it-tag-create-item { color: #88c0d0; font-style: italic; }
+.it-tag-create-item:hover { background: #2e3f55; color: #b8dde8; }
+
+/* Manually added tag chips */
+.it-tags-added {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.it-tag-added-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  background: #1e3025;
+  border: 1px solid #4a7055;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #a3be8c;
+}
+
+.it-tag-chip-remove {
+  background: none;
+  border: none;
+  color: #616975;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.it-tag-chip-remove:hover { color: #bf616a; }
+
+/* ── Studio search ── */
+.it-studio-search-wrap {
+  position: relative;
+  margin-top: 6px;
+}
+
+.it-studio-search-input {
+  width: 100%;
+  background: #1e2229;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  color: #d8dee9;
+  padding: 4px 10px;
+  font-size: 12px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.it-studio-search-input:focus {
+  border-color: #5e81ac;
+  box-shadow: 0 0 0 3px #5e81ac22;
+}
+.it-studio-search-input::placeholder {
+  color: #4e5560;
+}
+
+.it-studio-search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #1a1d23;
+  border: 1px solid #3b4252;
+  border-radius: 8px;
+  z-index: 100;
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  margin-top: 2px;
+}
+
+.it-studio-result-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #b0bcc8;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.it-studio-result-item:hover {
+  background: #2e3f55;
+  color: #88c0d0;
+}
+
+.it-studio-no-result {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #4e5560;
+}
+.it-studio-create-item {
+  color: #88c0d0;
+  font-style: italic;
+  border-top: 1px solid #2e3440;
+}
+.it-studio-create-item:hover { background: #2e3f55; color: #b8dde8; }
+
+.it-studio-selected {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #88c0d0;
+  background: #2e3f55;
+  border: 1px solid #3b5070;
+  border-radius: 9px;
+  padding: 2px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.it-studio-selected:hover {
+  background: #bf616a33;
+  border-color: #bf616a;
+  color: #bf616a;
+}
+
+/* ── Clickable rule34 link ── */
+.it-r34-link {
+  color: #5e81ac;
+  text-decoration: none;
+  font-size: 12px;
+  transition: color 0.15s;
+}
+.it-r34-link:hover { color: #88c0d0; text-decoration: underline; }
+
+/* ── Live studio filter ── */
+.it-filter-radios {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* Segmented control: a recessed rounded track holding the three labels,
+   with a pill that slides to whichever one is checked. .it-filter-group is
+   the positioning context so the indicator's px offsets (set in JS from
+   getBoundingClientRect) are relative to the track only, not the whole
+   .it-filter-radios row which also holds the scraper select. */
+.it-filter-group {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  padding: 2px;
+  background: #0f1115;
+  border: 1px solid #262b35;
+  border-radius: 999px;
+}
+.it-filter-indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: 0;
+  border-radius: 999px;
+  background: #88c0d026;
+  transition: left 0.2s ease, width 0.2s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.it-filter-item {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
+  line-height: 1;
+  color: #8892a0;
+  cursor: pointer;
+  user-select: none;
+  /* margin:0 is load-bearing: these are <label> elements and Stash ships
+     Bootstrap, whose `label { margin-bottom: .5rem }` otherwise adds 8px of
+     phantom margin — the track grows and the text rides high inside it. */
+  margin: 0;
+  padding: 5px 11px;
+  border-radius: 999px;
+  transition: color 0.15s;
+  white-space: nowrap;
+}
+.it-filter-item:hover { color: #d8dee9; }
+/* Text color only — the background is the sliding .it-filter-indicator,
+   not a background painted on the item itself (that would pop instantly
+   instead of sliding). */
+.it-filter-item:has(input:checked) { color: #a5cfe6; }
+/* Radio dots hidden: the sliding pill is the state indicator now. Kept in
+   the DOM (not display:none) so the label still forwards clicks and
+   :has(input:checked) keeps working. */
+.it-filter-item input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0; height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+
+/* "Multi-studio" cumulative toggle: sits outside .it-filter-group (it ANDs
+   with the All/New/Existing radio track rather than joining it, so it
+   can't be a 4th radio segment). Styled as a standalone filled chip that
+   lights up in the same accent as the sliding pill when checked, instead
+   of the segmented control's hidden-radio + shared-background treatment
+   (there's no sibling to slide a shared pill between here). */
+.it-multi-studio-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  line-height: 1;
+  color: #8892a0;
+  background: transparent;
+  border: 1px solid #262b35;
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+}
+.it-multi-studio-toggle:hover { color: #d8dee9; }
+.it-multi-studio-toggle svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.it-multi-studio-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0; height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+.it-multi-studio-toggle:has(input:checked) {
+  color: #a5cfe6;
+  background: #88c0d026;
+  border-color: #88c0d040;
+}
+
+/* .it-combo-btn covers the visual language; this just caps the width so a
+   long scraper name doesn't push the All/New/Existing segmented control
+   next to it out of the header. */
+.it-scraper-filter-btn {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Compact mode button (titlebar) ── */
+#it-titlebar-compact {
+  background: none; border: none;
+  border-radius: 6px;
+  color: #616975; font-size: 17px;
+  cursor: pointer; padding: 3px 7px;
+  line-height: 1; transition: color 0.15s, background 0.15s;
+}
+#it-titlebar-compact:hover { color: #88c0d0; background: #88c0d01e; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMPACT MODE — floating panel, visually modeled on imageTagger.css
+   (its default state), active only when #it-panel carries the
+   .it-compact class (titlebar toggle button). The wide mode above (base
+   #it-panel rule, no variant) remains the EXACT default behavior,
+   strictly unchanged — this is the required non-regression guarantee.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+#it-panel.it-compact {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  left: auto;
+  width: 380px;
+  border-top: 1px solid #3b4252;
+  border-radius: 7px;
+  font-size: 13px;
+  box-shadow: 0 6px 32px rgba(0,0,0,0.55);
+  min-width: 280px;
+  max-width: 90vw;
+  height: auto;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  resize: both;
+  overflow: hidden;
+}
+
+#it-panel.it-compact #it-titlebar { padding: 7px 12px; border-radius: 7px 7px 0 0; }
+#it-panel.it-compact #it-titlebar-drag { font-size: 12px; }
+
+#it-panel.it-compact #it-settings-panel { flex-shrink: unset; }
+
+#it-panel.it-compact #it-panel-header { padding: 9px 14px; border-radius: 0; }
+#it-panel.it-compact .it-combo-btn,
+#it-panel.it-compact #it-scraper-select { padding: 3px 7px; font-size: 12px; }
+#it-panel.it-compact .it-combo-option { padding: 4px 8px; font-size: 12px; }
+#it-panel.it-compact .it-btn { padding: 4px 11px; font-size: 12px; border-radius: 4px; }
+
+#it-panel.it-compact #it-status-bar { padding: 5px 14px; font-size: 11px; }
+
+#it-panel.it-compact #it-rows {
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+#it-panel.it-compact .it-row-top {
+  grid-template-columns: 60px 1fr auto;
+  gap: 9px;
+  padding: 8px 12px;
+}
+#it-panel.it-compact .it-thumb-clip { width: 60px; height: 60px; border-radius: 3px; }
+#it-panel.it-compact .it-thumb { border-radius: 2px; }
+#it-panel.it-compact .it-filename { font-size: 11px; }
+#it-panel.it-compact .it-hint { font-size: 10px; }
+#it-panel.it-compact .it-spinner { width: 14px; height: 14px; }
+#it-panel.it-compact .it-done-icon { width: 22px; height: 22px; font-size: 11px; }
+
+#it-panel.it-compact .it-inline-results {
+  padding: 0 12px 10px 81px; /* aligned with .it-row-info (60px thumb + 9px gap + 12px padding) */
+  gap: 5px;
+}
+#it-panel.it-compact .it-title-search {
+  padding: 0 12px 10px 81px;
+  gap: 6px;
+}
+#it-panel.it-compact .it-inline-field { gap: 8px; }
+#it-panel.it-compact .it-inline-tags,
+#it-panel.it-compact .it-inline-performers,
+#it-panel.it-compact .it-inline-artists,
+#it-panel.it-compact .it-inline-urls { gap: 4px; }
+#it-panel.it-compact .it-inline-label {
+  font-size: 10px;
+  min-width: 72px;
+  gap: 5px;
+}
+#it-panel.it-compact .it-inline-label input[type="checkbox"] { width: 12px; height: 12px; }
+#it-panel.it-compact .it-label-static { font-size: 10px; min-width: 72px; }
+
+#it-panel.it-compact .it-chip {
+  padding: 2px 7px;
+  border-radius: 9px;
+  font-size: 10px;
+  max-width: 160px;
+}
+#it-panel.it-compact .it-chip-details { max-width: 200px; }
+
+#it-panel.it-compact .it-tags-grid,
+#it-panel.it-compact .it-perfs-grid { gap: 4px; margin-top: 2px; }
+#it-panel.it-compact .it-tag-item,
+#it-panel.it-compact .it-perf-item,
+#it-panel.it-compact .it-radio-item {
+  padding: 2px 7px;
+  border-radius: 9px;
+  font-size: 10px;
+  gap: 4px;
+}
+#it-panel.it-compact .it-tag-item input[type="checkbox"],
+#it-panel.it-compact .it-perf-item input[type="checkbox"],
+#it-panel.it-compact .it-radio-item input[type="radio"] { width: 10px; height: 10px; }
+
+#it-panel.it-compact .it-radio-group { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+#it-panel.it-compact .it-inline-actions { gap: 6px; margin-top: 4px; }
+
+#it-panel.it-compact #it-panel-footer {
+  padding: 7px 14px;
+  border-radius: 0 0 6px 6px;
+  position: relative;
+}
+#it-panel.it-compact #it-page-info { font-size: 11px; }
+
+#it-panel.it-compact .it-perf-search-input,
+#it-panel.it-compact .it-studio-search-input,
+#it-panel.it-compact .it-tag-search-input {
+  padding: 3px 7px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+#it-panel.it-compact .it-perf-search-results,
+#it-panel.it-compact .it-studio-search-results,
+#it-panel.it-compact .it-tag-search-results {
+  border-radius: 4px;
+  max-height: 140px;
+}
+#it-panel.it-compact .it-perf-result-item,
+#it-panel.it-compact .it-studio-result-item,
+#it-panel.it-compact .it-tag-result-item { padding: 5px 9px; font-size: 11px; }
+
+/* Custom resize hidden in compact mode: native CSS resize:horizontal
+   (rule #it-panel.it-compact above) takes over, same as imageTagger in
+   compact mode (its default state). */
+#it-panel.it-compact #it-resize-handle { display: none !important; }
+
+/* Solo panel studio card: logo on the left (round when the image is roughly
+   square, rounded corners when elongated), optional Twitter banner as a cover
+   with the logo overlapping its bottom-left corner */
+.it-studio-card { display: flex; flex-direction: column; }
+.it-studio-cover { display: block; height: 96px; border-radius: 10px; overflow: hidden; background: #1b2028; }
+.it-studio-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.it-studio-idrow { display: flex; align-items: center; gap: 14px; padding: 4px 4px 4px 14px; }
+.it-studio-idrow.it-has-cover { align-items: flex-start; }
+.it-has-cover .it-slogo { margin-top: -30px; }
+.it-slogo { flex: none; height: 60px; overflow: hidden; background: transparent; display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
+.it-has-cover .it-slogo { border: 3px solid #1c1f27; background: #1c1f27; }
+.it-slogo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.it-slogo.it-slogo-round { width: 60px; border-radius: 50%; }
+.it-slogo.it-slogo-round img { object-fit: cover; }
+.it-slogo.it-slogo-wide { width: auto; max-width: 150px; border-radius: 10px; }
+.it-slogo.it-slogo-wide img { width: auto; max-width: 100%; }
+/* Logo with no background: no frame, a shadow follows the logo's own shape.
+   The shadow sits on the box (the link/img inside have filter: none !important). */
+#it-panel .it-slogo.it-slogo-transparent {
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  overflow: visible;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
+#it-panel .it-slogo.it-slogo-transparent img { object-fit: contain; }
+.it-slogo.it-slogo-empty { width: 60px; border-radius: 50%; background: #1b2028; color: #2e3440; }
+.it-slogo.it-slogo-empty svg { width: 24px; height: 24px; }
+.it-studio-info { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; padding-bottom: 4px; }
+.it-has-cover .it-studio-info { padding: 8px 0 4px; }
+
+/* Mass list: card stacked vertically so the studio name and search box line
+   up with the other fields (logo alone on top, everything else below it) */
+.it-card-stacked .it-studio-idrow { flex-direction: column; align-items: flex-start; gap: 6px; padding: 0; }
+.it-card-stacked .it-studio-idrow.it-has-cover .it-slogo { margin-left: 14px; }
+.it-card-stacked .it-studio-info,
+.it-card-stacked .it-has-cover .it-studio-info { padding: 2px 0 0; }
+
+/* Logo wrapped in a link to the studio page */
+.it-slogo a { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+/* No hover effect on the studio logo link: no opacity change, and the
+   theme's global link/image hover effects (transition, filter, shine
+   pseudo-elements) are neutralized - they made the logo flicker. */
+#it-panel .it-slogo a,
+#it-panel .it-slogo a:hover,
+#it-panel .it-slogo a img,
+#it-panel .it-slogo a:hover img {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: none !important;
+  transition: none !important;
+  animation: none !important;
+  box-shadow: none !important;
+}
+#it-panel .it-slogo a::before,
+#it-panel .it-slogo a::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* Caption/checkbox row above the cover, left-aligned with the fields */
+.it-studio-caption { padding: 0 0 6px; }
+
+/* Mass list header: file name and rule34 link as badges next to the
+   thumbnail, and the fields below start at the thumbnail's left edge
+   (instead of being indented past the thumbnail column). Not applied to the
+   solo panel or compact mode. */
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-results,
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-title-search {
+  padding-left: 16px;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-row-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-filename {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: #2b3441;
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: #a3adb8;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-filename:hover {
+  color: #a3adb8;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-hint {
+  margin: 0;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-r34-link {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: rgba(136, 192, 208, 0.14);
+  color: #88c0d0;
+  text-decoration: none;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-r34-link:hover {
+  background: rgba(136, 192, 208, 0.24);
+  text-decoration: none;
+}
+
+/* Mass list: title badge aligned with the top of the thumbnail, "found via"
+   as a blue badge right below it */
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-row-top {
+  align-items: start;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-filename {
+  cursor: default;
+}
+.it-found-via span {
+  display: inline-block;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: rgba(63, 126, 163, 0.25);
+  border: 1px solid rgba(63, 126, 163, 0.5);
+  color: #8fc2e0;
+  font-size: 12px;
+}
+.it-found-via strong { font-weight: 600; color: #b5dcf0; }
+
+/* Hover card for multi-studio candidates (banner + logo) */
+.it-studio-hover {
+  position: fixed;
+  z-index: 2147483000;
+  width: 520px;
+  background: #1f252d;
+  border: 1px solid #2e3440;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+.it-sh-cover { height: 132px; background: #1b2028; }
+.it-sh-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.it-sh-row { display: flex; align-items: center; gap: 20px; padding: 20px 24px; }
+.it-sh-row.it-sh-overlap { align-items: flex-end; padding-top: 0; padding-bottom: 20px; }
+.it-sh-row.it-sh-overlap .it-slogo { margin-top: -48px; border: 6px solid #1c1f27; background: #1c1f27; }
+.it-studio-hover .it-slogo { height: 96px; }
+.it-studio-hover .it-slogo.it-slogo-round { width: 96px; }
+.it-sh-text { min-width: 0; padding-bottom: 4px; }
+.it-sh-name { color: #e6edf3; font-weight: 600; font-size: 26px; }
+
+/* Mass list: the Cover preview stops at the thumbnail's right edge.
+   Thumbnail = 160px wide from the row padding; the preview starts after the
+   82px label column + 10px gap, so it gets 160 - 82 - 10 = 68px. */
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-cover-preview {
+  width: 68px;
+}
+
+/* ── Cover layout B (mass list) ──
+   - Title: the badge starts on the same vertical line as the file name badge
+     (thumbnail 160px + 14px gap = 174px; minus the 10px field gap = 164px label).
+   - Cover: unchanged, still ends at the thumbnail's right edge (68px rule above).
+   - From Studio on, every field (and the Apply/Skip row) goes back to the right
+     of the thumbnail, on that same 174px line. */
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-field:has([data-cb="title"]) .it-inline-label {
+  min-width: 164px;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-artists,
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-artists ~ * {
+  margin-left: 174px;
+}
+
+/* ── Cover layout A (mass list, default; on top of B) ──
+   Cover joins Title on the same vertical line as the file name badge: same
+   164px label column, and the preview gets its normal size back (the 68px cap
+   above only existed to stop it overshooting the thumbnail's right edge).
+   Turned off by body.it-cover-under-thumb (setting "Cover under the thumbnail"),
+   which leaves layout B above in charge. */
+body:not(.it-cover-under-thumb) #it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-field:has([data-cb="cover"]) .it-inline-label {
+  min-width: 164px;
+}
+body:not(.it-cover-under-thumb) #it-panel:not(.it-panel-solo):not(.it-compact) .it-cover-preview {
+  width: auto;
+}
+
+/* Mass list: full Details editor (setting "Full Details editor in the mass list") */
+#it-panel:not(.it-panel-solo) .it-inline-details .it-details-wrap {
+  max-width: none;
+  flex: none;
+  width: var(--it-col-w, auto);
+}
+/* Same width as the Apply/Skip/Organized row (set from JS): when the scene
+   already has different details, stack the two blocks instead of side by side
+   so each one keeps that full width. */
+#it-panel:not(.it-panel-solo) .it-inline-details .it-details-wrap.it-details-split {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* No resize grip (the little dashes in the bottom-right corner) on the
+   Details editor - mass list and Scrape scene */
+.it-details-edit,
+#it-panel.it-panel-solo .it-details-edit {
+  resize: none;
+}
+
+/* Auto-growing Details editor: no inner scrollbar while it resizes */
+.it-details-edit,
+#it-panel.it-panel-solo .it-details-edit {
+  overflow-y: hidden;
+}
+
+/* Mass list: URLs go before Details (flex order), and the URL is cut with an
+   ellipsis at the width of the Apply/Skip/Organized row, with a copy button.
+   Selecting/copying works from the button (the link itself opens the page). */
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-details,
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-details-chip {
+  order: 1;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-actions {
+  order: 2;
+}
+.it-url-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #203040;
+  border-radius: 999px;
+  padding: 2px 4px 2px 12px;
+  box-sizing: border-box;
+  max-width: 100%;
+  width: var(--it-col-w, auto);
+}
+.it-url-item .it-chip-url {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  padding: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+  display: block;
+}
+.it-url-copy {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #6090b0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.it-url-copy:hover { background: #2c4258; color: #a9d2ea; }
+.it-url-copy.it-url-copy-ok { background: #3d6b3d; color: #dbeedb; }
+
+/* Mass list: existing / new split (setting "Split existing / new..."):
+   everything stacked, with extra air between the fields. */
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-split-list .it-split-cols.it-split-stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+body.it-split-existing-new #it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-results {
+  gap: 16px;
+}
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-split-list {
+  gap: 8px;
+}
+
+/* Settings: the Scrapers disclosure sits flush left (top of its group) */
+.it-disclosure-flush { margin-left: 0; }
+
+/* Split existing / new, side by side (sub-option): the stacked columns become
+   two columns, the "new" one wider (it holds most of the items). */
+body.it-split-side #it-panel:not(.it-panel-solo):not(.it-compact) .it-split-list .it-split-cols.it-split-stack {
+  grid-template-columns: minmax(180px, var(--it-split-l, 1fr)) minmax(0, var(--it-split-r, 1.7fr));
+  gap: 14px;
+}
+
+/* Mass list: more air above Performers and Tags, so the performer search box
+   and the Tags label are no longer stuck together (with or without the split) */
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-performers,
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-tags {
+  margin-top: 10px;
+}
+
+/* Side by side: give Performers and Tags the same width so both "New from
+   scrape" columns start on the same vertical line. The fields shrink to their
+   content otherwise (align-items:flex-start on a column flex), and each
+   ended up with a different width, hence a different column split. */
+body.it-split-side #it-panel:not(.it-panel-solo):not(.it-compact) .it-split-list .it-split-cols.it-split-stack {
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+/* Settings panel: draggable bar at its bottom edge (sticky, so it stays
+   visible while the settings scroll) to resize the panel by hand. */
+#it-settings-resize {
+  position: sticky;
+  bottom: -12px;
+  height: 14px;
+  margin: 4px -18px -12px;
+  cursor: row-resize;
+  background: rgba(20, 22, 28, 0.92);
+  border-top: 1px solid #2e3440;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#it-settings-resize::after {
+  content: "";
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: #3b4252;
+}
+#it-settings-resize:hover::after { background: #5e81ac; }
+
+/* Split view: the performer / tag search boxes are only as long as their
+   placeholder text, not as wide as the column they sit in */
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-split-list .it-perf-search-wrap,
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-split-list .it-tag-search-wrap {
+  width: 250px;
+  max-width: 100%;
+}
+
+/* Split view: same gap above the performer search box as above the tag one
+   (.it-tag-search-wrap has 6px of its own, the performer one had none) */
+#it-panel:not(.it-panel-solo):not(.it-compact) .it-split-list .it-perf-search-wrap {
+  margin-top: 6px;
+}
+
+/* Mass list: banner + logo of the studio picked through the search box */
+.it-studio-picked {
+  width: 280px;
+  max-width: 100%;
+  margin: 8px 0 6px;
+}
+
+/* Side by side view: the "Already on this scene" performers run horizontally
+   and wrap at the column's edge (they were one per row, which made the field
+   very tall for scenes with many performers). */
+body.it-split-side #it-panel:not(.it-panel-solo):not(.it-compact) .it-split-list .it-existing-pills-perf {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ── Drag & drop a cover image ──
+   Solo: while an image is dragged over the window, every cover tile gets a
+   dimmed dashed overlay; only the tile under the cursor (.it-hot) shows the
+   "Drop an image" label. Mass list: the row thumbnail shows the same label
+   (.it-dropover). Dropped image = extra "Dropped image" tile / pending cover. */
+#it-panel.it-panel-solo .it-cover-option { position: relative; }
+.it-tile-ov {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  box-sizing: border-box;
+  border-radius: 9px;
+  border: 2px dashed #4a6070;
+  background: #0f1115b3;
+  color: #88c0d0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.it-tile-ov-lbl {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.it-tile-ov-lbl small {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #9fb3c4;
+}
+.it-tile-ov svg { width: 28px; height: 28px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+#it-panel.it-dragging .it-tile-ov { display: flex; }
+.it-tile-ov.it-hot {
+  border-color: #88c0d0;
+  background: #0f1115d9;
+  box-shadow: 0 0 0 3px #88c0d033;
+}
+.it-tile-ov.it-hot .it-tile-ov-lbl { display: flex; }
+
+#it-panel.it-panel-solo .it-cover-caption.it-dropped { color: #b48ead; }
+.it-cover-rm {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #000a;
+  color: #eceff4;
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  cursor: pointer;
+}
+.it-cover-rm:hover { background: #bf616a; }
+#it-panel.it-panel-solo .it-cover-custom-wrap .it-cover-rm { right: 50%; margin-right: -104px; }
+.it-cover-rm-inline { position: static; align-self: center; flex-shrink: 0; }
+
+/* Mass list: thumbnail as drop target */
+#it-panel.it-dragging:not(.it-panel-solo) .it-thumb-clip { outline: 2px dashed #4a6070; outline-offset: -2px; }
+.it-thumb-clip.it-dropover::after {
+  content: "Drop an image";
+  position: absolute;
+  inset: 0;
+  background: #0f1115d9;
+  border: 2px dashed #88c0d0;
+  border-radius: 8px;
+  color: #88c0d0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+
+/* ── Mobile (phone) layout, session 2026-10-15 ──
+   Fullscreen panel, single-column rows, bigger touch targets. !important is
+   needed to beat the inline top/left/width/height the desktop drag/resize
+   JS writes onto #it-panel. Desktop is untouched (rules live only in this
+   media query). */
+/* Tablet + phone: fullscreen panel (same page-wide treatment as on phones).
+   Also on any touch-first device whatever its width, so an iPad held in
+   landscape (wider than 1100px) doesn't fall back to the floating window.
+   The single-column row layout below stays phone-only (<=768px). */
+@media (max-width: 1100px), (pointer: coarse) {
+  #it-panel,
+  #it-panel.it-panel-solo {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    min-width: 0 !important;
+    border-radius: 0 !important;
+    border: none;
+  }
+  #it-titlebar { border-radius: 0; padding: 12px 14px; }
+  #it-resize-handle { display: none !important; }
+  /* Base rule caps #it-rows at 100vh minus a 130px top offset + headers,
+     which leaves a gap under the footer once the panel is fullscreen. */
+  #it-rows { max-height: none; }
+  #it-panel-footer { border-radius: 0; }
+}
+
+@media (max-width: 768px) {
+
+  #it-panel-header { padding: 10px 12px; gap: 8px; }
+  /* Header on phones: Auto/Manual keeps its natural spot (right after
+     Clear) while it fits on the first row; only when the row is too narrow
+     for it does it drop underneath the filter group (container query on the
+     header's own width, not the viewport). The filter group always takes
+     its own full row. */
+  #it-panel-header { container-type: inline-size; }
+  .it-filter-radios { order: 1; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; margin-left: 0; }
+  @container (max-width: 410px) {
+    #it-btn-scraper-mode, #it-scraper-select-manual { order: 2; }
+  }
+  /* Even narrower: Clear wraps too, so it joins Auto on the last row
+     (same order -> DOM order kept, Clear then Auto) instead of sitting
+     alone on its own line above the filters. */
+  @container (max-width: 340px) {
+    #it-btn-clear { order: 2; }
+  }
+  #it-status-bar { padding: 6px 12px; flex-wrap: wrap; }
+  .it-btn { min-height: 40px; padding: 8px 14px; }
+  .it-combo-btn { min-height: 40px; }
+  .it-combo-option { padding: 10px 12px; }
+
+  .it-row-top,
+  #it-panel.it-panel-solo .it-row-top {
+    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 14px 12px;
+    gap: 10px;
+  }
+  .it-thumb-clip,
+  #it-panel.it-panel-solo .it-thumb-clip {
+    width: 100%;
+    max-width: 320px;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  /* Beats the mass-list "align-items: start" rule (id + two :not()). */
+  #it-panel:not(.it-panel-solo):not(.it-compact) .it-row-top { align-items: center; }
+  #it-panel .it-row-info,
+  #it-panel:not(.it-panel-solo):not(.it-compact) .it-row-info { width: 100%; align-items: center; }
+  #it-panel .it-hint { text-align: center; }
+  #it-panel .it-row-btn {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+  }
+  .it-row-btn .it-btn { width: auto; min-width: 108px; }
+  #it-panel .it-manual-url-wrap,
+  #it-panel.it-panel-solo .it-manual-url-wrap { max-width: 320px; width: 100%; align-self: center; margin-left: auto; margin-right: auto; }
+
+  .it-inline-results,
+  .it-title-search,
+  #it-panel.it-panel-solo .it-inline-results,
+  #it-panel.it-panel-solo .it-title-search {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .it-inline-field:not(.it-inline-tags):not(.it-inline-performers):not(.it-inline-artists):not(.it-inline-urls):not(.it-inline-details):not(.it-inline-date):not(.it-inline-cover) {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .it-inline-label { min-width: 0; }
+  #it-panel input[type="text"],
+  #it-panel input[type="search"],
+  #it-panel input:not([type]),
+  #it-panel textarea,
+  #it-panel select {
+    font-size: 16px; /* stops iOS from zooming on focus */
+    min-height: 40px;
+    max-width: 100%;
+  }
+  #it-panel-footer { padding-left: 12px; padding-right: 12px; flex-wrap: wrap; }
+}
+
+
+/* Touch screens (tablets and phones, any width): bigger tap targets.
+   Gated on the pointer type, not the width, so a mouse on a small desktop
+   window keeps the compact look. */
+@media (pointer: coarse) {
+  .it-btn { min-height: 40px; }
+  .it-combo-btn { min-height: 40px; }
+  .it-manual-url-input { min-height: 38px; font-size: 14px; padding: 6px 10px; }
+  .it-manual-url-wrap { max-width: 420px; }
+  .it-combo-option { padding: 10px 12px; }
+  /* The sliding indicator's top/bottom are fixed offsets and its left/width
+     are measured from the item boxes, so growing the items is safe. */
+  .it-filter-item { padding: 10px 14px; font-size: 13px; }
+  .it-multi-studio-toggle { padding: 10px 14px; font-size: 13px; }
+}
+
+/* Tablet-sized touch screens (just above the phone breakpoint): keep the
+   whole header (actions + filters) on one line by tightening paddings and
+   gaps. The threshold is 769px, not 900px: a real iPad Pro 13 in Safari
+   reported a layout viewport of ~836 CSS px (measured from a screenshot,
+   session 2026-10-15), so a 900px gate never matched there. */
+@media (pointer: coarse) and (min-width: 769px) {
+  #it-panel-header { flex-wrap: nowrap; gap: 8px; padding-left: 14px; padding-right: 14px; }
+  #it-panel-header .it-btn { min-height: 40px; padding: 8px 14px; }
+  #it-panel-header .it-combo-btn { min-height: 40px; padding: 8px 12px; }
+  #it-panel-header .it-filter-item { padding: 10px 13px; }
+  #it-panel-header .it-multi-studio-toggle { padding: 10px 14px; margin-left: 0; }
+  #it-panel-header .it-filter-radios { gap: 8px; }
+}
+
+/* Phones (touch, <=768px): header controls a bit smaller than on tablets so
+   they fit the narrow width. Scoped to the header so the per-row Scrape /
+   Search title buttons keep their full tap size. */
+@media (pointer: coarse) and (max-width: 768px) {
+  #it-panel-header { gap: 6px; }
+  #it-panel-header .it-btn { min-height: 37px; padding: 6px 12px; font-size: 12.5px; }
+  #it-panel-header .it-combo-btn { min-height: 37px; padding: 6px 10px; font-size: 12.5px; }
+  #it-panel-header .it-filter-item { padding: 8px 10px; font-size: 12.5px; }
+  #it-panel-header .it-multi-studio-toggle { padding: 8px 11px; font-size: 12.5px; margin-left: 0; }
+  #it-panel-header .it-multi-studio-toggle svg { width: 13px; height: 13px; }
+}
+
+
+/* Setting "Fullscreen panel on desktop": same rules as the tablet/phone
+   block above, gated on a class instead of a media query. */
+  #it-panel.it-fullscreen,
+  #it-panel.it-fullscreen.it-panel-solo {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    min-width: 0 !important;
+    border-radius: 0 !important;
+    border: none;
+  }
+  #it-panel.it-fullscreen #it-titlebar { border-radius: 0; padding: 12px 14px; }
+  #it-panel.it-fullscreen #it-resize-handle { display: none !important; }
+  /* Base rule caps #it-rows at 100vh minus a 130px top offset + headers,
+     which leaves a gap under the footer once the panel is fullscreen. */
+  #it-panel.it-fullscreen #it-rows { max-height: none; }
+  #it-panel.it-fullscreen #it-panel-footer { border-radius: 0; }
+
+
+/* Fullscreen on a wide window (the "Fullscreen panel on desktop" setting):
+   the mass-list rows get larger elements to use the extra room. Mass list
+   only (solo and compact keep their own layouts), and >768px so the phone
+   single-column layout is untouched. */
+@media (min-width: 769px) {
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-row-top {
+    grid-template-columns: 240px 1fr auto;
+    gap: 20px;
+    padding: 14px 22px;
+  }
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-thumb-clip {
+    width: 240px;
+    height: 135px;
+    border-radius: 10px;
+  }
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-filename {
+    font-size: 14px;
+    padding: 5px 14px;
+  }
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-r34-link,
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-found-via span {
+    font-size: 13px;
+    padding: 4px 14px;
+  }
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-manual-url-wrap { max-width: 460px; }
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-manual-url-input {
+    font-size: 14px;
+    padding: 8px 12px;
+    min-height: 38px;
+  }
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-row-btn .it-btn {
+    width: 136px;
+    min-height: 40px;
+    font-size: 14px;
+  }
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-inline-results,
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-title-search {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+  #it-panel.it-fullscreen:not(.it-panel-solo):not(.it-compact) .it-inline-label { font-size: 13px; }
+
+}
+
+
+/* "NSFW mode" header button: blurs every image/video in the panel plus the
+   floating hover previews (those live on <body>, hence the body class).
+   clip-path keeps the blur from bleeding outside each element's box. */
+#it-btn-nsfw.it-btn-nsfw-on {
+  border-color: #88c0d0;
+  color: #a5cfe6;
+  background: #88c0d01a;
+}
+body.it-nsfw-on #it-panel img,
+body.it-nsfw-on #it-panel video,
+body.it-nsfw-on .it-perf-hover-preview,
+body.it-nsfw-on .it-studio-hover img {
+  filter: blur(14px);
+  clip-path: inset(0 round 8px);
+}
+
+/* Studio banners stay sharp in SFW mode (logos/avatars/thumbnails blur). */
+body.it-nsfw-on #it-panel .it-studio-cover img,
+body.it-nsfw-on .it-studio-hover .it-sh-cover img {
+  filter: none;
+  clip-path: none;
+}
+
+
+/* ── Banner layout (setting "Banner layout") ──
+   Mass list, scraped rows only (rows that carry .it-inline-results), wide
+   windows only: the details go to the right of the video (260px column, file
+   title under the thumbnail), and the studio becomes a banner header on top
+   of the details column (banner strip, square logo overlapping it, big name,
+   search box on the right). No banner -> compact header without the strip.
+   "None" candidate / no studio -> just the search box. */
+@media (min-width: 769px) {
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    column-gap: 24px;
+    align-items: start;
+    padding: 14px 22px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-row-top {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 0;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) .it-thumb-clip {
+    width: 260px;
+    height: 146px;
+    border-radius: 10px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) .it-row-info { width: 100%; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) .it-filename {
+    display: inline-block;
+    max-width: 100%;
+    white-space: normal;
+    overflow: visible;
+    line-height: 1.35;
+    border-radius: 12px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-inline-results,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-title-search {
+    grid-column: 2;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-inline-results { padding-top: 0; }
+
+  /* Undo the old "everything lines up under the thumbnail" offsets */
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-field:has([data-cb="title"]) .it-inline-label,
+  body:not(.it-cover-under-thumb) #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-field:has([data-cb="cover"]) .it-inline-label {
+    min-width: 82px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-artists,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-artists ~ * { margin-left: 0; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-preview,
+  body:not(.it-cover-under-thumb) #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-preview {
+    width: auto;
+    max-height: 72px;
+  }
+
+  /* Studio field first, as the banner header */
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-results { display: flex; flex-direction: column; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-artists {
+    order: -1;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists > .it-inline-label,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists > .it-label-static { min-width: 0; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-card { width: 100%; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-cover {
+    height: 92px;
+    width: 100%;
+    border-radius: 14px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-idrow {
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    padding: 2px 16px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-idrow.it-has-cover { align-items: flex-start; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-idrow.it-has-cover .it-slogo {
+    margin-top: -30px;
+    margin-left: 0;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-slogo.it-slogo-round,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-slogo.it-slogo-wide,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-slogo.it-slogo-empty {
+    width: 64px;
+    height: 64px;
+    max-width: none;
+    border-radius: 16px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-has-cover .it-slogo.it-slogo-round,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-has-cover .it-slogo.it-slogo-wide,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-has-cover .it-slogo.it-slogo-empty {
+    width: 76px;
+    height: 76px;
+  }
+  /* A wide logo is shown whole: the box grows in width (same height) and the image is
+     contained, never cropped. Only round logos are cropped to fill their circle/square. */
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-slogo.it-slogo-wide {
+    width: auto;
+    min-width: 64px;
+    max-width: 220px;
+    border-radius: 12px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-has-cover .it-slogo.it-slogo-wide { min-width: 76px; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-slogo.it-slogo-wide img { width: auto; max-width: 100%; height: 100%; object-fit: contain; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-slogo:not(.it-slogo-wide) img { object-fit: cover; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-bl-initial { font-size: 26px; font-weight: 600; color: #9fb0d0; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-slogo.it-slogo-empty { background: #34405a; color: #9fb0d0; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-info {
+    flex: 1;
+    min-width: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0 4px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-idrow:not(.it-has-cover) .it-studio-info { padding: 0; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-chip-studio {
+    background: none;
+    color: #eceff4;
+    font-size: 1.3rem;
+    font-weight: 600;
+    padding: 0;
+    border-radius: 0;
+    max-width: none;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-search-wrap {
+    margin: 0 0 0 auto;
+    width: 260px;
+    max-width: 100%;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-picked { width: 260px; }
+
+  /* Several candidates: pills under the header */
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-radio-group {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 20px;
+  }
+  /* None candidate / no studio: only the search box */
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-card.it-bl-empty .it-studio-cover,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-card.it-bl-empty .it-slogo,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-card.it-bl-empty .it-bl-name { display: none; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-card.it-bl-empty .it-studio-idrow { padding: 0; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-card.it-bl-empty .it-studio-search-wrap { margin-left: 0; }
+}
+
+/* Banner layout: a manually picked studio sits next to the header card */
+@media (min-width: 769px) {
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-artists.it-bl-has-picked {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 16px;
+    row-gap: 6px;
+    align-items: start;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists.it-bl-has-picked > .it-inline-label,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists.it-bl-has-picked > .it-label-static {
+    grid-column: 1 / -1;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-picked { min-width: 0; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-picked .it-studio-caption { padding: 0 0 6px; }
+}
+
+/* Banner layout alignment fixes (session 2026-10-15):
+   - both cards' names sit at the same height, at the top of the info block
+     (it used to be centred on a tall stack: search box + picked chip, which
+     pushed the name far below the banner);
+   - the "Manually added" caption floats over the corner of the second card
+     instead of pushing it lower than the first one. */
+@media (min-width: 769px) {
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-info {
+    align-items: flex-start;
+    align-content: flex-start;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-chip-studio {
+    padding: 4px 0 0;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-search-wrap { margin-top: 2px; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-picked { position: relative; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-picked .it-studio-caption {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    padding: 0;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-picked .it-existing-caption {
+    background: rgba(0, 0, 0, 0.55);
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+}
+
+/* Banner layout: the studio search box moves to its own row under the
+   header, aligned with the detail values (82px label column + 10px gap).
+   .it-studio-info is flattened (display: contents) so the name and the search
+   wrap become flex items of the id row; the wrap takes the second row. */
+@media (min-width: 769px) {
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-idrow {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-info { display: contents; }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-chip-studio {
+    flex: 1 1 0;
+    min-width: 0;
+    align-self: flex-start;
+    padding: 12px 0 0;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-idrow:not(.it-has-cover) .it-chip-studio {
+    align-self: center;
+    padding: 0;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-search-wrap {
+    order: 3;
+    flex: 0 0 calc(100% - 76px);
+    margin: 6px 0 4px 76px;
+    width: auto;
+    max-width: none;
+  }
+  /* The wrap is full width only to force its own row; the box itself stays
+     260px wide like the other detail inputs. */
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-search-input,
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-search-results {
+    max-width: 260px;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-card.it-bl-empty .it-studio-search-wrap { margin-left: 92px; }
+}
+
+/* ── Cover card under the video (setting "Cover card under the video") ──
+   Needs Banner layout. Cover rules copied from the single-scene panel with a
+   mass-list prefix; the card sits in the left column (260px) under the title. */
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-cover {
+  background: #20262f;
+  border: 1px solid #2c3542;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-cover .it-inline-label {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #e4e7eb;
+  text-transform: none;
+  letter-spacing: normal;
+  margin-bottom: 13px;
+  min-width: 0;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-section-icon { display: flex; }
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-cover {
+  align-items: stretch;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-options {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-option img {
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 9px;
+  border: 2px solid #2c3542;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-option:hover img {
+  border-color: #4a6070;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-option.it-cover-selected img {
+  border-color: #5e81ac;
+  box-shadow: 0 0 0 3px #5e81ac33;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-caption {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5c6773;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-caption.it-new { color: #d0a868; }
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-option.it-cover-selected .it-cover-caption {
+  color: #88c0d0;
+}
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-empty {
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  border: 2px dashed #2c3542;
+}
+
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-cover-option { position: relative; }
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row-info .it-inline-cover { margin: 8px 0 0; width: 100%; box-sizing: border-box; padding: 12px; }
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row-info .it-inline-cover .it-cover-options { flex-direction: column; align-items: center; gap: 12px; }
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row-info .it-inline-cover .it-cover-option img,
+#it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row-info .it-inline-cover .it-cover-empty { width: 100%; max-width: 220px; }
+
+/* Cover card mode: video (thumbnail + title) and Cover share ONE card in the
+   left column - the row-top block becomes the card, the Cover section inside
+   it loses its own box and is just separated by a thin line. */
+@media (min-width: 769px) {
+  #it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-row-top {
+    background: #20262f;
+    border: 1px solid #2c3542;
+    border-radius: 10px;
+    padding: 12px;
+    box-sizing: border-box;
+    width: 260px;
+    gap: 10px;
+  }
+  #it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) .it-thumb-clip {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  #it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row-info .it-inline-cover {
+    background: none;
+    border: none;
+    border-top: 1px solid #2c3542;
+    border-radius: 0;
+    margin: 4px 0 0;
+    padding: 12px 0 0;
+  }
+}
+
+/* ── Details in one card (setting "Details in one card", needs Banner layout) ──
+   The detail fields are wrapped in .it-onecard by renderRow: one card with the
+   single-scene panel's colours, sections separated by a thin line (stacked), or
+   in two columns with .it-one-card-cols. The studio search box lines up with
+   the card's inner edge. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard {
+    background: #20262f;
+    border: 1px solid #2c3542;
+    border-radius: 10px;
+    padding: 4px 18px;
+    margin-top: 4px;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field {
+    padding: 10px 0;
+    margin: 0;
+    border-top: 1px solid #2c3542;
+    background: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field:first-child { border-top: none; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-label { font-weight: 650; color: #e4e7eb; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-search-wrap { margin-left: 2px; max-width: calc(100% - 2px); flex-basis: calc(100% - 2px); }
+}
+@media (min-width: 769px) {
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0 18px;
+  }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field {
+    grid-column: 1 / -1;
+    order: 7;
+    min-width: 0;
+  }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field:has([data-cb="title"]) { grid-column: 1; order: 1; border-top: none; padding-right: 18px; }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field:has([data-cb="date"]) { grid-column: 2; order: 2; border-top: none; padding-left: 18px; border-left: 1px solid #2c3542; }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-performers { grid-column: 1; order: 3; padding-right: 18px; }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-urls { grid-column: 2; order: 4; padding-left: 18px; border-left: 1px solid #2c3542; }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-tags { order: 5; }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-details { order: 6; }
+}
+
+/* Cover card mode: the file title goes ABOVE the thumbnail (row-info is
+   flattened so its children join the row-top flex column; the title takes
+   order -1). */
+@media (min-width: 769px) {
+  #it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-row-top > .it-row-info { display: contents; }
+  #it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-row-top .it-filename {
+    order: -1;
+    align-self: stretch;
+    text-align: left;
+  }
+}
+
+/* One card: shorter Details editor (it grows with its text), search box
+   exactly on the card's inner edge (card border 1px + padding 18px = 19px). */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-details-edit { max-height: 90px; overflow-y: auto; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists .it-studio-search-wrap { margin-left: 3px; max-width: calc(100% - 3px); flex-basis: calc(100% - 3px); }
+}
+
+/* One card, stacked variant: same section order as the two-column one
+   (Title, Date, Performers, URLs, Tags, Details) - a flex column so the
+   order values apply. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard { display: flex; flex-direction: column; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field { order: 7; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field:has([data-cb="title"]) { order: 1; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field:has([data-cb="date"]) { order: 2; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-performers { order: 3; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-urls { order: 4; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-tags { order: 5; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-details { order: 6; }
+  /* the first section in visual order must not show a top line */
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field:has([data-cb="title"]) { border-top: none; }
+}
+/* two-column variant keeps its grid */
+@media (min-width: 769px) {
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard { display: grid; }
+}
+
+/* One card, studio included: the studio banner header is the first section of
+   the card (full card width), the other sections follow with their top line. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists {
+    order: 0;
+    grid-column: 1 / -1;
+    border-top: none;
+    padding: 12px 0 10px;
+    margin: 0;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field:has([data-cb="title"]),
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field:has([data-cb="date"]) {
+    border-top: 1px solid #2c3542;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-artists .it-studio-idrow { padding-left: 0; padding-right: 0; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-artists .it-studio-search-wrap {
+    margin-left: 0;
+    max-width: 100%;
+    flex-basis: 100%;
+  }
+}
+
+/* One card: the studio section always comes first (beats the section order
+   rules of the stacked / two-column variants). */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists {
+    order: -1 !important;
+    grid-column: 1 / -1 !important;
+  }
+}
+
+/* Cover card mode: file title centred above the thumbnail. */
+@media (min-width: 769px) {
+  #it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-row-top .it-filename {
+    text-align: center;
+  }
+}
+
+/* One card: the Title chip shows the whole title (wraps instead of being cut
+   at 300px) - it only wraps when it would go past its section. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-chip-title {
+    max-width: 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    border-radius: 12px;
+    line-height: 1.35;
+  }
+}
+
+/* One card, two columns: Performers and Tags are both full width so their
+   existing / new columns line up (same split widths); URLs | Details share the
+   last row. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-performers {
+    grid-column: 1 / -1;
+    order: 3;
+    padding-right: 0;
+  }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-tags { order: 4; }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-urls {
+    grid-column: 1;
+    order: 5;
+    padding-left: 0;
+    padding-right: 18px;
+    border-left: none;
+  }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-details {
+    grid-column: 2;
+    order: 5;
+    padding-left: 18px;
+    border-left: 1px solid #2c3542;
+  }
+}
+
+/* One card, single studio: the banner is full bleed - it takes the whole top
+   of the card, edge to edge, no border or rounded corners of its own (the
+   card's rounded corners clip it). The "Studio" checkbox label floats over
+   its top-left corner. With two studios side by side (manual pick) the
+   header goes back to the inset look. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard { overflow: hidden; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked) {
+    position: relative;
+    margin: -4px -18px 0;
+    padding: 0 0 10px;
+  }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked) { margin-top: 0; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked) > .it-inline-label {
+    position: absolute;
+    top: 8px;
+    left: 19px;
+    z-index: 4;
+    margin: 0;
+    padding: 2px 10px 2px 8px;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 999px;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked) .it-studio-cover {
+    border-radius: 0;
+    height: 100px;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked) .it-studio-idrow { padding-left: 18px; padding-right: 18px; }
+}
+
+/* Banner layout: "Manually added" is a small label beside the studio name,
+   below the banner (it used to float over the banner corner). */
+@media (min-width: 769px) {
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-picked .it-bl-manual-badge {
+    flex: none;
+    align-self: flex-start;
+    margin: 14px 0 0;
+    white-space: nowrap;
+  }
+  #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-bl-picked .it-studio-idrow:not(.it-has-cover) .it-bl-manual-badge { align-self: center; margin: 0; }
+}
+
+/* One card: taller full-bleed banner when the studio is alone, and URLs
+   always placed before Details so they share the last row (URLs | Details). */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked) .it-studio-cover { height: 140px; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked) .it-studio-idrow.it-has-cover .it-slogo { margin-top: -34px; }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-details { order: 6; }
+}
+
+/* One card, two columns: Details on the left, URLs on the right. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-details {
+    grid-column: 1;
+    order: 5;
+    padding-left: 0;
+    padding-right: 18px;
+    border-left: none;
+  }
+  #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-urls {
+    grid-column: 2;
+    order: 6;
+    padding-left: 18px;
+    padding-right: 0;
+    border-left: 1px solid #2c3542;
+  }
+}
+
+/* One card: the single-scene panel's small section icons (injected by
+   withSectionIcon) are shown, and long titles are cut at two lines with an
+   ellipsis instead of growing taller. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-section-icon { display: flex; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-label { align-items: center; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-chip-title,
+  #it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-row-top .it-filename {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    text-overflow: ellipsis;
+  }
+}
+
+/* One card, studio WITHOUT a banner: no full-bleed trick, no floating label -
+   a normal "Studio" label row above the compact header (the floating pill sat
+   on top of the logo). */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked):not(:has(.it-studio-cover)) {
+    margin: 0;
+    padding: 12px 0 10px;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked):not(:has(.it-studio-cover)) > .it-inline-label {
+    position: static;
+    margin: 0 0 8px;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:not(.it-bl-has-picked):not(:has(.it-studio-cover)) .it-studio-idrow { padding-left: 0; padding-right: 0; }
+}
+
+/* One card: a label that wraps a checkbox (Tags, Performers...) lines up
+   checkbox, icon and text on one row. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-label > label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-label > label .it-section-icon { margin-right: 3px; }
+}
+
+/* One card: the Studio label's icon is for a studio WITHOUT a banner (with or
+   without a logo); when a banner is present the label floats over it and the
+   icon stays hidden. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists:has(.it-studio-cover) > .it-inline-label .it-section-icon { display: none; }
+}
+
+/* One card: section icon first, then the name, the checkbox on the right. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-label > .it-section-icon,
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-label > label > .it-section-icon { order: -1; }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-label > input[type="checkbox"],
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-inline-label > label > input[type="checkbox"] {
+    order: 1;
+    margin: 0 0 0 8px;
+  }
+}
+
+
+/* ── Narrow panel (class it-narrow, set from JS when #it-panel is < 760px wide:
+   phone, or a desktop panel dragged small) ──
+   Banner layout / one card / cover card are wide-screen layouts; in a narrow
+   panel they fall back to a single column, centred like the phone layout.
+   !important on purpose: those layouts are built from long selectors. */
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) {
+  display: block !important;
+  padding: 10px 12px !important;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-row-top {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  width: auto !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  margin: 0 0 8px !important;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) .it-thumb-clip {
+  width: 100% !important;
+  max-width: 320px !important;
+  height: auto !important;
+  aspect-ratio: 16 / 9;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-inline-results,
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-title-search {
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-onecard {
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 4px 12px !important;
+  overflow: visible !important;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-onecard > * {
+  grid-column: auto !important;
+  order: 0 !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  border-left: none !important;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-artists {
+  order: -1 !important;
+  margin: 0 -12px !important;
+  padding: 0 12px 10px !important;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-artists,
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-inline-results .it-inline-artists ~ * {
+  margin-left: 0 !important;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-inline-field:has([data-cb="title"]) .it-inline-label,
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-inline-field:has([data-cb="cover"]) .it-inline-label {
+  min-width: 0 !important;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-split-cols,
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-split-cols.it-split-stack {
+  grid-template-columns: minmax(0, 1fr) !important;
+  max-width: 100% !important;
+}
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-inline-field { max-width: 100%; box-sizing: border-box; }
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-details-edit,
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-details-wrap { width: 100% !important; max-width: 100% !important; box-sizing: border-box; }
+#it-panel.it-narrow:not(.it-panel-solo):not(.it-compact) .it-inline-actions { justify-content: center; flex-wrap: wrap; }
+
+/* One card: the existing / new split uses the full card width - a narrow
+   "Already on this scene" column and a wide "New from scrape" one, so the new
+   tags (and performers) spread over the empty space on the right and take
+   fewer rows. Same widths for Performers and Tags, so their columns line up. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-split-cols,
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-split-cols.it-split-stack {
+    grid-template-columns: minmax(240px, var(--it-split-l, 0.3fr)) minmax(0, var(--it-split-r, 0.7fr)) !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+}
+
+/* One card: the search box of "Already on this scene" sits at the BOTTOM of
+   its column, so Performers and Tags both leave the same gap between the box
+   and the line below, whatever the height of the "New from scrape" column. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-split-cols > .it-split-col:first-child {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-split-cols > .it-split-col:first-child .it-perf-search-wrap,
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-split-cols > .it-split-col:first-child .it-tag-search-wrap {
+    margin-top: auto;
+    padding-top: 10px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+/* ...and neither search wrap keeps a bottom margin (the tag one had 6px), so
+   the two gaps to the line below are identical. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-split-cols > .it-split-col:first-child .it-perf-search-wrap,
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-split-cols > .it-split-col:first-child .it-tag-search-wrap {
+    margin-bottom: 0;
+  }
+}
+
+/* One card: the (empty) "added tags" strip under the search box added 6px, so
+   Tags ended lower than Performers; hidden while it is empty. */
+@media (min-width: 769px) {
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-split-col .it-tags-added:empty,
+  #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard .it-split-col .it-perfs-added:empty { display: none; }
+}
+
+/* Setting "Blue outline around scraped rows" off: a scraped row looks like any
+   other row again (no outline, no margin, square corners). */
+#it-panel.it-no-outline .it-row.it-state-scraped {
+  background: transparent;
+  box-shadow: none;
+  margin: 0;
+  border-radius: 0;
+  border-bottom-color: #1e2128;
+}
+/* A done row keeps its blue tint but loses the outline, margin and rounded corners. */
+#it-panel.it-no-outline .it-row.it-state-done {
+  box-shadow: none;
+  margin: 0;
+  border-radius: 0;
+  border-bottom-color: #1e2128;
+}
+
+/* Copy button on the existing Details text: top right of the grey box, shown
+   when the box is hovered (or the button focused with the keyboard). */
+.it-copy-wrap { position: relative; }
+.it-copy-wrap .it-details-readonly { padding-right: 38px; }
+.it-copy-text {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #3b4252;
+  border-radius: 6px;
+  background: #1e2229;
+  color: #8892a0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
+}
+.it-copy-wrap:hover .it-copy-text,
+.it-copy-text:focus-visible,
+.it-copy-text.it-copy-text-ok { opacity: 1; }
+.it-copy-text:hover { color: #d8dee9; border-color: #4a6070; background: #252c35; }
+.it-copy-text.it-copy-text-ok { color: #8fd19e; border-color: #3f7a50; background: #16261c; }
+
+/* Setting "Copy icon ... always visible": no hover needed. */
+#it-panel.it-copy-always .it-copy-text { opacity: 1; }
+
+/* Title chip: double-click to rename (see the dblclick handler in renderRow). */
+.it-chip-title { cursor: text; }
+.it-chip-title.it-chip-edited { box-shadow: inset 0 0 0 1px #88c0d066; }
+#it-panel .it-chip-title.it-chip-editing {
+  display: inline-block;
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  text-overflow: clip;
+  outline: 2px solid #88c0d0;
+  outline-offset: 1px;
+  background: #1e2229;
+  color: #eceff4;
+  cursor: text;
+  user-select: text;
+}
+
+/* Failed scrape: a red outline (same shape as the blue "scraped" one, with a very
+   light red tint behind it) on rows in error and on rows kept as "manual fill-in" after a
+   failed scrape. Kept
+   even when the blue outline setting is off - it signals a problem. */
+#it-panel .it-row.it-state-error,
+#it-panel .it-row.it-state-failed {
+  background: rgba(191, 97, 106, 0.04);
+  border-radius: 10px;
+  margin: 5px 8px;
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px #bf616a, inset 0 0 14px rgba(191, 97, 106, 0.2);
+}
+#it-panel .it-row.it-state-error:hover,
+#it-panel .it-row.it-state-failed:hover { background: rgba(191, 97, 106, 0.07); }
+
+/* ...also when the blue outline is switched off in the settings (that rule
+   would otherwise win on specificity and flatten the red one too). */
+#it-panel.it-no-outline .it-row.it-state-failed,
+#it-panel.it-no-outline .it-row.it-state-error {
+  margin: 5px 8px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 2px #bf616a, inset 0 0 14px rgba(191, 97, 106, 0.2);
+}
+
+/* Title bar fullscreen button (same look as the compact one); hidden when the
+   panel is already forced fullscreen (touch screens / windows up to 1100px). */
+#it-titlebar-fullscreen {
+  background: none; border: none;
+  border-radius: 6px;
+  color: #616975;
+  cursor: pointer; padding: 3px 7px;
+  line-height: 1; transition: color 0.15s, background 0.15s;
+  display: inline-flex; align-items: center;
+}
+#it-titlebar-fullscreen:hover { color: #88c0d0; background: #88c0d01e; }
+@media (max-width: 1100px), (pointer: coarse) {
+  #it-titlebar-fullscreen { display: none; }
+}
+
+/* Scrape progress veil: a translucent azure layer that grows from the left over
+   the row being scraped (width driven by JS, simulated curve), with a glowing
+   leading edge. Behind the content (z-index), never catches clicks. */
+.it-state-scraping { position: relative; overflow: hidden; }
+.it-state-scraping > .it-row-top { position: relative; z-index: 2; }
+.it-prog-veil {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: rgba(66, 134, 196, 0.15);
+  border-right: 2px solid rgba(66, 134, 196, 0.9);
+  box-shadow: inset -22px 0 26px -22px rgba(66, 134, 196, 0.6);
+  pointer-events: none; z-index: 1;
+}
+.it-prog-label {
+  display: block; margin-top: 4px; min-height: 16px;
+  font-size: 12px; color: #88c0d0; letter-spacing: 0.02em;
+}
+
+/* Veil -> result hand-over (animations set inline by progReveal() in the JS). */
+@keyframes it-reveal { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes it-flare {
+  from { box-shadow: inset 0 0 0 2px #8cc8ff, inset 0 0 34px rgba(120, 190, 255, 0.6); }
+}
+@keyframes it-flare-fail {
+  from { box-shadow: inset 0 0 0 2px #ff8c95, inset 0 0 34px rgba(255, 130, 140, 0.55); }
+}
+
+/* Collapsible sub-groups inside the Display settings. */
+.it-setting-subgroup-toggle {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 0; margin: 2px 0;
+  border-top: 1px solid #232830;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: #8ea0b3; cursor: pointer; user-select: none;
+}
+.it-setting-subgroup-toggle:hover { color: #d8dee9; }
+.it-sg-chev { color: #6b8299; font-size: 10px; display: inline-block; transition: transform 0.15s ease; }
+.it-setting-subgroup-toggle.it-open .it-sg-chev { transform: rotate(90deg); }
+.it-sg-count { color: #5c6773; font-weight: 500; }
+.it-setting-subgroup-body { display: none; padding-left: 2px; }
+.it-setting-subgroup-toggle.it-open + .it-setting-subgroup-body { display: block; }
+.it-setting-row-sub2 .it-setting-label { padding-left: 44px; }
+
+/* ---- Image-specific rules (kept from the previous imageTagger.css) ---- */
+
+
+/* Mode solo : header ne contient que le bouton Auto/Manuel + son combobox -
+   centre au lieu de rester colle a gauche (mode masse non affecte, il n'a
+   pas cette classe et garde son flex-start avec ses filtres/pagination). */
+.it-solo-panel-header {
+  justify-content: center;
+}
+
+
+/* Settings > "Cacher le bouton Auto/Manuel (mode solo)" - le bouton/combobox
+   restent montes (juste masques), pas de rebuild necessaire au toggle. Si
+   les deux sont caches, #it-panel-header est vide en mode solo (rien
+   d'autre dedans) - masque la barre entiere plutot que de laisser une
+   bande vide. */
+#it-panel.it-panel-solo.it-hide-scraper-mode #it-btn-scraper-mode,
+#it-panel.it-panel-solo.it-hide-scraper-mode #it-scraper-select-manual {
+  display: none !important;
+}
+
+#it-panel.it-panel-solo.it-hide-scraper-mode #it-panel-header {
+  display: none !important;
+}
+
+
+/* Mode solo, vignette de ligne cachee (reglage hideSoloRowThumb) : plus de
+   colonne 60px a compenser, centre le nom de fichier + lien rule34 ID au
+   lieu de les laisser colles a gauche. */
+.it-row-top.it-row-top-no-thumb {
+  grid-template-columns: 1fr auto;
+  justify-items: center;
+}
+
+.it-row-top.it-row-top-no-thumb .it-filename {
+  text-align: center;
+  overflow: visible;
+  white-space: normal;
+}
+
+.it-row-top.it-row-top-no-thumb .it-hint {
+  text-align: center;
+}
+
+
+/* ── Bouton mode large (titlebar) ── */
+#it-titlebar-wide {
+  background: none; border: none;
+  border-radius: 6px;
+  color: #616975; font-size: 15px;
+  cursor: pointer; padding: 3px 6px;
+  line-height: 1; transition: color 0.15s, background 0.15s;
+}
+
+#it-titlebar-wide:hover { color: #88c0d0; background: #88c0d01e; }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MODE SOLO (/images/<id>) — bloc image en haut du panel (#it-solo-image-header)
+   Etat B : thumb compact + infos fichier
+   Etat A : deux colonnes côte à côte (existante vs scrapée)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+#it-solo-image-header {
+  padding: 8px 10px 4px;
+  border-bottom: 1px solid #2e3440;
+}
+
+
+/* ── Etat B : bloc simple (thumb 72px + infos) ── */
+.it-solo-image-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+
+.it-solo-thumb-clip {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #1e2229;
+  border: 1px solid #2e3440;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+.it-solo-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+
+.it-solo-thumb-placeholder {
+  color: #3b4252;
+}
+
+.it-solo-thumb-placeholder svg {
+  width: 24px; height: 24px;
+  display: block;
+}
+
+
+.it-solo-img-info {
+  flex: 1;
+  min-width: 0;
+}
+
+
+.it-solo-filename {
+  font-size: 12px;
+  font-weight: 600;
+  color: #d8dee9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.it-solo-img-meta {
+  font-size: 10px;
+  color: #6b7280;
+  margin-top: 3px;
+}
+
+
+/* ── Etat A : deux colonnes (comparaison) ── */
+.it-solo-image-block.it-solo-compare {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+}
+
+
+.it-solo-img-side {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+
+/* Thumbnail direct (pas de clip wrapper) en mode comparaison - largeur/hauteur
+   en auto contraintes par max-width/max-height : respecte le vrai ratio de
+   l'image (existante ET scrapee) au lieu de la rogner en carre. */
+.it-solo-img-side .it-solo-thumb {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100px;
+  object-fit: contain;
+  border-radius: 6px;
+  border: 2px solid #3b4252;
+  flex-shrink: 0;
+  display: block;
+  background: #1e2229;
+}
+
+
+/* Vignette scrapée : meme traitement ratio que .it-solo-img-side .it-solo-thumb
+   ci-dessus (herite deja width/height auto + contain) - juste l'accent
+   couleur, bleu identique au surlignement de selection de sceneTagger
+   (.st-cover-option.st-cover-selected, #5e81ac). */
+.it-solo-thumb-scraped {
+  border-color: #5e81ac !important;
+  background: transparent !important;
+  box-shadow: 0 0 0 3px #5e81ac33;
+}
+
+
+.it-solo-img-caption {
+  width: 100%;
+  text-align: center;
+}
+
+
+.it-solo-img-label {
+  font-size: 10px;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+
+.it-solo-img-caption .it-solo-img-meta {
+  margin-top: 2px;
+}
+
+.it-tags-right { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+
+
+/* ==========================================================================
+   Stash UI skin - ONLY active when html.it-sui is set (assets/stashui.js, i.e. the
+   separate Stash UI app). Everything below is scoped "html.it-sui #it-panel", so the
+   classic Stash look above is untouched. Colors come from Stash UI's own variables
+   (--pink = accent, --bg/--bg-2/--bg-3/--base, --text...), so it follows the theme
+   chosen there; under html.kb-glass the surfaces turn into Stash UI's liquid glass.
+   The azure scraped/done halo and the progress veil are kept (recolored to the accent).
+   ========================================================================== */
+html.it-sui #it-panel {
+  --it-acc: var(--pink, #137cbd);
+  --it-acc2: var(--pink-2, #2b95d6);
+  --it-s1: var(--bg, #202b33);
+  --it-s2: var(--bg-2, #293742);
+  --it-s3: var(--bg-3, #394b59);
+  --it-deep: var(--base, #182026);
+  --it-tx: var(--text, #f5f8fa);
+  --it-tx2: var(--text-2, #c5d0d8);
+  --it-fa: var(--faint, #8a9ba8);
+  --it-ok: var(--ok, #5ee39a);
+  --it-bad: var(--danger, #ff5a5a);
+  --it-vio: var(--violet, #a78bfa);
+  font-family: var(--f-text, Bahnschrift, "Segoe UI", system-ui, sans-serif);
+  color: var(--it-tx);
+  background: var(--it-deep);
+  border: 1px solid var(--it-s3);
+  border-radius: 10px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .45);
+}
+html.it-sui.kb-glass #it-panel {
+  background: var(--glass-shine), var(--glass-deep);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-color: var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Title bar + header + status bar: open, then the header becomes a card */
+html.it-sui #it-titlebar { background: transparent; border: 0; border-radius: 10px 10px 0 0; padding: 10px 16px 6px; }
+html.it-sui #it-titlebar-drag { color: var(--it-tx2); }
+html.it-sui #it-titlebar-drag::before { background: var(--it-acc2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--it-acc) 28%, transparent); }
+html.it-sui #it-panel-header {
+  margin: 4px 12px 8px;
+  padding: 12px 14px;
+  background: var(--it-s2);
+  border: 1px solid var(--it-s3);
+  border-radius: 8px;
+}
+html.it-sui.kb-glass #it-panel-header { background: var(--glass-shine), var(--glass); border-color: var(--glass-edge); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14); }
+html.it-sui #it-status-bar { background: transparent; border: 0; padding: 2px 18px 10px; color: var(--it-fa); }
+html.it-sui #it-progress-wrap { height: 4px; border-radius: 2px; background: var(--it-s3); }
+html.it-sui #it-progress-bar { background: var(--it-acc); }
+html.it-sui #it-rows { padding: 0 12px; }
+html.it-sui #it-rows::-webkit-scrollbar-track { background: transparent; }
+html.it-sui #it-rows::-webkit-scrollbar-thumb { background: var(--it-s3); }
+html.it-sui #it-panel-footer { background: transparent; border-top: 1px solid var(--it-s3); border-radius: 0 0 10px 10px; }
+
+/* Buttons */
+html.it-sui #it-panel .it-btn { height: 34px; padding: 0 14px; border-radius: 4px; font-family: inherit; letter-spacing: 0; }
+html.it-sui #it-panel .it-page-nav .it-btn { height: auto; padding: 3px 9px; }
+html.it-sui #it-panel .it-btn-primary { background: var(--it-acc); color: #fff; }
+html.it-sui #it-panel .it-btn-primary:hover:not(:disabled) { background: var(--it-acc2); box-shadow: none; }
+html.it-sui #it-panel .it-btn-success { background: color-mix(in srgb, var(--it-ok) 16%, transparent); border: 1px solid color-mix(in srgb, var(--it-ok) 55%, transparent); color: var(--it-ok); }
+html.it-sui #it-panel .it-btn-success:hover:not(:disabled) { background: color-mix(in srgb, var(--it-ok) 26%, transparent); box-shadow: none; }
+html.it-sui #it-panel .it-btn-danger { border-color: color-mix(in srgb, var(--it-bad) 50%, transparent); color: color-mix(in srgb, var(--it-bad) 80%, #fff); }
+html.it-sui #it-panel .it-btn-ghost { background: color-mix(in srgb, var(--it-s2) 60%, transparent); border: 1px solid var(--it-s3); color: var(--it-tx); }
+html.it-sui #it-panel .it-btn-ghost:hover:not(:disabled) { border-color: var(--it-fa); background: var(--it-s3); color: var(--it-tx); }
+html.it-sui #it-panel .it-btn-organized-on { background: var(--it-acc); color: #fff; }
+html.it-sui #it-panel .it-btn-organized-off { border: 1px solid var(--it-s3); color: var(--it-fa); }
+html.it-sui #it-panel .it-combo-btn { height: 34px; background: var(--it-deep); border: 1px solid var(--it-s3); border-radius: 4px; color: var(--it-tx); }
+html.it-sui #it-panel .it-combo-btn:hover { border-color: var(--it-fa); }
+html.it-sui #it-panel .it-combo-btn:focus { border-color: var(--it-acc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--it-acc) 20%, transparent); }
+html.it-sui #it-panel .it-combo-list { background: var(--it-s2); border-color: var(--it-s3); border-radius: 6px; }
+html.it-sui #it-panel .it-combo-option { color: var(--it-tx2); border-radius: 4px; }
+html.it-sui #it-panel .it-combo-option-active { background: var(--it-s3); color: var(--it-tx); }
+html.it-sui #it-panel .it-combo-option-selected { color: var(--it-acc2); }
+
+/* Segmented filter (All / New / Existing / Failed) */
+html.it-sui #it-panel .it-filter-group { background: var(--it-deep); border-color: var(--it-s3); border-radius: 4px; }
+html.it-sui #it-panel .it-filter-indicator { background: var(--it-acc); border-radius: 2px; }
+html.it-sui #it-panel .it-filter-item { color: var(--it-tx2); border-radius: 2px; padding: 7px 11px; font-size: 12.5px; }
+html.it-sui #it-panel .it-filter-item:hover { color: var(--it-tx); }
+html.it-sui #it-panel .it-filter-item:has(input:checked) { color: #fff; font-weight: 600; }
+
+/* Rows = separate cards (instead of a list divided by lines) */
+html.it-sui #it-panel .it-row {
+  margin: 0 0 8px;
+  background: var(--it-s2);
+  border: 1px solid var(--it-s3);
+  border-radius: 8px;
+}
+html.it-sui #it-panel .it-row:last-child { border: 1px solid var(--it-s3); }
+html.it-sui #it-panel .it-row:hover { background: color-mix(in srgb, var(--it-s2) 80%, var(--it-s3)); }
+html.it-sui.kb-glass #it-panel .it-row { background: var(--glass-shine), var(--glass); border-color: var(--glass-edge); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14); }
+html.it-sui #it-panel .it-state-skipped { opacity: .42; }
+html.it-sui #it-panel .it-state-error { border-color: color-mix(in srgb, var(--it-bad) 55%, transparent); }
+/* scraped / done: the azure halo is kept, in the accent color */
+html.it-sui #it-panel .it-state-scraped,
+html.it-sui #it-panel .it-state-done {
+  margin: 0 0 8px;
+  border-color: transparent;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 2px var(--it-acc), inset 0 0 14px color-mix(in srgb, var(--it-acc) 28%, transparent);
+}
+html.it-sui #it-panel .it-state-scraped { background: color-mix(in srgb, var(--it-acc) 5%, var(--it-s2)); }
+html.it-sui #it-panel .it-state-done { background: color-mix(in srgb, var(--it-acc) 15%, var(--it-s2)); }
+html.it-sui #it-panel .it-state-scraping,
+html.it-sui #it-panel .it-state-applying { background: var(--it-s2); }
+html.it-sui.kb-glass #it-panel .it-state-scraped,
+html.it-sui.kb-glass #it-panel .it-state-done {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--it-acc), inset 0 0 14px color-mix(in srgb, var(--it-acc) 28%, transparent);
+}
+/* failed scrape kept as "manual fill-in" (classes scraped + failed): stays red, not the accent */
+html.it-sui #it-panel .it-state-scraped.it-state-failed,
+html.it-sui.kb-glass #it-panel .it-state-scraped.it-state-failed {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--it-bad) 5%, var(--it-s2));
+  box-shadow: inset 0 0 0 2px var(--it-bad), inset 0 0 14px color-mix(in srgb, var(--it-bad) 28%, transparent);
+}
+html.it-sui.kb-glass #it-panel .it-state-scraped.it-state-failed {
+  background: var(--glass-shine), var(--glass);
+}
+/* progress veil: same behavior, accent colors */
+html.it-sui #it-panel .it-prog-veil {
+  background: color-mix(in srgb, var(--it-acc) 16%, transparent);
+  border-right-color: var(--it-acc2);
+  box-shadow: inset -22px 0 26px -22px var(--it-acc2);
+}
+html.it-sui #it-panel .it-prog-label { color: var(--it-acc2); font-weight: 600; }
+
+/* Thumbnail + state stamp (from the row's state class, no JS) */
+html.it-sui #it-panel .it-thumb-clip { border-radius: 4px; }
+html.it-sui #it-panel .it-thumb { border: 0; border-radius: 4px; background: var(--it-deep); }
+html.it-sui #it-panel .it-thumb-scrub-bar-fill { background: var(--it-acc2); }
+html.it-sui #it-panel .it-state-scraping .it-thumb-clip::after,
+html.it-sui #it-panel .it-state-applying .it-thumb-clip::after,
+html.it-sui #it-panel .it-state-scraped .it-thumb-clip::after,
+html.it-sui #it-panel .it-state-done .it-thumb-clip::after,
+html.it-sui #it-panel .it-state-error .it-thumb-clip::after {
+  content: "SCRAPING";
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  z-index: 3;
+  padding: 3px 5px;
+  border-radius: 3px;
+  background: var(--it-acc);
+  color: #fff;
+  font: 700 9px/1 var(--f-label, inherit);
+  letter-spacing: .08em;
+  pointer-events: none;
+}
+html.it-sui #it-panel .it-state-applying .it-thumb-clip::after { content: "APPLYING"; }
+html.it-sui #it-panel .it-state-scraped .it-thumb-clip::after { content: "TO APPLY"; background: #e0a63e; color: #10181e; }
+html.it-sui #it-panel .it-state-done .it-thumb-clip::after { content: "APPLIED"; background: var(--it-ok); color: #10181e; }
+html.it-sui #it-panel .it-state-error .it-thumb-clip::after { content: "FAILED"; background: var(--it-bad); color: #fff; }
+
+/* Text, hints, inputs */
+html.it-sui #it-panel .it-filename,
+html.it-sui #it-panel .it-scene-link { color: var(--it-tx2); }
+html.it-sui #it-panel .it-scene-link:hover { color: var(--it-tx); }
+html.it-sui #it-panel .it-hint { color: var(--it-fa); }
+html.it-sui #it-panel .it-manual-url-input,
+html.it-sui #it-panel .it-url-add-input,
+html.it-sui #it-panel .it-details-edit,
+html.it-sui #it-panel .it-studio-search-input {
+  background: color-mix(in srgb, var(--it-deep) 75%, transparent);
+  border: 1px solid var(--it-s3);
+  border-radius: 4px;
+  color: var(--it-tx);
+}
+html.it-sui #it-panel .it-manual-url-input:focus,
+html.it-sui #it-panel .it-url-add-input:focus,
+html.it-sui #it-panel .it-details-edit:focus,
+html.it-sui #it-panel .it-studio-search-input:focus {
+  border-color: var(--it-acc);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--it-acc) 20%, transparent);
+}
+html.it-sui #it-panel .it-manual-url-input::placeholder { color: var(--it-fa); }
+html.it-sui #it-panel .it-ts-result { background: var(--it-s2); border-color: var(--it-s3); border-radius: 6px; }
+
+/* Field groups: no box, an underlined heading (tags / performers / urls / details / date / cover / artists) */
+html.it-sui #it-panel :is(.it-inline-tags, .it-inline-performers, .it-inline-artists, .it-inline-urls, .it-inline-details, .it-inline-date, .it-inline-cover) > .it-inline-label {
+  width: 100%;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--it-s3);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--it-tx);
+}
+html.it-sui.kb-glass #it-panel :is(.it-inline-tags, .it-inline-performers, .it-inline-artists, .it-inline-urls, .it-inline-details, .it-inline-date, .it-inline-cover) > .it-inline-label { border-color: var(--glass-edge); }
+html.it-sui #it-panel .it-inline-label { color: var(--it-tx2); }
+html.it-sui #it-panel .it-inline-label input[type="checkbox"],
+html.it-sui #it-panel .it-tag-item input[type="checkbox"] { accent-color: var(--it-acc); }
+html.it-sui #it-panel .it-label-static { color: var(--it-fa); }
+html.it-sui #it-panel .it-existing-caption { color: var(--it-fa); }
+/* solo mode: its boxed cards go back to open sections, like the list */
+html.it-sui #it-panel :is(.it-inline-tags, .it-inline-performers, .it-inline-artists, .it-inline-urls, .it-inline-details, .it-inline-date, .it-inline-cover) {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+html.it-sui #it-panel.it-panel-solo :is(.it-inline-tags, .it-inline-performers, .it-inline-artists, .it-inline-urls, .it-inline-details, .it-inline-date, .it-inline-cover) > .it-inline-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--it-tx);
+}
+
+/* Chips: Stash UI "kb-chip" look (left stripe) */
+html.it-sui #it-panel .it-chip,
+html.it-sui #it-panel .it-tag-item {
+  border: 0;
+  border-radius: 3px;
+  padding: 4px 10px 4px 11px;
+  background: color-mix(in srgb, var(--it-vio) 17%, transparent);
+  box-shadow: inset 3px 0 0 var(--it-vio);
+  color: var(--it-tx);
+}
+html.it-sui #it-panel .it-tag-item:hover { background: color-mix(in srgb, var(--it-vio) 28%, transparent); }
+html.it-sui #it-panel .it-chip-title { background: none; box-shadow: none; padding: 0; font-weight: 700; font-size: 14px; color: var(--it-tx); border-radius: 0; max-width: none; }
+html.it-sui #it-panel .it-chip-studio { background: color-mix(in srgb, var(--it-acc) 30%, transparent); box-shadow: inset 3px 0 0 var(--it-acc2); font-weight: 600; }
+html.it-sui #it-panel .it-chip-performer { background: color-mix(in srgb, var(--it-ok) 16%, transparent); box-shadow: inset 3px 0 0 var(--it-ok); font-weight: 600; }
+html.it-sui #it-panel .it-chip-date { background: color-mix(in srgb, var(--it-vio) 30%, transparent); font-weight: 600; }
+html.it-sui #it-panel .it-chip-url,
+html.it-sui #it-panel .it-url-item { background: color-mix(in srgb, var(--it-acc) 16%, transparent); box-shadow: none; color: var(--it-acc2); }
+html.it-sui #it-panel .it-chip-details { color: var(--it-fa); }
+html.it-sui #it-panel .it-tag-item.it-tag-new { background: color-mix(in srgb, var(--it-acc) 22%, transparent); box-shadow: inset 3px 0 0 var(--it-acc2); color: var(--it-tx); }
+html.it-sui #it-panel .it-tag-item:has(input:checked) { background: var(--it-acc); box-shadow: none; color: #fff; font-weight: 600; }
+html.it-sui #it-panel .it-tag-item:has(input:checked):hover { background: var(--it-acc2); }
+html.it-sui #it-panel .it-tag-item:has(input:checked) input[type="checkbox"] { accent-color: #fff; }
+html.it-sui #it-panel .it-new-badge,
+html.it-sui #it-panel .it-tag-item.it-tag-new .it-new-badge,
+html.it-sui #it-panel .it-url-badge-new {
+  background: var(--it-acc);
+  color: #fff;
+  border-radius: 2px;
+  padding: 2px 4px;
+  letter-spacing: .06em;
+}
+html.it-sui #it-panel .it-url-row.it-url-row-new { background: color-mix(in srgb, var(--it-acc) 14%, transparent); border-color: color-mix(in srgb, var(--it-acc) 40%, transparent); }
+html.it-sui #it-panel .it-url-row.it-url-row-new .it-url-link { color: var(--it-acc2); }
+
+/* Apply / Skip / Organized row */
+html.it-sui #it-panel .it-inline-actions { gap: 8px; }
+
+/* Mass list: the file/scene title pill becomes a plain bold title (like the scraped title) */
+html.it-sui #it-panel:not(.it-panel-solo):not(.it-compact) .it-filename,
+html.it-sui #it-panel:not(.it-panel-solo):not(.it-compact) .it-filename:hover {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text, #f5f8fa);
+}
+html.it-sui #it-panel:not(.it-panel-solo):not(.it-compact) .it-r34-link {
+  background: color-mix(in srgb, var(--pink, #137cbd) 16%, transparent);
+  border-radius: 3px;
+  color: var(--pink-2, #2b95d6);
+}
+
+/* Stash UI skin - second pass: the "details in one card" wrapper, section icons, "already on this scene"
+   pills, the search inputs and their drop-down lists (all were still on the old palette) */
+html.it-sui #it-panel .it-onecard,
+html.it-sui #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+html.it-sui #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field,
+html.it-sui #it-panel.it-one-card-cols.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard > .it-inline-field {
+  border-top: 0;
+  border-left: 0;
+}
+html.it-sui #it-panel .it-onecard .it-inline-label { color: var(--it-tx); font-weight: 700; }
+html.it-sui #it-panel .it-section-icon { background: color-mix(in srgb, var(--it-acc) 18%, transparent); color: var(--it-acc2); border-radius: 4px; }
+html.it-sui #it-panel .it-existing-pill {
+  background: color-mix(in srgb, var(--it-vio) 12%, transparent);
+  border: 0;
+  border-radius: 3px;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--it-vio) 70%, transparent);
+  color: var(--it-tx2);
+  padding: 4px 10px 4px 11px;
+}
+html.it-sui #it-panel .it-tag-search-input,
+html.it-sui #it-panel .it-perf-search-input {
+  background: color-mix(in srgb, var(--it-deep) 75%, transparent);
+  border: 1px solid var(--it-s3);
+  border-radius: 4px;
+  color: var(--it-tx);
+}
+html.it-sui #it-panel .it-tag-search-input:focus,
+html.it-sui #it-panel .it-perf-search-input:focus {
+  border-color: var(--it-acc);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--it-acc) 20%, transparent);
+}
+html.it-sui #it-panel .it-tag-search-input::placeholder,
+html.it-sui #it-panel .it-perf-search-input::placeholder { color: var(--it-fa); }
+html.it-sui #it-panel .it-tag-search-results,
+html.it-sui #it-panel .it-perf-search-results,
+html.it-sui #it-panel .it-studio-search-results {
+  background: var(--it-s2);
+  border: 1px solid var(--it-s3);
+  border-radius: 6px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .55);
+}
+html.it-sui.kb-glass #it-panel .it-tag-search-results,
+html.it-sui.kb-glass #it-panel .it-perf-search-results,
+html.it-sui.kb-glass #it-panel .it-studio-search-results {
+  background: var(--glass-shine), var(--glass-deep);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  border-color: var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Stash UI skin - liquid glass: like Stash UI's own controls (html.kb-glass), buttons, segmented filter,
+   chips and pills become capsules with a tinted glass fill and a light top edge; fields get 10px corners */
+html.it-sui.kb-glass #it-panel .it-btn,
+html.it-sui.kb-glass #it-panel .it-combo-btn,
+html.it-sui.kb-glass #it-panel .it-filter-group {
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+html.it-sui.kb-glass #it-panel .it-btn { padding: 0 16px; }
+html.it-sui.kb-glass #it-panel .it-btn-ghost,
+html.it-sui.kb-glass #it-panel .it-combo-btn,
+html.it-sui.kb-glass #it-panel .it-filter-group {
+  background: var(--glass-shine), color-mix(in srgb, var(--it-s3) 38%, transparent);
+  border-color: var(--glass-edge);
+}
+html.it-sui.kb-glass #it-panel .it-btn-primary,
+html.it-sui.kb-glass #it-panel .it-btn-organized-on {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 20px color-mix(in srgb, var(--it-acc) 40%, transparent);
+}
+html.it-sui.kb-glass #it-panel .it-btn-success,
+html.it-sui.kb-glass #it-panel .it-btn-danger { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); }
+html.it-sui.kb-glass #it-panel .it-btn-primary:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 20px color-mix(in srgb, var(--it-acc) 40%, transparent); }
+html.it-sui.kb-glass #it-panel .it-filter-indicator,
+html.it-sui.kb-glass #it-panel .it-filter-item { border-radius: 999px; }
+html.it-sui.kb-glass #it-panel .it-chip,
+html.it-sui.kb-glass #it-panel .it-tag-item,
+html.it-sui.kb-glass #it-panel .it-existing-pill,
+html.it-sui.kb-glass #it-panel .it-r34-link,
+html.it-sui.kb-glass #it-panel .it-url-item {
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
+  padding-left: 11px;
+}
+html.it-sui.kb-glass #it-panel .it-chip-title,
+html.it-sui.kb-glass #it-panel .it-chip-title:hover { box-shadow: none; border-radius: 0; padding: 0; }
+html.it-sui.kb-glass #it-panel .it-tag-item.it-tag-new { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), inset 0 0 0 1px color-mix(in srgb, var(--it-acc2) 60%, transparent); }
+html.it-sui.kb-glass #it-panel .it-tag-item:has(input:checked) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3); }
+html.it-sui.kb-glass #it-panel .it-new-badge,
+html.it-sui.kb-glass #it-panel .it-url-badge-new { border-radius: 999px; padding: 2px 6px; }
+html.it-sui.kb-glass #it-panel .it-manual-url-input,
+html.it-sui.kb-glass #it-panel .it-url-add-input,
+html.it-sui.kb-glass #it-panel .it-details-edit,
+html.it-sui.kb-glass #it-panel .it-studio-search-input,
+html.it-sui.kb-glass #it-panel .it-tag-search-input,
+html.it-sui.kb-glass #it-panel .it-perf-search-input {
+  border-color: var(--glass-edge);
+  border-radius: 10px;
+  background-color: color-mix(in srgb, var(--it-deep) 45%, transparent);
+}
+html.it-sui.kb-glass #it-panel .it-section-icon { border-radius: 999px; }
+
+/* Studio banner: its "Studio" label is a small pill laid over the cover - the underlined-heading rule above
+   must not stretch it into a full-width bar */
+html.it-sui #it-panel.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-inline-artists > .it-inline-label {
+  width: auto;
+  padding-bottom: 2px;
+  border-bottom: 0;
+}
+
+/* Button feedback like Stash UI's .kb-btn: quick transitions, a small press on click, visible keyboard focus */
+html.it-sui #it-panel .it-btn { transition: transform .1s ease, box-shadow .1s ease, background .15s ease, border-color .15s ease, color .15s ease; }
+html.it-sui #it-panel .it-btn:active:not(:disabled) { transform: translateY(1px) scale(.98); }
+html.it-sui #it-panel .it-btn:focus-visible,
+html.it-sui #it-panel .it-combo-btn:focus-visible { outline: 2px solid var(--shine, #8fe3ff); outline-offset: 2px; }
+html.it-sui #it-panel .it-btn-ghost:hover:not(:disabled) { border-color: var(--it-fa); }
+html.it-sui.kb-glass #it-panel .it-btn-ghost:hover:not(:disabled),
+html.it-sui.kb-glass #it-panel .it-combo-btn:hover {
+  background: var(--glass-shine), color-mix(in srgb, var(--it-s3) 62%, transparent);
+  border-color: color-mix(in srgb, var(--it-fa) 70%, transparent);
+}
+html.it-sui.kb-glass #it-panel .it-btn-primary:active:not(:disabled) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 2px 8px color-mix(in srgb, var(--it-acc) 40%, transparent);
+}
+html.it-sui.kb-glass #it-panel .it-btn-success:hover:not(:disabled),
+html.it-sui.kb-glass #it-panel .it-btn-danger:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .24); }
+
+/* Fixes: studio banner keeps its rounded corners (the card clips the cover), a URL is ONE badge (the link
+   inside the .it-url-item pill stays transparent), the "rule34 ID" link is a capsule in glass too, and tags
+   that already exist in the database (checked, no NEW badge) keep their green */
+html.it-sui #it-panel .it-onecard,
+html.it-sui #it-panel.it-one-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-onecard { border-radius: 10px; }
+html.it-sui #it-panel .it-url-item .it-chip-url,
+html.it-sui.kb-glass #it-panel .it-url-item .it-chip-url { background: none; box-shadow: none; border-radius: 0; }
+html.it-sui.kb-glass #it-panel:not(.it-panel-solo):not(.it-compact) .it-r34-link { border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); }
+html.it-sui #it-panel .it-tag-item:not(.it-tag-new):has(input:checked) { background: color-mix(in srgb, var(--it-ok) 55%, var(--it-deep)); color: #fff; }
+html.it-sui #it-panel .it-tag-item:not(.it-tag-new):has(input:checked):hover { background: color-mix(in srgb, var(--it-ok) 66%, var(--it-deep)); }
+
+/* Multi-studio toggle: same look as the other header buttons */
+html.it-sui #it-panel .it-multi-studio-toggle {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--it-s3);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--it-s2) 60%, transparent);
+  color: var(--it-tx2);
+  font-size: 13px;
+  font-weight: 600;
+}
+html.it-sui #it-panel .it-multi-studio-toggle:hover { color: var(--it-tx); border-color: var(--it-fa); }
+html.it-sui #it-panel .it-multi-studio-toggle:has(input:checked) {
+  color: #fff;
+  background: var(--it-acc);
+  border-color: var(--it-acc);
+}
+html.it-sui.kb-glass #it-panel .it-multi-studio-toggle {
+  border-radius: 999px;
+  border-color: var(--glass-edge);
+  background: var(--glass-shine), color-mix(in srgb, var(--it-s3) 38%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+html.it-sui.kb-glass #it-panel .it-multi-studio-toggle:has(input:checked) { background: var(--it-acc); border-color: var(--it-acc); }
+
+/* Performers from the scrape (and added by search): same pill as "Already on this scene" */
+html.it-sui #it-panel .it-perf-item,
+html.it-sui #it-panel .it-perf-added-chip {
+  gap: 8px;
+  padding: 3px 12px 3px 9px;
+  border: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--it-vio) 12%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--it-vio) 70%, transparent);
+  color: var(--it-tx2);
+}
+html.it-sui #it-panel .it-perf-added-chip { padding-left: 3px; }
+html.it-sui #it-panel .it-perf-item:hover { background: color-mix(in srgb, var(--it-vio) 22%, transparent); }
+html.it-sui #it-panel .it-perf-item .it-perf-chip-avatar,
+html.it-sui #it-panel .it-perf-added-chip .it-perf-chip-avatar { width: 34px; height: 34px; }
+html.it-sui #it-panel .it-perf-item.it-perf-new,
+html.it-sui #it-panel .it-perf-item.it-perf-new:hover {
+  background: color-mix(in srgb, var(--it-acc) 22%, transparent);
+  box-shadow: inset 3px 0 0 var(--it-acc2);
+  color: var(--it-tx);
+}
+html.it-sui #it-panel .it-perf-item input[type="checkbox"] { accent-color: var(--it-acc); }
+html.it-sui.kb-glass #it-panel .it-perf-item,
+html.it-sui.kb-glass #it-panel .it-perf-added-chip {
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+html.it-sui.kb-glass #it-panel .it-perf-item.it-perf-new,
+html.it-sui.kb-glass #it-panel .it-perf-item.it-perf-new:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), inset 0 0 0 1px color-mix(in srgb, var(--it-acc2) 60%, transparent);
+}
+
+/* Stash UI: the list area stays transparent (rows are glass / surface cards there) */
+html.it-sui #it-panel #it-rows { background: transparent; padding-top: 0; padding-bottom: 0; }
+
+/* Segmented filter + Multi-studio: plugged into Stash UI's button effects (class kb-btn added by assets/stashui.js), without the button box */
+html.it-sui #it-panel .it-filter-item.kb-btn { height: auto; background: transparent; border: 0; box-shadow: none; }
+html.it-sui #it-panel .it-filter-item.kb-btn:hover { background: transparent; }
+
+/* Stash UI skin, liquid glass: the left column card (video + title + Cover, "Cover card under
+   the video") was an opaque dark box next to the glass right side. It is now a glass "bubble"
+   with the same recipe as a row (glass fill + shine, blur, glass edge, top highlight); the thin
+   line above Cover uses the glass edge colour. */
+@media (min-width: 769px) {
+  html.it-sui.kb-glass #it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row:has(> .it-inline-results) > .it-row-top {
+    background: var(--glass-shine), var(--glass);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+    border-color: var(--glass-edge);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14);
+  }
+  html.it-sui.kb-glass #it-panel.it-cover-card.it-banner-layout:not(.it-panel-solo):not(.it-compact) .it-row-info .it-inline-cover {
+    border-top-color: var(--glass-edge);
+  }
+}
+
+/* Stash UI skin: legible settings. The classic greys (#616975, #7a8590, #a0a8b0) were made for a
+   solid dark panel and nearly vanish on the translucent glass. Brighter text from the Stash UI
+   palette, sub-options no longer dimmer than their parent, and a darker backing behind the panel. */
+html.it-sui #it-settings-panel { background: rgba(8, 12, 18, .5); }
+html.it-sui #it-settings-panel .it-setting-section-title { color: var(--it-tx2); opacity: .8; }
+html.it-sui #it-settings-panel .it-setting-subtitle { color: var(--it-tx2); }
+html.it-sui #it-settings-panel .it-setting-label,
+html.it-sui #it-settings-panel .it-setting-label-inline { color: var(--it-tx); }
+html.it-sui #it-settings-panel .it-setting-row-sub .it-setting-label,
+html.it-sui #it-settings-panel .it-setting-row-sub .it-setting-label-inline,
+html.it-sui #it-settings-panel .it-setting-row.dep .it-setting-label { color: var(--it-tx2); }
+html.it-sui #it-settings-panel .it-setting-label:hover { color: #fff; }
+html.it-sui #it-settings-panel .it-setting-subgroup-toggle { color: var(--it-tx2); border-top-color: var(--glass-edge, rgba(255, 255, 255, .12)); }
+html.it-sui #it-settings-panel .it-setting-subgroup-toggle:hover { color: #fff; }
+html.it-sui #it-settings-panel .it-sg-count { color: var(--it-fa); }
+html.it-sui #it-settings-panel .it-setting-disclosure-label { color: var(--it-tx2); }
+html.it-sui #it-settings-panel .it-setting-label input[type="checkbox"] { accent-color: var(--it-acc2); }
+
+/* Stash UI skin: other dark-grey texts made for a solid dark panel (pagination, footer count,
+   status line, hints and captions) lifted to the palette's secondary text; disabled buttons
+   kept readable. */
+html.it-sui #it-panel #it-page-nav-label,
+html.it-sui #it-panel #it-page-info,
+html.it-sui #it-panel #it-status-bar,
+html.it-sui #it-panel .it-hint,
+html.it-sui #it-panel .it-existing-caption,
+html.it-sui #it-panel .it-split-empty,
+html.it-sui #it-panel .it-cover-caption,
+html.it-sui #it-panel .it-date-dow,
+html.it-sui #it-panel .it-studio-no-result,
+html.it-sui #it-panel .it-existing-pill { color: var(--it-tx2); }
+html.it-sui #it-panel #it-page-info,
+html.it-sui #it-panel .it-hint,
+html.it-sui #it-panel .it-cover-caption { opacity: .85; }
+html.it-sui #it-panel .it-studio-search-input::placeholder,
+html.it-sui #it-panel input::placeholder { color: color-mix(in srgb, var(--it-tx2) 70%, transparent); }
+html.it-sui #it-panel .it-btn:disabled { opacity: .55; }
+
+/* Stash UI skin: solid Apply / Skip buttons (same family as Scrape All and Stash UI's own
+   is-danger): Skip = Stash UI's solid red, Apply = solid green with white text. Disabled ones
+   stay coloured (opacity .6) so they remain identifiable. */
+html.it-sui #it-panel .it-btn-success {
+  background: #27a86f; border: 1px solid #27a86f; color: #fff; font-weight: 700;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .25);
+}
+html.it-sui.kb-glass #it-panel .it-btn-success {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 6px 20px rgba(94, 227, 154, .28);
+}
+html.it-sui #it-panel .it-btn-success:hover:not(:disabled),
+html.it-sui.kb-glass #it-panel .it-btn-success:hover:not(:disabled) {
+  background: #33c083; border-color: #33c083; color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 6px 22px rgba(94, 227, 154, .4);
+}
+html.it-sui #it-panel .it-btn-danger {
+  background: #b3243e; border: 1px solid #b3243e; color: #f5f8fa; font-weight: 700;
+}
+html.it-sui.kb-glass #it-panel .it-btn-danger {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28), 0 6px 20px rgba(179, 36, 62, .3);
+}
+html.it-sui #it-panel .it-btn-danger:hover:not(:disabled),
+html.it-sui.kb-glass #it-panel .it-btn-danger:hover:not(:disabled) {
+  background: #d22c4a; border-color: #d22c4a; color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .3), 0 6px 22px rgba(210, 44, 74, .4);
+}
+html.it-sui #it-panel .it-btn:disabled { opacity: .6; }
+
+/* Stash UI skin: title bar icons (fullscreen, compact, settings, close) were #616975, almost
+   invisible on the glass. Palette secondary text, white on hover. */
+html.it-sui #it-panel :is(#it-titlebar-fullscreen, #it-titlebar-compact, #it-titlebar-settings, #it-titlebar-close) { color: var(--it-tx2); }
+html.it-sui #it-panel :is(#it-titlebar-fullscreen, #it-titlebar-compact, #it-titlebar-settings, #it-titlebar-close):hover { color: #fff; }
+html.it-sui #it-panel #it-titlebar-close:hover { color: color-mix(in srgb, var(--it-bad) 80%, #fff); }
+
+/* Stash UI skin: the "Search title" bar (source select + query input + Search button) takes the
+   look of Stash UI's own "Search this view" field: rounded 10px, translucent dark fill, glass
+   edge, 40px tall, a magnifier on the left of the query input, accent ring on focus. */
+html.it-sui #it-panel :is(.it-ts-input, .it-ts-source) {
+  height: 40px;
+  border: 1px solid var(--glass-edge, var(--it-s3));
+  border-radius: 10px;
+  background-color: color-mix(in srgb, var(--it-deep) 45%, transparent);
+  color: var(--it-tx);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 12px;
+}
+html.it-sui #it-panel .it-ts-input {
+  padding-left: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a9ba8' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6.5'/%3E%3Cpath d='m16 16 4.5 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 12px center;
+  background-size: 16px 16px;
+}
+html.it-sui #it-panel .it-ts-input::placeholder { color: var(--it-fa); }
+html.it-sui #it-panel .it-ts-source {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%238a9ba8' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 11px 7px;
+}
+html.it-sui #it-panel .it-ts-source option { background: var(--it-deep); color: var(--it-tx); }
+html.it-sui #it-panel :is(.it-ts-input, .it-ts-source):hover { border-color: var(--it-fa); }
+html.it-sui #it-panel :is(.it-ts-input, .it-ts-source):focus {
+  border-color: var(--it-acc);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--it-acc) 22%, transparent);
+}
+html.it-sui #it-panel .it-ts-search-row .it-btn { height: 40px; }
+
+/* Stash UI skin, phones: the header (Scrape All / Apply All / Skip All / filters...) took about
+   40% of the screen with 37px buttons and wide padding. Tighter: 34px tall buttons (still easy to
+   hit with a thumb, 5px between them), 11px side padding, 12px text, smaller header padding. */
+@media (max-width: 768px) {
+  html.it-sui #it-panel #it-panel-header { padding: 8px 10px; gap: 5px; }
+  html.it-sui #it-panel #it-panel-header :is(.it-btn, .it-combo-btn, .it-multi-studio-toggle) {
+    height: 34px; min-height: 34px; padding: 0 11px; font-size: 12px;
+  }
+  html.it-sui #it-panel #it-panel-header .it-filter-item { padding: 6px 9px; font-size: 12px; }
+  html.it-sui #it-panel #it-panel-header .it-filter-radios { gap: 4px; }
+  html.it-sui #it-panel #it-panel-header .it-multi-studio-toggle svg { width: 12px; height: 12px; }
+}
+/* ...and the secondary buttons (Clear, Auto, Multi-studio) share the last row instead of each
+   wrapping onto its own line: 3 rows in total instead of 4. */
+@media (max-width: 768px) {
+  html.it-sui #it-panel #it-panel-header :is(#it-btn-clear, #it-btn-scraper-mode, #it-scraper-select-manual, .it-multi-studio-toggle) { order: 3; }
+}
+@media (max-width: 768px) {
+  /* The filter group and Multi-studio live in .it-filter-radios; flattening it lets Multi-studio
+     join Clear / Auto on the last row. */
+  html.it-sui #it-panel #it-panel-header .it-filter-radios { display: contents; }
+}
+
+/* Phone header: round chevron button at the end of the first row folds the filter rows
+   (All scrapers, All/New/Existing/Failed, Clear, Auto, Multi-studio), leaving Scrape All - SFW.
+   Hidden on larger screens and in solo mode. The visible circle is 34px but an invisible ring
+   around it enlarges the touch area to about 44px for a thumb. */
+.it-btn-collapse { display: none; }
+@media (max-width: 768px) {
+  #it-panel:not(.it-panel-solo) #it-panel-header .it-btn-collapse {
+    display: inline-grid; place-items: center; position: relative;
+    width: 34px; height: 34px; margin-left: auto; padding: 0; flex: none;
+    border-radius: 999px; border: 1px solid rgba(255, 255, 255, .14);
+    background: rgba(70, 85, 100, .35); color: #bfccd6; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #it-panel .it-btn-collapse::before { content: ""; position: absolute; inset: -5px; border-radius: 999px; }
+  #it-panel .it-btn-collapse svg { transition: transform .25s ease; }
+  #it-panel.it-hdr-collapsed .it-btn-collapse svg { transform: rotate(180deg); }
+  #it-panel .it-btn-collapse:active { background: rgba(255, 255, 255, .16); }
+  #it-panel.it-hdr-collapsed #it-panel-header :is(#it-btn-clear, #it-btn-scraper-mode, #it-scraper-select-manual, .it-filter-radios) { display: none; }
+}
+
+
+/* Long file names without spaces (e.g. 2026-10-16_veri1212..._HUv...) wrapped past the badge
+   or were cut off: let them break anywhere, in the mass list and in compact mode. */
+#it-panel .it-filename,
+#it-panel:not(.it-panel-solo) .it-filename {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  min-width: 0;
+}
+
+/* Compact panel on desktop (~380px wide): same header behavior as the phone layout - the
+   filter rows take their own full row (wrapping, so Multi-studio no longer overflows),
+   Auto stays next to SFW (no half-empty row), and the round chevron
+   button folds the filter rows away (state remembered, shared with the phone layout). */
+@media (min-width: 769px) {
+  #it-panel.it-compact #it-panel-header { container-type: inline-size; gap: 8px; }
+  #it-panel.it-compact .it-filter-radios { order: 1; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; margin-left: 0; }
+  #it-panel.it-compact:not(.it-panel-solo) #it-panel-header .it-btn-collapse {
+    display: inline-grid; place-items: center; position: relative;
+    width: 34px; height: 34px; margin-left: auto; padding: 0; flex: none;
+    border-radius: 999px; border: 1px solid rgba(255, 255, 255, .14);
+    background: rgba(70, 85, 100, .35); color: #bfccd6; cursor: pointer;
+  }
+  #it-panel.it-compact .it-btn-collapse svg { transition: transform .25s ease; }
+  #it-panel.it-compact.it-hdr-collapsed .it-btn-collapse svg { transform: rotate(180deg); }
+  #it-panel.it-compact.it-hdr-collapsed #it-panel-header :is(#it-btn-clear, #it-btn-scraper-mode, #it-scraper-select-manual, .it-filter-radios) { display: none; }
+}
+
+/* Stash UI liquid glass: "Frosted glass panel" setting. The glass rules above read these variables, so redefining them
+   on the panel changes every surface at once (solid fill % and blur px come from the two sliders in the settings,
+   set on <body> as --it-gsolid / --it-gblur), keeping the shine and the light edge. */
+html.it-sui.kb-glass body.it-opaque #it-panel {
+  --glass-deep: color-mix(in srgb, var(--base, #182026) var(--it-gsolid, 82%), transparent);
+  --glass: color-mix(in srgb, var(--bg-2, #293742) calc(var(--it-gsolid, 82%) - 4%), transparent);
+  --glass-filter: blur(var(--it-gblur, 40px)) saturate(150%);
+}
+
+/* Click on the "N images" count (Stash UI list): edit the images-per-page value in place.
+   Plain text until clicked. */
+html.it-sui #it-panel #it-page-info { cursor: pointer; }
+#it-page-info .it-pp-input {
+  width: 56px;
+  font: inherit;
+  color: inherit;
+  background: rgba(0, 0, 0, .35);
+  border: 1px solid rgba(255, 255, 255, .25);
+  border-radius: 6px;
+  padding: 1px 4px;
+}
+
+/* Several studios per image (setting "Allow several studios"): a "+" at the right of each studio
+   badge = also add it as an Other studio. The radio stays the main studio. */
+.it-also-btn {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; margin-left: 4px; padding: 0; line-height: 1;
+  border: 1px solid currentColor; border-radius: 50%;
+  background: transparent; color: inherit; opacity: .45;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+  transition: opacity .15s, background .15s, color .15s, border-color .15s;
+}
+.it-also-btn:hover:not(:disabled) { opacity: .95; }
+.it-also-btn.it-on { opacity: 1; background: #eef6fb; border-color: #eef6fb; color: #2d6a8c; }
+.it-also-btn:disabled { opacity: .15; cursor: not-allowed; }
+html.it-sui #it-panel .it-also-btn.it-on { background: var(--it-acc); border-color: var(--it-acc); color: #fff; }
+
+/* Multi-studio button, 3rd state (second click): red = images with several studio candidates are hidden */
+.it-multi-studio-toggle.it-multi-exclude {
+  color: #ffb3ba;
+  background: #bf616a33;
+  border-color: #bf616a99;
+}
+html.it-sui #it-panel .it-multi-studio-toggle.it-multi-exclude,
+html.it-sui.kb-glass #it-panel .it-multi-studio-toggle.it-multi-exclude {
+  color: #fff;
+  background: var(--it-bad);
+  border-color: var(--it-bad);
+}
+
+/* Full image preview when hovering a row thumbnail (setting "Full image preview..."): a floating card with the whole
+   image, uncropped (the thumbnail itself is cropped to a square). Outside #it-panel, so SFW mode blurs it separately. */
+.it-image-preview {
+  position: fixed;
+  z-index: 2147483000;
+  padding: 6px;
+  background: var(--base, #1f252d);
+  border: 1px solid #2e3440;
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  visibility: hidden;
+}
+.it-image-preview.it-ready { visibility: visible; }
+.it-image-preview img {
+  display: block;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 9px;
+  background: #13151a;
+}
+body.it-nsfw-on .it-image-preview img {
+  filter: blur(14px);
+  clip-path: inset(0 round 8px);
+}
