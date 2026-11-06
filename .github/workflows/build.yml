@@ -13,6 +13,7 @@ on:
       - "sceneTagger/sceneTagger.yml"
       - "sceneTagger/sceneTagger.js"
       - "sceneTagger/sceneTagger.css"
+      - "sceneTagger/performerFinder.js"
       - "sceneTagger/assets/**"
       - "imageTagger/imageTagger.yml"
       - "imageTagger/imageTagger.js"
@@ -38,7 +39,7 @@ jobs:
         run: |
           cd sceneTagger
           rm -f ../sceneTagger.zip
-          zip -r ../sceneTagger.zip sceneTagger.yml sceneTagger.js sceneTagger.css assets
+          zip -r ../sceneTagger.zip sceneTagger.yml sceneTagger.js sceneTagger.css performerFinder.js assets
 
       - name: Zip imageTagger package
         run: |

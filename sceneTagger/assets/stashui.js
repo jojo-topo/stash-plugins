@@ -1,7 +1,8 @@
 // Stash UI extension module for sceneTagger: a "Scene Tagger" button in the toolbar of the
 // scenes list. The same floating panel as in classic Stash opens over the page (sceneTagger.js,
 // window.stSceneTaggerHost) and lists the scenes of the list's current filter, 40 per page.
-const PER_PAGE = 40;
+// scenes per page: the "Scenes per page" setting of sceneTagger (read at each fetch), 40 until it is loaded
+const perPage = () => (window.stSceneTaggerHost && window.stSceneTaggerHost.perPage && window.stSceneTaggerHost.perPage()) || 40;
 
 export default function setup(stashui) {
   if (!stashui.has("slot:list.toolbar")) return;
@@ -44,7 +45,7 @@ export default function setup(stashui) {
   stashui.addSlot("list.toolbar", {
     id: "scene-tagger",
     title: "Scene Tagger",
-    match: (ctx) => ctx.kind === "scene" && ctx.page === "scenes",
+    match: (ctx) => ctx.kind === "scene" && (ctx.page === "scenes" || ctx.page === "studio"), // also the Scenes tab of a studio page
     mount(el, ctx) {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -62,10 +63,10 @@ export default function setup(stashui) {
         async fetchIds(page) {
           const d = await stashui.gql(
             `query($f: FindFilterType, $x: SceneFilterType) { findScenes(filter: $f, scene_filter: $x) { count scenes { id } } }`,
-            { f: { q: ctx.q || undefined, page, per_page: PER_PAGE, sort: ctx.sort, direction: ctx.dir || "DESC" }, x: ctx.filter || {} }
+            { f: { q: ctx.q || undefined, page, per_page: perPage(), sort: ctx.sort, direction: ctx.dir || "DESC" }, x: ctx.filter || {} }
           );
           const r = d.findScenes;
-          return { ids: r.scenes.map((s) => s.id), page, total: Math.max(1, Math.ceil(r.count / PER_PAGE)) };
+          return { ids: r.scenes.map((s) => s.id), page, total: Math.max(1, Math.ceil(r.count / perPage())) };
         },
       };
 

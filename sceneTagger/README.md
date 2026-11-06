@@ -118,7 +118,8 @@ box; clicking the logo opens the studio's page.
 The banner is read from a `bg:<url>` line in the studio's **Details** (the
 format used by the replaceBackground plugin). Studios without one simply show
 their logo. When several studios are detected, hovering one in the list shows
-its banner and logo. Both the banner and the logo can be hidden in Settings.
+its banner and logo. A logo with a transparent background is shown without
+its dark frame. Both the banner and the logo can be hidden in Settings.
 
 ![Studio card with logo and banner](screenshots/studio-card.png)
 
@@ -134,6 +135,16 @@ JAVStash, then the other scrapers.
 An optional **Clean title in Search title** setting strips the file extension,
 dates, resolutions and punctuation from the text sent to the scraper (some
 scrapers return an error on a raw file name).
+
+### Cleaner saved titles
+
+Four independent options (Settings → Scraping) remove `[...]` and `(...)`
+groups from the title that gets saved: **names** in square brackets, **numbers
+/ resolution** in square brackets, **names** in parentheses and **numbers /
+resolution** in parentheses. A group counts as "numbers" when it only holds a
+number, a resolution, a frame rate or a size (`4K`, `1080p`, `60fps`,
+`2.5GB`); anything else is a name. A title you type by hand is applied as
+typed, and a title is never emptied (the original is kept instead).
 
 ### Stash ID scraping
 
@@ -232,6 +243,12 @@ whether the scrape failed) and by which scraper actually matched, to quickly
 focus on the scenes that need attention. Scenes you have already applied only
 show up under the filters they belong to.
 
+The **Multi-studio** button next to the filter cycles through three states
+with one click each: off, only the scenes where several studios were detected
+(blue), then everything except those scenes (red). A scene you **Skip** stays
+visible under All and under the filter it was skipped from (so you can undo
+it there), and is hidden under the other filters.
+
 ![Filter: All](screenshots/filter-all.png)
 ![Filter: New](screenshots/filter-new.png)
 ![Filter: Existing](screenshots/filter-existing.png)
@@ -248,7 +265,9 @@ never claims to be done before the answer arrives. When the result comes in,
 it fades into the scraped row. Scraped rows get a light blue tint and outline,
 applied rows a softer blue, failed ones red. The veil, the status line, the
 transition and the outline are four independent toggles (Settings → Display);
-the transition is skipped when your system asks for reduced motion.
+the transition is skipped when your system asks for reduced motion. A short
+blue halo also flashes on a row when you apply it (option **Blue halo flash
+when a scene is applied**, on by default).
 
 ![Progress veil on a row being scraped](screenshots/progress-veil.png)
 ![Failed scrape - red outline](screenshots/failed-row.png)
@@ -258,8 +277,9 @@ the transition is skipped when your system asks for reduced motion.
 - **Modern layout** (called Banner layout before 1.27.8) puts the details beside the video with the studio banner
   as a cover; **Cover card under the video** and **Details in one card** (with
   an optional two-column layout) build on it.
-- **Fullscreen panel on desktop**, also reachable from a button in the title
-  bar.
+- **Fullscreen panel on desktop** (mass list) and **Fullscreen panel on the
+  single scene page** are two separate options; the first is also reachable
+  from a button in the title bar. Compact mode takes priority over fullscreen.
 - On phones and tablets the panel goes fullscreen and the header folds with a
   chevron button (the state is remembered).
 - The Display settings are collapsible sub-groups (open/closed state is
@@ -272,9 +292,21 @@ the transition is skipped when your system asks for reduced motion.
 ### Stash UI
 
 If you use the Stash UI app, Scene Tagger works there too: a toolbar button on
-the scenes list opens the same panel, and the scene page has a solo button.
-The panel follows Stash UI's look (glass buttons, chips, readable settings).
-This relies on the `assets/stashui.js` file shipped inside the plugin package.
+the scenes list (and on a studio's Scenes tab, with that tab's filter, sort,
+search and sub-studios) opens the same panel, and the scene page has a solo
+button. The panel follows Stash UI's look (glass buttons, chips, readable
+settings). This relies on the `assets/stashui.js` file shipped inside the
+plugin package.
+
+- Stash UI lists scroll without end, so the panel loads its own pages. Click
+  the "N scenes" count at the bottom to change the **Scenes per page** value
+  (5-200, default 40) in place, or set it in Settings.
+- **Reload** starts from a clean list, as a page refresh would: applied,
+  scraped and skipped rows are all dropped and the scenes are read again,
+  without reloading the page.
+- With Stash UI's liquid glass look on, **Frosted glass panel** makes the panel
+  and its rows a more solid, more blurred glass; two sliders set the solid
+  fill (40-100 %, default 82) and the blur (0-80 px, default 40).
 
 ![Scene Tagger in the Stash UI scenes list](screenshots/stashui-list.png)
 ![Scene Tagger in the Stash UI scene page](screenshots/stashui-solo.png)
@@ -291,16 +323,17 @@ Open the gear icon on the panel header. Settings are grouped into
 - **Scraping** - the scraper chain (drag to reorder, toggle scrapers on/off;
   the block is collapsible), "Use existing URL if available", manual fallback
   on scrape failure (+ manual title sub-option, + pre-fill with the file
-  name), "Clean title in Search title"
+  name), "Clean title in Search title", and the four "Remove [..] / (..) from
+  the saved title" options
 - **Checked by default** - auto-check for new studios / performers / tags /
   details, prefer the existing studio
 - **On apply** - auto-organize on Apply
 - **Display** (all off by default unless noted)
   - Hide studio banner / Hide studio logo
   - Modern layout, Cover card under the video, Details in one card (+ two
-    columns), Fullscreen panel on desktop
+    columns), Fullscreen panel on desktop and on the single scene page
   - Progress veil, status line, smooth transition, outline around scraped
-    rows, copy icon always visible
+    rows, blue halo flash on apply (on by default), copy icon always visible
   - Cover under the thumbnail (instead of aligned with the title)
   - Full Details editor in the mass list (instead of the short preview)
   - Show the scene title instead of the file name (when it has one)
@@ -309,6 +342,8 @@ Open the gear icon on the panel header. Settings are grouped into
     acceleration values are under a collapsible "Advanced scrub settings")
   - Hide the Scene Tagger buttons on the scene page / Edit tab, and the
     Auto/Manual toggle on the scene page
+  - Stash UI only: Scenes per page, Frosted glass panel (+ solid fill and
+    blur sliders)
 - The settings panel itself can be resized: drag the bar at its bottom edge,
   double-click it to reset.
 

@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.27.13"
+version: "1.28.0"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -42,14 +42,6 @@ settings:
     description: "Comma-separated list of studio names to ignore. Ex: name1, name2, name3"
     type: STRING
 
-  # Hidden in the public build: depends on the companion plugin
-  # skExtra-Multiple-Studios-Custom, which isn't published. Uncomment
-  # if that plugin is ever published separately.
-  # autoAddOtherStudios:
-  #   displayName: "Add other artists as Other studios"
-  #   description: "If enabled, studios detected via the Artists: line but not chosen as the main studio are automatically linked as 'Other studios' (compatible with the skExtra-Multiple-Studios-Custom plugin)."
-  #   type: BOOLEAN
-
   hideStudioBanner:
     displayName: "Hide studio banner"
     description: "If enabled, the studio banner (cover) is not shown in the studio cards; the logo stays."
@@ -59,6 +51,26 @@ settings:
     displayName: "Hide studio logo"
     description: "If enabled, the studio logo is not shown in the studio cards; the banner stays."
     type: BOOLEAN
+
+  opaquePanel:
+    displayName: "Frosted glass panel"
+    description: "Stash UI with Liquid glass on only: the panel and its rows get a more solid, more blurred glass (set the two values below)."
+    type: BOOLEAN
+
+  stashuiPerPage:
+    displayName: "Scenes per page (Stash UI list)"
+    description: "Stash UI lists scroll without end, so the panel loads its own pages. 5-200, default 40."
+    type: NUMBER
+
+  glassSolid:
+    displayName: "Frosted glass - solid fill (%)"
+    description: "40-100, default 82. Higher = less see-through. Only used when Frosted glass panel is on."
+    type: NUMBER
+
+  glassBlur:
+    displayName: "Frosted glass - blur (px)"
+    description: "0-80, default 40. Only used when Frosted glass panel is on."
+    type: NUMBER
 
   coverUnderThumb:
     displayName: "Cover under the thumbnail"
@@ -165,8 +177,24 @@ settings:
     description: "If enabled, scenes are marked as organized by default when applied (overridable per scene via the 'Organized' row button)."
     type: BOOLEAN
 
+  suggestPerformers:
+    displayName: "Suggest performers"
+    description: "If enabled, the single-scene popup and the mass list show a Suggested block: performers whose name or alias appears in the scene title, file name, details or tags, with the reason and a score. Nothing is added until you press Apply."
+    type: BOOLEAN
+
+  suggestPrecheck:
+    displayName: "Pre-check high-confidence suggestions"
+    description: "If enabled, suggestions with a high score (full name in the title or file name) are checked by default. Others stay unchecked."
+    type: BOOLEAN
+
+  suggestMinScore:
+    displayName: "Suggestions - minimum score (0-100)"
+    description: "Weaker matches are hidden. Default 20; 35 and above are shown as medium, 55 and above as high."
+    type: NUMBER
+
 ui:
   javascript:
+    - performerFinder.js
     - sceneTagger.js
   css:
     - sceneTagger.css
