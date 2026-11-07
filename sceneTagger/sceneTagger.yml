@@ -129,7 +129,7 @@ settings:
 
   namePatternsGlass:
     displayName: "Frosted glass window for the file-name patterns"
-    description: "Off = the file-name patterns window is opaque. On = it is translucent, with its own two sliders (opacity and blur)."
+    description: "On (default) = the file-name patterns window is translucent, with its own two sliders (opacity and blur). Off = it is opaque."
     type: BOOLEAN
 
   namePatternsSolid:

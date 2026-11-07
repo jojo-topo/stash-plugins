@@ -1104,7 +1104,7 @@
     namePatterns: [],
     namePatternModels: [],   // the user's own "Start from" models of the patterns window (JSON, like namePatterns)
     // Frosted glass for the patterns window (opaque by default) and its own two sliders
-    namePatternsGlass: false,
+    namePatternsGlass: true,   // on by default; off = opaque window
     namePatternsSolid: 90,   // % of solid fill of the window when frosted (40-100)
     namePatternsBlur: 30,    // blur in px behind the window when frosted (0-80)
     // Strip [..] / (..) groups from the title that gets saved. Split in two:
@@ -5760,7 +5760,7 @@
     stItem("st-cfg-glass-solid", "glassSolid", "look", "Frosted glass", "range", "Solid fill", { short: "Panel opacity", lvl: 1, adv: true, par: "st-cfg-opaque-panel", min: 40, max: 100, step: 1, unit: " %", kw: "opacity solid fill" }),
     stItem("st-cfg-glass-blur", "glassBlur", "look", "Frosted glass", "range", "Blur", { lvl: 1, adv: true, par: "st-cfg-opaque-panel", min: 0, max: 80, step: 1, unit: " px" }),
     // the file-name patterns window: its own switch and sliders (opaque unless the switch is on)
-    stItem("st-cfg-name-patterns-glass", "namePatternsGlass", "look", "Frosted glass", "cb", "Frosted glass for the file-name patterns window", { short: "Frosted glass for the patterns window", hint: "Off = the patterns window (button .* in the title bar) is opaque. On = it is translucent, with the two sliders below.", kw: "transparent transparency glass blur opaque patterns regex window" }),
+    stItem("st-cfg-name-patterns-glass", "namePatternsGlass", "look", "Frosted glass", "cb", "Frosted glass for the file-name patterns window", { short: "Frosted glass for the patterns window", hint: "On (default) = the patterns window (button .* in the title bar) is translucent, with the two sliders below. Off = it is opaque.", kw: "transparent transparency glass blur opaque patterns regex window" }),
     stItem("st-cfg-np-solid", "namePatternsSolid", "look", "Frosted glass", "range", "Patterns window opacity", { short: "Window opacity", lvl: 1, adv: true, par: "st-cfg-name-patterns-glass", min: 40, max: 100, step: 1, unit: " %", kw: "opacity solid fill patterns regex window" }),
     stItem("st-cfg-np-blur", "namePatternsBlur", "look", "Frosted glass", "range", "Patterns window blur", { short: "Window blur", lvl: 1, adv: true, par: "st-cfg-name-patterns-glass", min: 0, max: 80, step: 1, unit: " px", kw: "blur patterns regex window" }),
     // Thumbnails & scrub
