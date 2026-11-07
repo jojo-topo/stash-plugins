@@ -18,6 +18,9 @@ export default function setup(stashui) {
   let fxTick = 0;
   const plugButtons = () => {
     fxTick = 0;
+    // the file-name patterns window (namePatternsUI.js) is added to <body>, outside the panel
+    const patterns = document.getElementById("st-np-ov");
+    if (patterns) patterns.querySelectorAll(".st-np-btn:not(.kb-btn), .st-np-ghost:not(.kb-btn), .st-np-chip:not(.kb-btn)").forEach((b) => b.classList.add("kb-btn"));
     const panel = document.getElementById("st-panel");
     if (!panel) return;
     panel.querySelectorAll(".st-btn:not(.kb-btn), .st-combo-btn:not(.kb-btn), .st-multi-studio-toggle:not(.kb-btn), .st-filter-item:not(.kb-btn)").forEach((b) => b.classList.add("kb-btn"));

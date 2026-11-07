@@ -630,6 +630,18 @@
   line-height: 1; transition: color 0.15s, background 0.15s;
 }
 #st-titlebar-settings:hover { color: #88c0d0; background: #88c0d01e; }
+/* File-name patterns button (the overlay itself: block "File-name patterns" at the end of this file).
+   No pseudo-element / corner dot: Stash UI uses ::before / ::after of its buttons. */
+#st-titlebar-patterns {
+  background: none; border: none;
+  border-radius: 6px;
+  color: #616975; font: 700 14px ui-monospace, Consolas, monospace; letter-spacing: -0.5px;
+  cursor: pointer; padding: 3px 7px;
+  line-height: 1.3; transition: color 0.15s, background 0.15s;
+}
+#st-titlebar-patterns:hover { color: #88c0d0; background: #88c0d01e; }
+#st-titlebar-patterns.st-np-active { color: #88c0d0; }
+#st-titlebar-patterns.st-np-open { color: #fff; background: rgba(31, 127, 199, .35); }
 
 /* ── Header ── */
 #st-panel-header {
@@ -4654,8 +4666,9 @@ html.st-sui #st-panel .st-btn:disabled { opacity: .6; }
 
 /* Stash UI skin: title bar icons (fullscreen, compact, settings, close) were #616975, almost
    invisible on the glass. Palette secondary text, white on hover. */
-html.st-sui #st-panel :is(#st-titlebar-fullscreen, #st-titlebar-compact, #st-titlebar-settings, #st-titlebar-close) { color: var(--st-tx2); }
-html.st-sui #st-panel :is(#st-titlebar-fullscreen, #st-titlebar-compact, #st-titlebar-settings, #st-titlebar-close):hover { color: #fff; }
+html.st-sui #st-panel :is(#st-titlebar-fullscreen, #st-titlebar-compact, #st-titlebar-patterns, #st-titlebar-settings, #st-titlebar-close) { color: var(--st-tx2); }
+html.st-sui #st-panel :is(#st-titlebar-fullscreen, #st-titlebar-compact, #st-titlebar-patterns, #st-titlebar-settings, #st-titlebar-close):hover { color: #fff; }
+html.st-sui #st-panel #st-titlebar-patterns.st-np-active { color: var(--pink, #88c0d0); }
 html.st-sui #st-panel #st-titlebar-close:hover { color: color-mix(in srgb, var(--st-bad) 80%, #fff); }
 
 /* Stash UI skin: the "Search title" bar (source select + query input + Search button) takes the
@@ -4971,6 +4984,43 @@ html.st-sui.kb-glass #st-panel .st-multi-studio-toggle.st-multi-exclude {
 #st-panel .st-existing-pill-perf.st-existing-removed { opacity: .55; }
 #st-panel .st-existing-pill-perf.st-existing-removed .st-perf-name { text-decoration: line-through; }
 #st-panel .st-existing-pill-perf.st-existing-removed .st-existing-remove:hover { background: #3a7; }
+
+/* gender picker of the settings ("Ignore scraped performers of these genders") */
+#st-panel .st-gender-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+#st-panel .st-gender-chip {
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  background: rgba(255, 255, 255, .06);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+#st-panel .st-gender-chip:hover { background: rgba(255, 255, 255, .12); }
+#st-panel .st-gender-chip.st-on { background: #3d8bd6; border-color: #3d8bd6; color: #fff; font-weight: 600; }
+
+/* same x on the tags already on the scene */
+#st-panel .st-existing-pill-tag { display: inline-flex; align-items: center; }
+#st-panel .st-existing-pill-tag .st-existing-remove {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .12);
+  color: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  opacity: .55;
+}
+#st-panel .st-existing-pill-tag:hover .st-existing-remove { opacity: 1; }
+#st-panel .st-existing-pill-tag .st-existing-remove:hover { background: #b44; color: #fff; }
+#st-panel .st-existing-pill-tag.st-existing-removed { opacity: .55; }
+#st-panel .st-existing-pill-tag.st-existing-removed .st-tag-name { text-decoration: line-through; }
+#st-panel .st-existing-pill-tag.st-existing-removed .st-existing-remove:hover { background: #3a7; }
 
 /* note under the name of a studio whose logo / banner come from Twitter/X (saved with Apply) */
 #st-panel .st-social-hint {
@@ -5359,3 +5409,217 @@ html.st-sui #st-panel .st-tag-item.st-tag-add:not(.st-tag-new):has(input:checked
 .st-set-chips .st-set-rstorder { padding: 3px 6px; }
 .st-set-ordbtns { display: flex; flex-direction: column; align-items: flex-start; }
 .st-set-chips .st-set-ordbtns { flex-direction: row; gap: 4px; }
+
+/* ── File-name patterns (namePatternsUI.js) ──────────────────────────────────────────────
+   Big overlay added to document.body. Everything is scoped under #st-np-ov. The window itself is
+   opaque (no glass). Accent = --np-accent (Stash UI: its pink). */
+#st-np-ov {
+  --np-accent: #1f7fc7;
+  --np-bg: #18202a;                 /* window */
+  --np-tx: #eef3f7;                 /* main text */
+  --np-tx2: #c5d0d8;                /* secondary text */
+  --np-fa: #8a9ba8;                 /* faint text */
+  --np-card: rgba(0, 0, 0, .18);    /* rows */
+  --np-field: rgba(0, 0, 0, .3);    /* inputs, preview */
+  position: fixed; inset: 0; z-index: 2147483001;
+  display: flex; justify-content: center; align-items: flex-start;
+  overflow-y: auto; padding: 28px 16px;
+  background: rgba(8, 11, 15, .62); backdrop-filter: blur(3px);
+  font: 12.5px/1.4 system-ui, "Segoe UI", sans-serif; color: var(--np-tx2);
+}
+html.st-sui #st-np-ov { --np-accent: var(--pink, #1f7fc7); }
+#st-np-ov *, #st-np-ov *::before, #st-np-ov *::after { box-sizing: border-box; }
+.st-np-modal {
+  width: min(1120px, 100%);
+  /* Solid on purpose: the window is full of text and sits over the page, so it is not transparent by default */
+  background: var(--np-bg);
+  border: 1px solid rgba(255, 255, 255, .16); border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .8); overflow: hidden;
+}
+.st-np-mh { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid rgba(255, 255, 255, .1); }
+.st-np-mh h2 { margin: 0; font-size: 15px; color: var(--np-tx); font-weight: 600; }
+.st-np-hp { font-size: 12px; color: var(--np-fa); flex: 1; min-width: 0; }
+.st-np-cl { border: 0; background: transparent; color: var(--np-tx2); font-size: 16px; cursor: pointer; width: 30px; height: 30px; border-radius: 8px; }
+.st-np-cl:hover { background: rgba(255, 255, 255, .1); }
+.st-np-sw { flex: none; width: 34px; height: 19px; border-radius: 10px; background: rgba(255, 255, 255, .18); position: relative; cursor: pointer; }
+.st-np-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #dfe6ec; transition: .15s; }
+.st-np-sw.on { background: var(--np-accent); }
+.st-np-sw.on::after { left: 17px; }
+.st-np-mb { display: grid; grid-template-columns: minmax(320px, 420px) minmax(0, 1fr); }
+@media (max-width: 820px) { .st-np-mb { grid-template-columns: 1fr; } .st-np-col + .st-np-col { border-left: 0 !important; border-top: 1px solid rgba(255, 255, 255, .08); } }
+.st-np-col { padding: 14px 18px 16px; min-width: 0; }
+.st-np-col + .st-np-col { border-left: 1px solid rgba(255, 255, 255, .08); }
+.st-np-lbl { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--np-fa); font-weight: 700; }
+.st-np-r { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.st-np-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.st-np-p { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 10px; background: var(--np-card); }
+.st-np-p.sel { border-color: var(--np-accent); background: color-mix(in srgb, var(--np-accent) 14%, transparent); }
+.st-np-p.off .st-np-info { opacity: .5; }
+.st-np-info { min-width: 0; flex: 1; cursor: pointer; }
+.st-np-top { display: flex; align-items: center; gap: 7px; }
+.st-np-tp { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; flex: none; }
+.st-np-tp.words { background: rgba(79, 133, 70, .35); color: #cfeccb; }
+.st-np-tp.text { background: rgba(31, 127, 199, .3); color: #a8d8f7; }
+.st-np-tp.regex { background: rgba(138, 95, 163, .4); color: #e6d2f2; }
+.st-np-nm { font-size: 12.5px; font-weight: 600; color: var(--np-tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-np-sm { font-size: 11.5px; color: var(--np-fa); font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.st-np-ric { margin-left: auto; display: flex; gap: 7px; align-items: center; color: var(--np-fa); flex: none; }
+.st-np-ric .w, .st-np-ric .t { color: #f0cf8a; }   /* stop the chain / writes the scraped title: worth noticing */
+.st-np-ico { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; flex: none; }
+.st-np-cond { font-size: 11.5px; color: var(--np-fa); margin-top: 4px; display: flex; gap: 6px; align-items: flex-start; line-height: 1.35; }
+.st-np-cond .st-np-ico { color: #f0cf8a; margin-top: 1px; }
+.st-np-cond em, .st-np-cbox em { font-style: normal; color: var(--np-tx); font-family: ui-monospace, Consolas, monospace; }
+.st-np-dim { color: var(--np-fa); }
+.st-np-cbtn { border: 0; background: transparent; color: #f0cf8a; font-size: 11px; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; padding: 2px 6px; margin-left: -6px; border-radius: 6px; }
+.st-np-cbtn:hover { background: rgba(255, 255, 255, .08); }
+.st-np-cbox { display: none; margin-top: 4px; border-left: 2px solid rgba(214, 160, 60, .5); padding: 2px 0 2px 10px; font-size: 11.5px; color: var(--np-fa); }
+.st-np-cbox.open { display: block; }
+.st-np-cbox div { margin: 2px 0; }
+.st-np-cbox b { font-weight: 600; color: var(--np-tx); }
+.st-np-mv { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.st-np-mv button, .st-np-x { border: 0; background: transparent; color: var(--np-fa); cursor: pointer; border-radius: 6px; font-size: 10px; line-height: 1; padding: 3px 6px; }
+.st-np-mv button:hover, .st-np-x:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.st-np-x { font-size: 13px; }
+.st-np-x.st-np-small { font-size: 11px; }
+.st-np-empty { font-size: 12px; color: var(--np-fa); font-style: italic; padding: 6px 2px; }
+.st-np-chk { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; color: var(--np-tx2); }
+.st-np-cb { width: 16px; height: 16px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, .35); display: inline-grid; place-items: center; color: transparent; font-size: 11px; flex: none; }
+.st-np-cb.on { background: var(--np-accent); border-color: var(--np-accent); color: #fff; }
+.st-np-btn { border: 0; border-radius: 999px; background: var(--np-accent); color: #fff; font-weight: 700; font-size: 12px; padding: 7px 16px; cursor: pointer; }
+.st-np-btn:disabled { background: rgba(255, 255, 255, .08); color: var(--np-fa); cursor: not-allowed; }
+.st-np-ghost { border: 1px solid rgba(255, 255, 255, .22); background: transparent; color: var(--np-tx2); font-weight: 700; font-size: 12px; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+.st-np-ghost:hover { background: rgba(255, 255, 255, .08); }
+.st-np-ghost, .st-np-btn { white-space: nowrap; flex: none; }
+.st-np-ghost:disabled { opacity: .4; cursor: not-allowed; }
+.st-np-chip.st-np-mine { padding-right: 7px; }
+.st-np-chx { margin-left: 7px; opacity: .55; font-size: 10px; }
+.st-np-chx:hover { opacity: 1; }
+.st-np-acts { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+.st-np-list + .st-np-acts { margin-top: 0; }
+.st-np-msg { font-size: 11.5px; }
+.st-np-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.st-np-chip { border: 1px solid rgba(255, 255, 255, .2); background: rgba(255, 255, 255, .04); color: var(--np-tx2); font-size: 11.5px; font-weight: 700; padding: 4px 11px; border-radius: 999px; cursor: pointer; }
+.st-np-chip:hover { background: rgba(255, 255, 255, .1); }
+.st-np-seg { display: inline-flex; border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px; padding: 3px; gap: 2px; margin-bottom: 12px; }
+.st-np-seg button { border: 0; background: transparent; color: var(--np-tx2); font-size: 12px; font-weight: 700; padding: 5px 16px; border-radius: 999px; cursor: pointer; }
+.st-np-seg button.on { background: var(--np-accent); color: #fff; }
+.st-np-f { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 9px 10px; align-items: center; font-size: 12px; }
+.st-np-f > label { color: var(--np-fa); font-weight: 600; }
+.st-np-inp, .st-np-sel, #st-np-ov textarea {
+  width: 100%; background: var(--np-field); border: 1px solid rgba(255, 255, 255, .14); border-radius: 9px;
+  padding: 7px 10px; color: var(--np-tx); font: 12.5px/1.4 system-ui, sans-serif; outline: 0;
+}
+.st-np-mono, #st-np-ov textarea { font-family: ui-monospace, Consolas, monospace; }
+.st-np-inp:focus, .st-np-sel:focus, #st-np-ov textarea:focus { border-color: var(--np-accent); }
+.st-np-sel option { background: var(--np-bg); color: var(--np-tx); }
+.st-np-hint { grid-column: 2; font-size: 11px; color: var(--np-fa); margin-top: -4px; }
+.st-np-wide { grid-column: 1 / -1; }
+.st-np-err { font-size: 11.5px; color: #ff9aa6; background: rgba(255, 107, 122, .1); border: 1px solid rgba(255, 107, 122, .3); border-radius: 8px; padding: 6px 10px; }
+.st-np-onlybox { grid-column: 1 / -1; border: 1px dashed rgba(214, 160, 60, .4); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: rgba(214, 160, 60, .05); }
+.st-np-ot { font-size: 11.5px; color: #f0cf8a; font-weight: 700; }
+.st-np-orow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; min-width: 0; }
+.st-np-ohead { font-size: 12px; color: var(--np-tx2); gap: 8px; }
+.st-np-orow .st-np-inp { flex: 1; min-width: 120px; }
+.st-np-hint0 { font-size: 11px; color: var(--np-fa); }
+.st-np-pv { margin-top: 12px; background: var(--np-field); border: 1px solid rgba(255, 255, 255, .1); border-radius: 10px; padding: 9px 12px; font-size: 12.5px; }
+.st-np-k { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--np-fa); font-weight: 700; margin-bottom: 4px; }
+.st-np-r2 { display: flex; gap: 8px; align-items: baseline; margin: 2px 0; }
+.st-np-r2 b { width: 54px; flex: none; color: var(--np-fa); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
+.st-np-old { color: var(--np-fa); text-decoration: line-through; text-decoration-color: rgba(255, 120, 130, .6); }
+.st-np-new { color: #8fd19e; font-weight: 700; }
+.st-np-same { color: var(--np-tx2); }
+.st-np-det { margin-top: 12px; font-size: 12px; color: var(--np-tx2); }
+.st-np-det summary { cursor: pointer; color: var(--np-tx2); font-weight: 700; }
+.st-np-det textarea { margin-top: 6px; }
+.st-np-note { font-size: 11.5px; color: var(--np-fa); margin-top: 8px; }
+.st-np-reftab { border-collapse: collapse; margin-top: 8px; width: 100%; }
+.st-np-reftab td { padding: 3px 8px; border-bottom: 1px solid rgba(255, 255, 255, .08); vertical-align: top; }
+.st-np-reftab code { background: rgba(255, 255, 255, .08); padding: 1px 6px; border-radius: 5px; color: #e6d2f2; font-family: ui-monospace, Consolas, monospace; }
+.st-np-test { border-top: 1px solid rgba(255, 255, 255, .1); padding: 14px 18px 18px; }
+.st-np-trow { display: flex; gap: 8px; margin-bottom: 10px; }
+.st-np-res { width: 100%; border-collapse: collapse; font-size: 12px; }
+.st-np-res th { text-align: left; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--np-fa); font-weight: 700; padding: 4px 8px; }
+.st-np-res td { padding: 8px; border-top: 1px solid rgba(255, 255, 255, .08); vertical-align: top; }
+.st-np-res tr.cur td { background: color-mix(in srgb, var(--np-accent) 12%, transparent); }
+.st-np-fnm { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--np-tx); overflow-wrap: anywhere; cursor: pointer; }
+.st-np-fire { margin-top: 4px; }
+.st-np-fc { display: inline-block; font-size: 10.5px; padding: 1px 7px; border-radius: 999px; margin: 2px 4px 2px 0; background: rgba(255, 255, 255, .07); color: var(--np-tx2); white-space: nowrap; }
+.st-np-fc.hit { background: rgba(79, 133, 70, .35); color: #cfeccb; }
+.st-np-fc.skip, .st-np-fc.warn { background: rgba(214, 160, 60, .18); color: #f0cf8a; }
+.st-np-fc.error { background: rgba(255, 107, 122, .2); color: #ff9aa6; }
+.st-np-steps { margin-top: 10px; border-top: 1px dashed rgba(255, 255, 255, .12); padding-top: 8px; font-size: 11.5px; color: var(--np-tx2); }
+.st-np-steps div { margin: 2px 0; }
+.st-np-steps i { font-style: normal; color: var(--np-fa); }
+.st-np-mf { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-top: 1px solid rgba(255, 255, 255, .1); background: rgba(0, 0, 0, .15); font-size: 12px; color: var(--np-fa); }
+
+/* Optional frosted glass (setting "Frosted glass for the patterns window", off by default). It has its own two
+   sliders, set on <body> as --st-npsolid / --st-npblur. Under Stash UI's liquid glass it keeps Stash UI's shine,
+   edge and shadow. */
+body.st-np-glass .st-np-modal {
+  background: color-mix(in srgb, var(--np-bg) var(--st-npsolid, 90%), transparent);
+  -webkit-backdrop-filter: blur(var(--st-npblur, 30px)) saturate(140%);
+  backdrop-filter: blur(var(--st-npblur, 30px)) saturate(140%);
+}
+html.st-sui.kb-glass body.st-np-glass .st-np-modal {
+  background: var(--glass-shine), color-mix(in srgb, var(--np-bg) var(--st-npsolid, 90%), transparent);
+  -webkit-backdrop-filter: blur(var(--st-npblur, 30px)) saturate(150%);
+  backdrop-filter: blur(var(--st-npblur, 30px)) saturate(150%);
+  border-color: var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Stash UI skin (html.st-sui is set by assets/stashui.js): same colors, font and corners as the panel
+   (see the "Stash UI skin" block above). Everything stays opaque unless the glass setting is on. */
+html.st-sui #st-np-ov {
+  --np-accent: var(--pink, #137cbd);
+  --np-bg: var(--base, #182026);
+  --np-tx: var(--text, #f5f8fa);
+  --np-tx2: var(--text-2, #c5d0d8);
+  --np-fa: var(--faint, #8a9ba8);
+  --np-card: var(--bg-2, #293742);
+  --np-field: var(--base, #182026);
+  font-family: var(--f-text, Bahnschrift, "Segoe UI", system-ui, sans-serif);
+}
+html.st-sui #st-np-ov .st-np-modal { border: 1px solid var(--bg-3, #394b59); border-radius: 10px; box-shadow: 0 12px 34px rgba(0, 0, 0, .45); }
+html.st-sui #st-np-ov .st-np-mf { background: transparent; }
+html.st-sui #st-np-ov .st-np-p,
+html.st-sui #st-np-ov .st-np-inp,
+html.st-sui #st-np-ov .st-np-sel,
+html.st-sui #st-np-ov textarea,
+html.st-sui #st-np-ov .st-np-pv,
+html.st-sui #st-np-ov .st-np-onlybox { border-color: var(--bg-3, #394b59); }
+html.st-sui #st-np-ov .st-np-p,
+html.st-sui #st-np-ov .st-np-inp,
+html.st-sui #st-np-ov .st-np-sel,
+html.st-sui #st-np-ov textarea,
+html.st-sui #st-np-ov .st-np-pv { border-radius: 4px; }
+html.st-sui #st-np-ov .st-np-p.sel { border-color: var(--np-accent); }
+html.st-sui #st-np-ov .st-np-btn,
+html.st-sui #st-np-ov .st-np-ghost { height: 34px; padding: 0 14px; border-radius: 4px; font-family: inherit; letter-spacing: 0; }
+html.st-sui #st-np-ov .st-np-ghost { background: color-mix(in srgb, var(--bg-2, #293742) 60%, transparent); border: 1px solid var(--bg-3, #394b59); color: var(--np-tx); }
+html.st-sui #st-np-ov .st-np-ghost:hover { border-color: var(--np-fa); background: var(--bg-3, #394b59); }
+html.st-sui #st-np-ov .st-np-chip { border-radius: 4px; border-color: var(--bg-3, #394b59); background: color-mix(in srgb, var(--bg-2, #293742) 60%, transparent); }
+html.st-sui #st-np-ov .st-np-chip:hover { background: var(--bg-3, #394b59); }
+html.st-sui #st-np-ov .st-np-seg { border-radius: 4px; border-color: var(--bg-3, #394b59); }
+html.st-sui #st-np-ov .st-np-seg button { border-radius: 3px; }
+html.st-sui #st-np-ov .st-np-tp,
+html.st-sui #st-np-ov .st-np-fc { border-radius: 4px; }
+html.st-sui #st-np-ov .st-np-res th, html.st-sui #st-np-ov .st-np-res td { border-color: var(--bg-3, #394b59); }
+html.st-sui #st-np-ov .st-np-test, html.st-sui #st-np-ov .st-np-mh, html.st-sui #st-np-ov .st-np-mf, html.st-sui #st-np-ov .st-np-col + .st-np-col { border-color: var(--bg-3, #394b59); }
+/* liquid glass of Stash UI: capsules and glass fills, like the panel */
+html.st-sui.kb-glass #st-np-ov .st-np-btn,
+html.st-sui.kb-glass #st-np-ov .st-np-ghost,
+html.st-sui.kb-glass #st-np-ov .st-np-chip,
+html.st-sui.kb-glass #st-np-ov .st-np-seg,
+html.st-sui.kb-glass #st-np-ov .st-np-seg button { border-radius: 999px; }
+html.st-sui.kb-glass #st-np-ov .st-np-btn, html.st-sui.kb-glass #st-np-ov .st-np-ghost { padding: 0 16px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); }
+html.st-sui.kb-glass #st-np-ov .st-np-ghost,
+html.st-sui.kb-glass #st-np-ov .st-np-chip { background: var(--glass-shine), color-mix(in srgb, var(--bg-3, #394b59) 38%, transparent); border-color: var(--glass-edge); }
+html.st-sui.kb-glass #st-np-ov .st-np-btn { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45); }   /* no outer glow: it looked like a blurred halo under the button */
+/* the main buttons keep the accent fill: Stash UI's .kb-btn glass would otherwise turn them into grey capsules */
+html.st-sui #st-np-ov .st-np-btn { background: var(--np-accent); border: 0; color: #fff; }
+html.st-sui #st-np-ov .st-np-btn:hover:not(:disabled) { background: var(--pink-2, var(--np-accent)); }
+html.st-sui #st-np-ov .st-np-btn:disabled { background: color-mix(in srgb, var(--bg-3, #394b59) 60%, transparent); color: var(--np-fa); box-shadow: none; }
+html.st-sui.kb-glass #st-np-ov .st-np-inp,
+html.st-sui.kb-glass #st-np-ov .st-np-sel,
+html.st-sui.kb-glass #st-np-ov textarea { border-radius: 10px; }
