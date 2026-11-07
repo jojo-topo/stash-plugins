@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.28.0"
+version: "1.29.0"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -122,6 +122,26 @@ settings:
     description: "Strips the file extension, dates, resolutions and punctuation from the text sent by 'Search title' (some scrapers like Pornhub return 404 otherwise)."
     type: BOOLEAN
 
+  namePatternsOn:
+    displayName: "Use my file-name patterns"
+    description: "Cleans the file name with your own patterns (words, text or regex) before it fills 'Search title'. Nothing is renamed. Only a pattern with 'Scraped title' ticked changes the title that Apply saves."
+    type: BOOLEAN
+
+  namePatternsGlass:
+    displayName: "Frosted glass window for the file-name patterns"
+    description: "On (default) = the file-name patterns window is translucent, with its own two sliders (opacity and blur). Off = it is opaque."
+    type: BOOLEAN
+
+  namePatternsSolid:
+    displayName: "File-name patterns window - opacity (%)"
+    description: "40-100, default 90. Higher = less see-through. Only used when the frosted glass for the patterns window is on."
+    type: NUMBER
+
+  namePatternsBlur:
+    displayName: "File-name patterns window - blur (px)"
+    description: "0-80, default 30. Only used when the frosted glass for the patterns window is on."
+    type: NUMBER
+
   nativeHoverPreview:
     displayName: "Hover preview"
     description: "If enabled, hovering a thumbnail plays a preview - Stash's own generated preview clip if one exists, otherwise the source video streamed directly (seeked 10% in). No companion plugin required."
@@ -195,6 +215,8 @@ settings:
 ui:
   javascript:
     - performerFinder.js
+    - namePatterns.js
+    - namePatternsUI.js
     - sceneTagger.js
   css:
     - sceneTagger.css

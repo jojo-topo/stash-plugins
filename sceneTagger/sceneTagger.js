@@ -746,6 +746,73 @@
     return ok.indexOf(v) !== -1 ? v : null;
   }
 
+  // "Ignore male performers" (setting skipMalePerformers): drops scraped performers whose gender is MALE.
+  // A performer with no gender from the scraper is kept. Called wherever a scrape result is stored in a row.
+  function stSkipGenders() {
+    var o = {};
+    String(pluginConfig.skipGenders || "").split(",").forEach(function (g) { g = g.trim().toUpperCase(); if (g) o[g] = true; });
+    return o;
+  }
+  function stFilterScraped(s) {
+    var sk = stSkipGenders();
+    if (s && Object.keys(sk).length && s.performers && s.performers.length) {
+      s.performers = s.performers.filter(function (p) {
+        var g = normalizeGender(p && p.gender), skip = !!(g && sk[g]);
+        if (skip && p.stored_id) (s.skippedMaleIds = s.skippedMaleIds || []).push(String(p.stored_id));
+        return !skip;
+      });
+    }
+    return s;
+  }
+
+  // Second half of "Ignore male performers": a scraped performer that matches a performer already in the
+  // database (stored_id) is judged on the gender of THAT local performer, which is usually more complete than
+  // what the scraper returns. Resolves with the same object; on any error it leaves the list as it is.
+  function stFilterLocalGender(s) {
+    var sk = stSkipGenders();
+    if (!s || !Object.keys(sk).length || !s.performers || !s.performers.length) return Promise.resolve(s);
+    var ids = s.performers.map(function (p) { return p && p.stored_id ? parseInt(p.stored_id, 10) : NaN; }).filter(function (n) { return !isNaN(n); });
+    if (!ids.length) return Promise.resolve(s);
+    return gql("PG", "query PG($ids:[Int!]){findPerformers(performer_ids:$ids,filter:{per_page:-1}){performers{id gender}}}", { ids: ids })
+      .then(function (d) {
+        var male = {};
+        (((d.findPerformers || {}).performers) || []).forEach(function (lp) { var g = normalizeGender(lp.gender); if (g && sk[g]) male[String(lp.id)] = true; });
+        s.performers = s.performers.filter(function (p) {
+          var skip = !!(p && p.stored_id && male[String(p.stored_id)]);
+          if (skip) (s.skippedMaleIds = s.skippedMaleIds || []).push(String(p.stored_id));
+          return !skip;
+        });
+        return s;
+      })
+      .catch(function () { return s; });
+  }
+
+  // Tags / performers already on the scene that Apply will take off: the x the user clicked (removed*Ids),
+  // or, with "Replace the tags/performers on the scene", whatever the scrape does not return (unless the
+  // user clicked the arrow to keep it: kept*Ids). Nothing is auto-removed when the scrape returns none.
+  function existingIsRemoved(r, kind, id) {
+    id = String(id);
+    var isTag = kind === "tag";
+    var rem = (isTag ? r.removedTagIds : r.removedPerfIds) || {};
+    var kept = (isTag ? r.keptTagIds : r.keptPerfIds) || {};
+    if (rem[id]) return true;
+    if (kept[id]) return false;
+    if (!(isTag ? pluginConfig.replaceTags : pluginConfig.replacePerformers)) return false;
+    var list = (r.scraped && (isTag ? r.scraped.tags : r.scraped.performers)) || [];
+    // A male performer the scrape did return but "Ignore male performers" left out of the row is not "missing"
+    if (!isTag && r.scraped && (r.scraped.skippedMaleIds || []).indexOf(id) !== -1) return false;
+    if (!list.length) return false;
+    return !list.some(function (x) { return x && x.stored_id && String(x.stored_id) === id; });
+  }
+  function toggleExistingRemoved(r, kind, id) {
+    id = String(id);
+    var isTag = kind === "tag";
+    var remKey = isTag ? "removedTagIds" : "removedPerfIds", keptKey = isTag ? "keptTagIds" : "keptPerfIds";
+    r[remKey] = r[remKey] || {}; r[keptKey] = r[keptKey] || {};
+    if (existingIsRemoved(r, kind, id)) { delete r[remKey][id]; r[keptKey][id] = true; return false; }
+    r[remKey][id] = true; delete r[keptKey][id]; return true;
+  }
+
   function resolvePerformer(performerOrName) {
     var p = typeof performerOrName === "string" ? { name: performerOrName } : (performerOrName || {});
     var name = p.name;
@@ -916,7 +983,7 @@
       var pids = res[1].filter(Boolean);
       var tids = res[2].filter(Boolean);
       if (pids.length || scraped.clearPerformers) inp.performer_ids = pids;
-      if (tids.length) inp.tag_ids       = tids;
+      if (tids.length || scraped.clearTags) inp.tag_ids = tids;
       if (state.rows[sceneID].markOrganized && !fieldsOnly) inp.organized = true;   // a restricted "Fields" apply never marks organized
       var sidScene = state.rows[sceneID].scene;
       if (scraped.remote_site_id && scraped._stashboxEndpoint && scraped._applyStashId) {
@@ -949,6 +1016,9 @@
     autoCheckStudio:         false,
     autoCheckPerformer:      false,
     autoCheckNewTags:        false,
+    replaceTags:             false,   // Apply: tags on the scene that the scrape does not return are removed
+    replacePerformers:       false,   // same for performers
+    skipGenders:             "",      // comma list (MALE, FEMALE, ...): scraped performers of these genders are left out of the row
     autoCheckDetails:        false,
     prioritizeExistingStudio: true,   // pre-select the studio already in the DB
     studioBlacklist:         [],      // lowercase names
@@ -1027,6 +1097,16 @@
     // Cleans the text sent by "Search title" (strips extension, dates,
     // resolutions and punctuation) - some scrapers (Pornhub) 404 on it.
     cleanSearchTitle: false,
+    // File-name patterns (namePatterns.js): clean the file name before it fills
+    // "Search title" (and, per pattern, the pre-filled manual title). OFF by default.
+    // The list is stored as JSON, like scraperChain.
+    namePatternsOn: false,
+    namePatterns: [],
+    namePatternModels: [],   // the user's own "Start from" models of the patterns window (JSON, like namePatterns)
+    // Frosted glass for the patterns window (opaque by default) and its own two sliders
+    namePatternsGlass: true,   // on by default; off = opaque window
+    namePatternsSolid: 90,   // % of solid fill of the window when frosted (40-100)
+    namePatternsBlur: 30,    // blur in px behind the window when frosted (0-80)
     // Strip [..] / (..) groups from the title that gets saved. Split in two:
     // groups holding text (names, e.g. [Redmoa]) and groups holding only a
     // number / resolution (e.g. [4K], (1080p), [60fps]).
@@ -1125,6 +1205,9 @@
           if (cfg.autoCheckStudio    !== undefined) pluginConfig.autoCheckStudio    = !!cfg.autoCheckStudio;
           if (cfg.autoCheckPerformer !== undefined) pluginConfig.autoCheckPerformer = !!cfg.autoCheckPerformer;
           if (cfg.autoCheckNewTags   !== undefined) pluginConfig.autoCheckNewTags   = !!cfg.autoCheckNewTags;
+          if (cfg.replaceTags        !== undefined) pluginConfig.replaceTags        = !!cfg.replaceTags;
+          if (cfg.replacePerformers  !== undefined) pluginConfig.replacePerformers  = !!cfg.replacePerformers;
+          if (typeof cfg.skipGenders === "string") pluginConfig.skipGenders = cfg.skipGenders;
           if (cfg.autoCheckDetails   !== undefined) pluginConfig.autoCheckDetails   = !!cfg.autoCheckDetails;
           if (cfg.prioritizeExistingStudio !== undefined) pluginConfig.prioritizeExistingStudio = !!cfg.prioritizeExistingStudio;
           if (cfg.autoAddOtherStudios !== undefined) pluginConfig.autoAddOtherStudios = !!cfg.autoAddOtherStudios;
@@ -1148,6 +1231,10 @@
           if (cfg.manualFallbackAllowTitle !== undefined) pluginConfig.manualFallbackAllowTitle = !!cfg.manualFallbackAllowTitle;
           if (cfg.manualFallbackPrefillFilename !== undefined) pluginConfig.manualFallbackPrefillFilename = !!cfg.manualFallbackPrefillFilename;
           if (cfg.cleanSearchTitle !== undefined) pluginConfig.cleanSearchTitle = !!cfg.cleanSearchTitle;
+          if (cfg.namePatternsOn !== undefined) pluginConfig.namePatternsOn = !!cfg.namePatternsOn;
+          if (cfg.namePatternsGlass !== undefined) pluginConfig.namePatternsGlass = !!cfg.namePatternsGlass;
+          if (typeof cfg.namePatternsSolid === "number") pluginConfig.namePatternsSolid = cfg.namePatternsSolid;
+          if (typeof cfg.namePatternsBlur === "number") pluginConfig.namePatternsBlur = cfg.namePatternsBlur;
           if (cfg.nativeHoverPreview !== undefined) pluginConfig.nativeHoverPreview = !!cfg.nativeHoverPreview;
           if (cfg.enableScrubControlsGrid !== undefined) pluginConfig.enableScrubControlsGrid = !!cfg.enableScrubControlsGrid;
           if (cfg.enableScrubControlsSolo !== undefined) pluginConfig.enableScrubControlsSolo = !!cfg.enableScrubControlsSolo;
@@ -1195,6 +1282,22 @@
               if (Array.isArray(parsed)) pluginConfig.scraperChain = parsed;
             } catch (e) {}
           }
+          if (cfg.namePatterns !== undefined) {
+            try {
+              var np = typeof cfg.namePatterns === "string" ? JSON.parse(cfg.namePatterns) : cfg.namePatterns;
+              if (Array.isArray(np)) {
+                pluginConfig.namePatterns = np.map(function (p) { return window.stNamePatterns ? window.stNamePatterns.normalize(p) : p; });
+              }
+            } catch (e) {}
+          }
+          if (cfg.namePatternModels !== undefined) {
+            try {
+              var npm = typeof cfg.namePatternModels === "string" ? JSON.parse(cfg.namePatternModels) : cfg.namePatternModels;
+              if (Array.isArray(npm)) {
+                pluginConfig.namePatternModels = npm.map(function (p) { return window.stNamePatterns ? window.stNamePatterns.normalize(p) : p; });
+              }
+            } catch (e) {}
+          }
           if (cfg.studioBlacklist !== undefined) {
             // Stored as a CSV string in Stash, converted to an array in memory
             var raw = typeof cfg.studioBlacklist === "string" ? cfg.studioBlacklist : (Array.isArray(cfg.studioBlacklist) ? cfg.studioBlacklist.join(",") : "");
@@ -1227,15 +1330,20 @@
     document.body.classList.toggle("st-split-existing-new", !!pluginConfig.splitExistingNew);
     document.body.classList.toggle("st-split-side", !!pluginConfig.splitSideBySide);
     document.body.classList.toggle("st-opaque", !!pluginConfig.opaquePanel);
+    document.body.classList.toggle("st-np-glass", !!pluginConfig.namePatternsGlass);
     document.body.style.setProperty("--st-gsolid", Math.min(100, Math.max(40, pluginConfig.glassSolid)) + "%");
     document.body.style.setProperty("--st-gblur", Math.min(80, Math.max(0, pluginConfig.glassBlur)) + "px");
+    document.body.style.setProperty("--st-npsolid", Math.min(100, Math.max(40, pluginConfig.namePatternsSolid)) + "%");   // patterns window
+    document.body.style.setProperty("--st-npblur", Math.min(80, Math.max(0, pluginConfig.namePatternsBlur)) + "px");
   }
 
   function savePluginConfig() {
     // Convert the blacklist array to a CSV string, the scraper chain to JSON
     var toSave = Object.assign({}, pluginConfig, {
       studioBlacklist: pluginConfig.studioBlacklist.join(", "),
-      scraperChain:    JSON.stringify(pluginConfig.scraperChain)
+      scraperChain:    JSON.stringify(pluginConfig.scraperChain),
+      namePatterns:    JSON.stringify(pluginConfig.namePatterns || []),
+      namePatternModels: JSON.stringify(pluginConfig.namePatternModels || [])
     });
     return gql("SetPluginConfig", M_SET_CONFIG, { input: toSave })
       .catch(function () {});
@@ -1404,7 +1512,7 @@
       if (manualTitleVal) { filtered.title = manualTitleVal; titleIsManual = true; }
     }
     // A title typed by hand is applied as-is (brackets kept)
-    if (filtered.title && !titleIsManual) filtered.title = stripTitleGroups(filtered.title);
+    if (filtered.title && !titleIsManual) filtered.title = scrapedTitle(filtered.title);
     // Date: solo mode has the custom calendar widget (see renderRow() /
     // buildDateFieldHTML()) - its value lives in row state, not a form
     // element. The mass list keeps the plain checkbox over the raw
@@ -1557,27 +1665,31 @@
     // p_perfs/p_tags there), even when stored_id is set.
     // Performers the user took off with the x of their pill ("Already on this scene"): dropped from the
     // list, even if the scrape brings them back. If nothing is left, the apply must send an empty list.
-    var removedPerf = r.removedPerfIds || {};
-    if (Object.keys(removedPerf).length) {
-      filtered.performers = (filtered.performers || []).filter(function (p) { return !(p.stored_id && removedPerf[String(p.stored_id)]); });
-    }
+    // Same for tags (x on the pill) and, with the "Replace the tags/performers on the scene" settings, for
+    // whatever the scrape does not return (see existingIsRemoved).
+    filtered.performers = (filtered.performers || []).filter(function (p) { return !(p.stored_id && existingIsRemoved(r, "perf", p.stored_id)); });
+    if (!filtered.performers.length) delete filtered.performers;
     var existingPerfIds = (filtered.performers || []).map(function (p) { return p.stored_id; }).filter(Boolean);
     (r.scene.performers || []).forEach(function (p) {
-      if (removedPerf[String(p.id)]) return;
+      if (existingIsRemoved(r, "perf", p.id)) return;
       if (existingPerfIds.indexOf(p.id) === -1) {
         filtered.performers = (filtered.performers || []).concat([{ stored_id: p.id, name: p.name }]);
         existingPerfIds.push(p.id);
       }
     });
-    var removedAny = (r.scene.performers || []).some(function (p) { return removedPerf[String(p.id)]; });
+    var removedAny = (r.scene.performers || []).some(function (p) { return existingIsRemoved(r, "perf", p.id); });
     if (removedAny && !(filtered.performers && filtered.performers.length)) filtered.clearPerformers = true;
     var existingTagIds = (filtered.tags || []).map(function (t) { return t.stored_id; }).filter(Boolean);
     (r.scene.tags || []).forEach(function (t) {
+      if (existingIsRemoved(r, "tag", t.id)) return;
       if (existingTagIds.indexOf(t.id) === -1) {
         filtered.tags = (filtered.tags || []).concat([{ stored_id: t.id, name: t.name }]);
         existingTagIds.push(t.id);
       }
     });
+    var tagRemovedAny = (r.scene.tags || []).some(function (t) { return existingIsRemoved(r, "tag", t.id); });
+    if (tagRemovedAny && !(filtered.tags && filtered.tags.length)) filtered.clearTags = true;
+    // A scraped tag the user took off (unchecked) stays off even if it is on the scene: only the x / Replace removes
 
     return applyFieldsFilter(filtered);
   }
@@ -2415,7 +2527,7 @@
         fields.push(
           '<div class="st-inline-field">' +
             '<label class="st-inline-label"><input type="checkbox" data-cb="title" checked> Title</label>' +
-            '<span class="st-chip st-chip-title' + (r.titleEdit ? ' st-chip-edited' : '') + '" title="Double-click to rename">' + esc(r.titleEdit || stripTitleGroups(scraped.title)) + '</span>' +
+            '<span class="st-chip st-chip-title' + (r.titleEdit ? ' st-chip-edited' : '') + '" title="Double-click to rename">' + esc(r.titleEdit || scrapedTitle(scraped.title)) + '</span>' +
           '</div>'
         );
       }
@@ -2825,16 +2937,21 @@
       // In the mass list, a field with nothing to compare (no performer /
       // no tag, neither on the scene nor scraped) keeps its original
       // compact layout instead of an empty two-part split.
-      var useSplitPerf = isSolo || (!!pluginConfig.splitExistingNew &&
+      // A row where Apply is going to TAKE OFF something already on the scene ("Replace the tags / performers",
+      // or the x) always gets the split for that field, even with the setting off: the compact layout has no
+      // place for the existing pills, so those removals would otherwise be invisible until Apply.
+      var perfRemovals = (scene.performers || []).some(function (p) { return existingIsRemoved(r, "perf", p.id); });
+      var tagRemovals = (scene.tags || []).some(function (t) { return existingIsRemoved(r, "tag", t.id); });
+      var useSplitPerf = isSolo || perfRemovals || (!!pluginConfig.splitExistingNew &&
         ((scene.performers || []).length > 0 || (scraped.performers || []).length > 0));
-      var useSplitTags = isSolo || (!!pluginConfig.splitExistingNew &&
+      var useSplitTags = isSolo || tagRemovals || (!!pluginConfig.splitExistingNew &&
         ((scene.tags || []).length > 0 || (scraped.tags || []).length > 0));
       if (useSplitPerf) {
         // ── Already on this scene (kept as-is, not checkboxes - see the
         // merge step in getCheckedScraped()) vs new from the scrape.
         var existingPerfsHTML = (scene.performers && scene.performers.length)
           ? '<div class="st-existing-pills st-existing-pills-perf">' + scene.performers.map(function (p) {
-              var rm = !!(r.removedPerfIds && r.removedPerfIds[String(p.id)]);
+              var rm = existingIsRemoved(r, "perf", p.id);
               return '<span class="st-existing-pill st-existing-pill-perf' + (rm ? ' st-existing-removed' : '') + '" data-perf-id="' + esc(p.id) + '">' +
                 (p.image_path ? '<img class="st-perf-chip-avatar" src="' + esc(p.image_path) + '">' : '') +
                 '<span class="st-perf-name">' + esc(p.name) + '</span>' +
@@ -2952,7 +3069,11 @@
         if (useSplitTags) {
           var existingTagsHTML = (scene.tags && scene.tags.length)
             ? '<div class="st-existing-pills">' + scene.tags.map(function (t) {
-                return '<span class="st-existing-pill">' + esc(t.name) + '</span>';
+                var rmT = existingIsRemoved(r, "tag", t.id);
+                return '<span class="st-existing-pill st-existing-pill-tag' + (rmT ? ' st-existing-removed' : '') + '" data-tag-id="' + esc(t.id) + '">' +
+                  '<span class="st-tag-name">' + esc(t.name) + '</span>' +
+                  '<button type="button" class="st-existing-remove" title="' + (rmT ? 'Keep on this scene' : 'Remove from this scene (on Apply)') + '">' + (rmT ? '&#8634;' : '&times;') + '</button>' +
+                '</span>';
               }).join("") + '</div>'
             : "";
           var existingTagIdSet = {};
@@ -3411,9 +3532,9 @@
           titleChip.removeEventListener("keydown", onKey);
           var text = (titleChip.textContent || "").replace(/\s+/g, " ").trim();
           if (!commit) { titleChip.textContent = before; return; }
-          if (!text || text === stripTitleGroups(scraped.title)) {
+          if (!text || text === scrapedTitle(scraped.title)) {
             delete r.titleEdit;
-            titleChip.textContent = stripTitleGroups(scraped.title);
+            titleChip.textContent = scrapedTitle(scraped.title);
             titleChip.classList.remove("st-chip-edited");
           } else {
             r.titleEdit = text;
@@ -3560,9 +3681,19 @@
           var pill = btn.closest(".st-existing-pill-perf");
           var pid = pill && pill.getAttribute("data-perf-id");
           if (!pid) return;
-          r.removedPerfIds = r.removedPerfIds || {};
-          var rm = !r.removedPerfIds[pid];
-          if (rm) r.removedPerfIds[pid] = true; else delete r.removedPerfIds[pid];
+          var rm = toggleExistingRemoved(r, "perf", pid);
+          pill.classList.toggle("st-existing-removed", rm);
+          btn.innerHTML = rm ? "&#8634;" : "&times;";
+          btn.title = rm ? "Keep on this scene" : "Remove from this scene (on Apply)";
+        });
+      });
+      el.querySelectorAll(".st-existing-pill-tag .st-existing-remove").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.preventDefault(); e.stopPropagation();
+          var pill = btn.closest(".st-existing-pill-tag");
+          var tid = pill && pill.getAttribute("data-tag-id");
+          if (!tid) return;
+          var rm = toggleExistingRemoved(r, "tag", tid);
           pill.classList.toggle("st-existing-removed", rm);
           btn.innerHTML = rm ? "&#8634;" : "&times;";
           btn.title = rm ? "Keep on this scene" : "Remove from this scene (on Apply)";
@@ -4247,7 +4378,9 @@
       // Pre-fill the manual title with the file name (extension stripped)
       // so the user starts from something editable instead of an empty field.
       if (pluginConfig.manualFallbackAllowTitle && pluginConfig.manualFallbackPrefillFilename && !r.manualTitle && r.scene) {
-        r.manualTitle = getFilename(r.scene).replace(/^.*[\\\/]/, "").replace(/\.[A-Za-z0-9]{1,5}$/, "");
+        var manualFile = getFilename(r.scene).replace(/^.*[\\\/]/, "");
+        var manualPat = applyNamePatterns(manualFile, "manual", false);   // file-name patterns that apply to Manual title
+        r.manualTitle = manualPat !== null ? manualPat : manualFile.replace(/\.[A-Za-z0-9]{1,5}$/, "");
       }
       applyOrganizedAutoDefault(r);
     } else {
@@ -4285,6 +4418,79 @@
     return t || orig;
   }
 
+  // File-name patterns (namePatterns.js): cleans a file name / title with the user's patterns
+  // BEFORE cleanSearchQuery. Returns the cleaned text, or null when nothing was changed or the
+  // feature is off / the module is missing (callers then keep their usual behaviour).
+  // Only used for text sceneTagger fills in itself (the Search title field, the pre-filled
+  // manual title): never for text typed by hand, never for Scrape All. Nothing is renamed
+  // and nothing is written in Stash.
+  function applyNamePatterns(text, target, isTitle) {
+    var NP = window.stNamePatterns;
+    if (!NP || !pluginConfig.namePatternsOn || !pluginConfig.namePatterns || !pluginConfig.namePatterns.length) return null;
+    try {
+      var res = NP.run(text, pluginConfig.namePatterns, target, { noExt: !!isTitle });
+      for (var i = 0; i < res.trace.length; i++) if (res.trace[i].st === "hit") return res.out;
+    } catch (e) { console.warn("[sceneTagger] file-name patterns failed:", e); }
+    return null;
+  }
+
+  // The title the scraper returned, as it is shown and saved: [..] / (..) groups removed per the settings,
+  // then the patterns that have "Scraped title" ticked (only when the feature is on). A title edited by hand
+  // never goes through here. This is the one place where the patterns change what Apply saves in Stash.
+  function scrapedTitle(title) {
+    var s = stripTitleGroups(title);
+    var p = applyNamePatterns(s, "title", true);
+    return p ? p : s;
+  }
+
+  // Title-bar ".*" button: opens the "File-name patterns" overlay (namePatternsUI.js). The overlay
+  // only talks to sceneTagger through this host object. The button goes dim-grey when the feature is
+  // off or no pattern is active, and is hidden if one of the two modules is missing.
+  function bindNamePatterns() {
+    var btn = document.getElementById("st-titlebar-patterns");
+    if (!btn) return;
+    var NP = window.stNamePatterns, UI = window.stNamePatternsUI;
+    if (!NP || !UI) { btn.style.display = "none"; return; }
+    function refresh() {
+      var on = !!pluginConfig.namePatternsOn && (pluginConfig.namePatterns || []).some(function (p) { return p.on !== false; });
+      btn.classList.toggle("st-np-active", on);
+      btn.classList.toggle("st-np-open", UI.isOpen());
+      btn.title = "File-name patterns (" + (on ? "on" : "off") + ")";
+    }
+    var host = {
+      getPatterns: function () { return pluginConfig.namePatterns || []; },
+      setPatterns: function (list) {
+        pluginConfig.namePatterns = list.map(function (p) { return NP.normalize(p); });
+        savePluginConfig();
+      },
+      getModels: function () { return pluginConfig.namePatternModels || []; },
+      setModels: function (list) {
+        pluginConfig.namePatternModels = list.map(function (p) { return NP.normalize(p); });
+        savePluginConfig();
+      },
+      isOn: function () { return !!pluginConfig.namePatternsOn; },
+      setOn: function (v) {
+        pluginConfig.namePatternsOn = !!v;
+        savePluginConfig();
+        var cb = document.getElementById("st-cfg-name-patterns");
+        if (cb) cb.checked = !!v;
+      },
+      sampleNames: function () {
+        return (state.scenes || []).map(function (s) { return getFilename(s).replace(/^.*[\\\/]/, ""); });
+      },
+      finalSearch: function (t) { return pluginConfig.cleanSearchTitle ? cleanSearchQuery(t) : t; },
+      onChange: refresh,
+      onClose: refresh
+    };
+    btn.addEventListener("click", function () {
+      if (UI.isOpen()) UI.close(); else UI.open(host);
+      refresh();
+    });
+    var cb = document.getElementById("st-cfg-name-patterns");
+    if (cb) cb.addEventListener("change", refresh);
+    refresh();
+  }
+
   function cleanSearchQuery(s) {
     return String(s || "")
       .replace(/\.[A-Za-z0-9]{2,4}$/, "")
@@ -4308,7 +4514,10 @@
       // empty r.titleSearchQuery and bails out on a totally untouched
       // field (confirmed session 2026-09-16: clicking Search did nothing).
       if (!r.titleSearchQuery) {
-        r.titleSearchQuery = r.scene.title || getFilename(r.scene);
+        var patIsTitle = !!r.scene.title;
+        var patBase = patIsTitle ? r.scene.title : getFilename(r.scene);
+        var patOut = applyNamePatterns(patBase, "search", patIsTitle);   // file-name patterns (off by default)
+        r.titleSearchQuery = patOut !== null ? patOut : patBase;
         if (pluginConfig.cleanSearchTitle) r.titleSearchQuery = cleanSearchQuery(r.titleSearchQuery);
       }
     }
@@ -4353,9 +4562,12 @@
     var stashBoxes = getSearchScrapers();
     var box = stashBoxes.filter(function (s) { return s.id === r.titleSearchScraperID; })[0] || stashBoxes[0];
 
-    function finish(scraped) {
+    function finish(scrapedIn) {
+      stFilterLocalGender(scrapedIn).then(function (scraped) { finishNow(scraped); });
+    }
+    function finishNow(scraped) {
       r.status = "scraped";
-      r.scraped = scraped;
+      r.scraped = stFilterScraped(scraped);
       r.matchedScraperID = box ? box.id : r.titleSearchScraperID;
       r.matchedScraperName = (box ? box.name : "Search") + " (search by title)";
       r.viaTitleSearch = true;
@@ -4396,7 +4608,7 @@
   window.stScrapeOne = function (id) {
     var r = state.rows[id];
     if (!r) return;
-    r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false; r.viaTitleSearch = false; r.bulkOnly = false; r.viaStashId = false;
+    r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false; r.viaTitleSearch = false; r.bulkOnly = false; r.viaStashId = false; r.keptTagIds = null; r.keptPerfIds = null;
     progStart(id);
     renderRow(id);
     updateStatus("Scraping " + getFilename(r.scene) + "...");
@@ -4408,12 +4620,13 @@
     }
 
     scrapeOneEffective(id)
+      .then(function (res) { return stFilterLocalGender(res && res.scraped).then(function () { return res; }); })
       .then(function (res) { return studioSocialForScrape(id, res).then(function () { return res; }); })
       .then(function (res) { return waitForFaceScan(id).then(function () { return res; }); })
       .then(function (res) { return progFinish(id).then(function () { return res; }); })
       .then(function (res) {
         if (!res.scraped) { handleScrapeFailure(r, "No result"); }
-        else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; applyOrganizedAutoDefault(r); }
+        else               { r.status = "scraped"; r.scraped = stFilterScraped(res.scraped); r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; applyOrganizedAutoDefault(r); }
         renderRow(id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
         progReveal(id);
         if (r.status === "scraped") { refreshStudioAliasBadges(id); fetchStoredPerformerImages(id); }
@@ -4711,16 +4924,17 @@
 
       updateProgress(i, todo.length);
       updateStatus("Scraping " + (i + 1) + "/" + todo.length + " : " + getFilename(scene));
-      r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false; r.viaTitleSearch = false; r.bulkOnly = false; r.viaStashId = false;
+      r.status = "scraping"; r.scraped = null; r.msg = ""; r.matchedScraperName = null; r.matchedScraperID = null; r.manualFallback = false; r.viaTitleSearch = false; r.bulkOnly = false; r.viaStashId = false; r.keptTagIds = null; r.keptPerfIds = null;
       progStart(scene.id);
       renderRow(scene.id);
 
       scrapeOneEffective(scene.id)
+        .then(function (res) { return stFilterLocalGender(res && res.scraped).then(function () { return res; }); })
         .then(function (res) { return studioSocialForScrape(scene.id, res).then(function () { return res; }); })
         .then(function (res) { return progFinish(scene.id).then(function () { return res; }); })
         .then(function (res) {
           if (!res.scraped) { handleScrapeFailure(r, "No result"); }
-          else               { r.status = "scraped"; r.scraped = res.scraped; r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; applyOrganizedAutoDefault(r); }
+          else               { r.status = "scraped"; r.scraped = stFilterScraped(res.scraped); r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; applyOrganizedAutoDefault(r); }
           renderRow(scene.id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
           progReveal(scene.id);
           if (r.status === "scraped") { refreshStudioAliasBadges(scene.id); fetchStoredPerformerImages(scene.id); }
@@ -4769,7 +4983,7 @@
     if (!fieldOn("date")) delete f.date;
     if (!fieldOn("studio")) { delete f.studio; delete f.otherStudioNames; delete f.studioSocial; delete f.sceneStudioSocial; }
     if (!fieldOn("performers")) { delete f.performers; delete f.clearPerformers; }
-    if (!fieldOn("tags")) delete f.tags;
+    if (!fieldOn("tags")) { delete f.tags; delete f.clearTags; }
     if (!fieldOn("details")) { delete f.details; delete f.code; delete f.director; }
     if (!fieldOn("urls")) delete f.urls;
     if (!fieldOn("cover")) delete f.image;
@@ -5488,6 +5702,7 @@
     stItem("st-cfg-manual-fallback-title", "manualFallbackAllowTitle", "scrape", "When scraping fails", "cb", "Allow manual title", { lvl: 1, par: "st-cfg-manual-fallback" }),
     stItem("st-cfg-manual-fallback-prefill", "manualFallbackPrefillFilename", "scrape", "When scraping fails", "cb", "Pre-fill title with file name", { lvl: 1, par: "st-cfg-manual-fallback-title", kw: "filename" }),
     stItem("st-cfg-clean-search", "cleanSearchTitle", "scrape", "Search & saved title", "cb", "Clean title in \"Search title\" (strip dates, resolution, punctuation)", { short: "Clean the search text", hint: "Strips the extension, dates, resolutions and punctuation before searching (some scrapers 404 on it).", kw: "search title pornhub" }),
+    stItem("st-cfg-name-patterns", "namePatternsOn", "scrape", "Search & saved title", "cb", "Clean file names with my patterns (words, text or regex)", { short: "Use my file-name patterns", hint: "Cleans the file name before it fills \"Search title\" (and, for the patterns that ask for it, the pre-filled manual title). Nothing is renamed. Only a pattern with \"Scraped title\" ticked changes the title that Apply saves.", kw: "regex pattern file name filename clean remove words" }),
     stItem("st-cfg-strip-br-names", "stripBracketNames", "scrape", "Search & saved title", "cb", "Remove [names] from the saved title", { kw: "bracket brackets title" }),
     stItem("st-cfg-strip-br-nums", "stripBracketNumbers", "scrape", "Search & saved title", "cb", "Remove [numbers / resolution] (4K, 1080p, 60fps) from the saved title", { short: "Remove [4K, 1080p, 60fps] from the saved title", kw: "bracket resolution" }),
     stItem("st-cfg-strip-pa-names", "stripParenNames", "scrape", "Search & saved title", "cb", "Remove (names) from the saved title", { kw: "parenthesis parentheses title" }),
@@ -5503,6 +5718,9 @@
     stItem("st-cfg-studio", "autoCheckStudio", "apply", "Pre-checked after a scrape", "cb", "Auto-check new studios", { short: "Pre-check new studios", kw: "auto-check precheck" }),
     stItem("st-cfg-performer", "autoCheckPerformer", "apply", "Pre-checked after a scrape", "cb", "Auto-check new performers", { short: "Pre-check new performers", kw: "auto-check precheck" }),
     stItem("st-cfg-tags", "autoCheckNewTags", "apply", "Pre-checked after a scrape", "cb", "Auto-check new tags", { short: "Pre-check new tags", kw: "auto-check precheck" }),
+    stItem("st-cfg-replace-tags", "replaceTags", "apply", "Stay in sync with the scrape", "cb", "Replace the tags on the scene", { hint: "On Apply, tags already on the scene that the scrape does not return are removed (struck through in the row, click the arrow to keep one). Only when the scrape returns at least one tag.", kw: "replace remove sync overwrite stashbox" }),
+    stItem("st-cfg-replace-performers", "replacePerformers", "apply", "Stay in sync with the scrape", "cb", "Replace the performers on the scene", { hint: "On Apply, performers already on the scene that the scrape does not return are removed (struck through in the row, click the arrow to keep one). Only when the scrape returns at least one performer.", kw: "replace remove sync overwrite stashbox" }),
+    stItem("st-cfg-skip-genders", "skipGenders", "apply", "Stay in sync with the scrape", "genders", "Ignore scraped performers of these genders", { hint: "Scraped performers of the genders you pick are left out of the row (nothing to tick, nothing created). A performer already in your database is judged on the gender of its own record, otherwise on the one the scraper returns; a performer with no known gender is kept. Performers already on the scene are not removed by this.", kw: "gender male female trans non-binary intersex exclude skip" }),
     stItem("st-cfg-details", "autoCheckDetails", "apply", "Pre-checked after a scrape", "cb", "Auto-check details", { short: "Pre-check details", kw: "auto-check precheck" }),
     stItem("st-cfg-mark-organized", "autoMarkOrganized", "apply", "Apply & Skip", "cb", "Auto-organize on Apply", { short: "Mark as organized on Apply", kw: "organized auto-organize" }),
     stItem("st-cfg-eject-skipped", "ejectSkipped", "apply", "Apply & Skip", "cb", "Eject skipped scenes from the list (Skip removes the row)", { short: "Skip removes the row from the list", kw: "skip eject remove" }),
@@ -5535,6 +5753,10 @@
     stItem("st-cfg-opaque-panel", "opaquePanel", "look", "Frosted glass", "cb", "Frosted glass panel (Stash UI liquid glass only)", { short: "Frosted glass panel", hint: "Stash UI liquid glass only.", kw: "opaque blur translucent" }),
     stItem("st-cfg-glass-solid", "glassSolid", "look", "Frosted glass", "range", "Solid fill", { short: "Panel opacity", lvl: 1, adv: true, par: "st-cfg-opaque-panel", min: 40, max: 100, step: 1, unit: " %", kw: "opacity solid fill" }),
     stItem("st-cfg-glass-blur", "glassBlur", "look", "Frosted glass", "range", "Blur", { lvl: 1, adv: true, par: "st-cfg-opaque-panel", min: 0, max: 80, step: 1, unit: " px" }),
+    // the file-name patterns window: its own switch and sliders (opaque unless the switch is on)
+    stItem("st-cfg-name-patterns-glass", "namePatternsGlass", "look", "Frosted glass", "cb", "Frosted glass for the file-name patterns window", { short: "Frosted glass for the patterns window", hint: "On (default) = the patterns window (button .* in the title bar) is translucent, with the two sliders below. Off = it is opaque.", kw: "transparent transparency glass blur opaque patterns regex window" }),
+    stItem("st-cfg-np-solid", "namePatternsSolid", "look", "Frosted glass", "range", "Patterns window opacity", { short: "Window opacity", lvl: 1, adv: true, par: "st-cfg-name-patterns-glass", min: 40, max: 100, step: 1, unit: " %", kw: "opacity solid fill patterns regex window" }),
+    stItem("st-cfg-np-blur", "namePatternsBlur", "look", "Frosted glass", "range", "Patterns window blur", { short: "Window blur", lvl: 1, adv: true, par: "st-cfg-name-patterns-glass", min: 0, max: 80, step: 1, unit: " px", kw: "blur patterns regex window" }),
     // Thumbnails & scrub
     stItem("st-cfg-native-hover", "nativeHoverPreview", "thumbs", "Preview", "cb", "Thumbnail hover preview", { kw: "hover video preview" }),
     stItem("st-cfg-scrub-enable-grid", "enableScrubControlsGrid", "thumbs", "Scrub", "cb", "Enable scrub controls - mass scrape panel", { short: "Scrub controls in the mass panel", kw: "wheel seek" }),
@@ -5555,12 +5777,17 @@
 
   function stSetIcon(path) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="' + path + '"/></svg>'; }
 
+  var ST_GENDERS = [["MALE", "Male"], ["FEMALE", "Female"], ["TRANSGENDER_MALE", "Trans male"], ["TRANSGENDER_FEMALE", "Trans female"], ["INTERSEX", "Intersex"], ["NON_BINARY", "Non-binary"]];
+
   function stControlHTML(it) {
     var a;
     switch (it.t) {
       case "cb": return '<label class="st-sw"><input type="checkbox" id="' + it.id + '"><i></i></label>';
       case "num": return '<input class="st-sr-num" type="number" id="' + it.id + '"' + (it.min != null ? ' min="' + it.min + '"' : "") + (it.max != null ? ' max="' + it.max + '"' : "") + ' step="' + (it.step || 1) + '">';
       case "range": return '<span class="st-sr-rng"><input type="range" id="' + it.id + '" min="' + it.min + '" max="' + it.max + '" step="' + it.step + '"><span id="' + it.id + '-out"></span></span>';
+      case "genders":
+        return '<input type="hidden" id="' + it.id + '">' +
+          '<div class="st-gender-chips" data-for="' + it.id + '">' + ST_GENDERS.map(function (g) { return '<button type="button" class="st-gender-chip" data-g="' + g[0] + '">' + g[1] + '</button>'; }).join("") + '</div>';
       case "text": return '<input class="st-sr-txt" type="text" id="' + it.id + '"' + (it.ph ? ' placeholder="' + it.ph + '"' : "") + '>';
       case "num3": a = it.fields.map(function (f) { return '<label>' + f.l + ' <input class="st-sr-num" type="number" id="' + f.id + '" min="' + it.min + '" step="' + it.step + '"></label>'; }); return '<span class="st-sr-n3">' + a.join("") + '</span>';
       case "chain":
@@ -5575,7 +5802,7 @@
   }
 
   function stRowHTML(it) {
-    var label = it.short || it.label, blk = (it.t === "text" || it.t === "chain" || it.t === "blacklist" || it.t === "num3");
+    var label = it.short || it.label, blk = (it.t === "text" || it.t === "chain" || it.t === "blacklist" || it.t === "num3" || it.t === "genders");
     var resettable = stItemFields(it).length > 0;
     var kw = [it.label, it.short || "", it.hint || "", it.kw || "", it.grp, (ST_SET_CATS.filter(function (c) { return c.id === it.cat; })[0] || {}).name || "", it.needs || ""].join(" ").toLowerCase();
     var firstId = it.t === "chain" || it.t === "blacklist" ? "" : stItemFields(it)[0].id;
@@ -5891,6 +6118,7 @@
         '<div id="st-titlebar-actions">' +
           '<button id="st-titlebar-fullscreen" title="Fullscreen"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>' +
           '<button id="st-titlebar-compact" title="Compact mode">&#8644;&#xFE0E;</button>' +
+          '<button id="st-titlebar-patterns" title="File-name patterns">.*</button>' +
           '<button id="st-titlebar-settings" title="Settings">&#9881;&#xFE0E;</button>' +
           '<button id="st-titlebar-close" title="Close">&#10005;</button>' +
         '</div>' +
@@ -6347,6 +6575,7 @@
     document.getElementById("st-btn-skip-all").addEventListener("click", skipAll);
     bindBulk();
     bindFields();
+    bindNamePatterns();
     document.getElementById("st-btn-clear").addEventListener("click", function () {
       state.scenes.forEach(function (scene) {
         var r = state.rows[scene.id];
@@ -6620,6 +6849,8 @@
     }
     bindSettingRange("st-cfg-glass-solid", "glassSolid", " %");
     bindSettingRange("st-cfg-glass-blur",  "glassBlur",  " px");
+    bindSettingRange("st-cfg-np-solid",    "namePatternsSolid", " %");
+    bindSettingRange("st-cfg-np-blur",     "namePatternsBlur",  " px");
     bindSettingCb("st-cfg-cover-under-thumb",   "coverUnderThumb");
     bindSettingCb("st-cfg-details-editor",      "detailsEditorInList");
     bindSettingCb("st-cfg-scene-title-header",  "showSceneTitleInHeader");
@@ -6649,12 +6880,35 @@
       if (el) el.addEventListener("change", function () { Object.keys(state.rows).forEach(function (rid) { renderRow(rid); }); });
     });
     bindSettingCb("st-cfg-tags",                "autoCheckNewTags");
+    bindSettingCb("st-cfg-replace-tags",        "replaceTags");
+    bindSettingCb("st-cfg-replace-performers",  "replacePerformers");
+    (function () {   // gender chips: the hidden input holds the comma list (the settings reset also goes through it)
+      var inp = document.getElementById("st-cfg-skip-genders"), box = document.querySelector('.st-gender-chips[data-for="st-cfg-skip-genders"]');
+      if (!inp || !box) return;
+      function draw() {
+        var on = stSkipGenders();
+        box.querySelectorAll(".st-gender-chip").forEach(function (b) { b.classList.toggle("st-on", !!on[b.getAttribute("data-g")]); });
+      }
+      inp.value = pluginConfig.skipGenders || "";
+      draw();
+      inp.addEventListener("change", function () { pluginConfig.skipGenders = inp.value; savePluginConfig(); draw(); });
+      box.addEventListener("click", function (e) {
+        var b = e.target.closest ? e.target.closest(".st-gender-chip") : null; if (!b) return;
+        var on = stSkipGenders(), g = b.getAttribute("data-g");
+        if (on[g]) delete on[g]; else on[g] = true;
+        pluginConfig.skipGenders = ST_GENDERS.map(function (x) { return x[0]; }).filter(function (k) { return on[k]; }).join(",");
+        inp.value = pluginConfig.skipGenders;
+        savePluginConfig(); draw();
+      });
+    })();
     bindSettingCb("st-cfg-details",             "autoCheckDetails");
     bindSettingCb("st-cfg-mark-organized",      "autoMarkOrganized");
     bindSettingCb("st-cfg-manual-fallback",       "manualFallbackOnFail");
     bindSettingCb("st-cfg-manual-fallback-title", "manualFallbackAllowTitle");
     bindSettingCb("st-cfg-manual-fallback-prefill", "manualFallbackPrefillFilename");
     bindSettingCb("st-cfg-clean-search",          "cleanSearchTitle");
+    bindSettingCb("st-cfg-name-patterns",         "namePatternsOn");
+    bindSettingCb("st-cfg-name-patterns-glass",   "namePatternsGlass");
     bindSettingCb("st-cfg-strip-br-names",        "stripBracketNames");
     bindSettingCb("st-cfg-strip-br-nums",         "stripBracketNumbers");
     bindSettingCb("st-cfg-strip-pa-names",        "stripParenNames");
