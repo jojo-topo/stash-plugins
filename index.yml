@@ -5,15 +5,15 @@
 - id: sceneTagger
   name: Scene Tagger
   description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-  version: "1.28.0"
-  date: "2026-11-06 12:14:07"
+  version: "1.29.0"
+  date: "2026-11-07 14:08:56"
   path: sceneTagger.zip
-  sha256: 95ae2d70fae0bb1e03d21c5bb8867723a3efa579c68b0c30b72c37148eae92c0
+  sha256: 05f4aeb2a224bbe4453b45ff2428eb7b9eef0881a77a478959235777e82be0e5
 
 - id: imageTagger
   name: Image Tagger
   description: "Bulk scraping panel for images — uses scrapeSingleImage"
   version: "7.2.3"
-  date: "2026-11-06 12:14:07"
+  date: "2026-11-07 14:08:56"
   path: imageTagger.zip
-  sha256: "038ecda172043ec8e60c99dba662d741b52898a026db5c9f28e8e648c86102c0"
+  sha256: "c58abf6f6b03d74016d366c4c9913c0790a134dae2eb379c27a586e64c88b725"
