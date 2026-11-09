@@ -152,7 +152,9 @@
       if (p.type === "words") {
         var w = String(p.words || "").split(/[,\n]/).map(function (x) { return x.trim(); }).filter(Boolean);
         if (!w.length) return { err: "Type at least one word, separated by commas." };
-        return { re: new RegExp("(?<![A-Za-z0-9])(?:" + w.map(esc).join("|") + ")(?![A-Za-z0-9])", "gi"), repl: " " };
+        // A word alone inside [..] or (..) goes with its brackets ("[4K]" leaves no empty "[]").
+        var alt = w.map(esc).join("|");
+        return { re: new RegExp("\\[\\s*(?:" + alt + ")\\s*\\]|\\(\\s*(?:" + alt + ")\\s*\\)|(?<![A-Za-z0-9])(?:" + alt + ")(?![A-Za-z0-9])", "gi"), repl: " " };
       }
       if (p.type === "text") {
         var mode = p.mode || "exact";

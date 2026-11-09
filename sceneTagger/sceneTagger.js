@@ -1110,6 +1110,7 @@
     // Strip [..] / (..) groups from the title that gets saved. Split in two:
     // groups holding text (names, e.g. [Redmoa]) and groups holding only a
     // number / resolution (e.g. [4K], (1080p), [60fps]).
+    stripStudioName:           false,
     stripBracketNames:         false,
     stripBracketNumbers:       false,
     stripParenNames:           false,
@@ -1258,7 +1259,7 @@
           if (cfg.hideToolbarButton !== undefined) pluginConfig.hideToolbarButton = !!cfg.hideToolbarButton;
           if (cfg.hideEditButton !== undefined) pluginConfig.hideEditButton = !!cfg.hideEditButton;
           if (cfg.fullscreenOnDesktop !== undefined) pluginConfig.fullscreenOnDesktop = !!cfg.fullscreenOnDesktop;
-          ["stripBracketNames", "stripBracketNumbers", "stripParenNames", "stripParenNumbers"].forEach(function (k) {
+          ["stripStudioName", "stripBracketNames", "stripBracketNumbers", "stripParenNames", "stripParenNumbers"].forEach(function (k) {
             if (cfg[k] !== undefined) pluginConfig[k] = !!cfg[k];
           });
           if (cfg.fullscreenSolo !== undefined) pluginConfig.fullscreenSolo = !!cfg.fullscreenSolo;
@@ -1512,7 +1513,7 @@
       if (manualTitleVal) { filtered.title = manualTitleVal; titleIsManual = true; }
     }
     // A title typed by hand is applied as-is (brackets kept)
-    if (filtered.title && !titleIsManual) filtered.title = scrapedTitle(filtered.title);
+    if (filtered.title && !titleIsManual) filtered.title = scrapedTitle(filtered.title, r, scraped);
     // Date: solo mode has the custom calendar widget (see renderRow() /
     // buildDateFieldHTML()) - its value lives in row state, not a form
     // element. The mass list keeps the plain checkbox over the raw
@@ -2527,7 +2528,7 @@
         fields.push(
           '<div class="st-inline-field">' +
             '<label class="st-inline-label"><input type="checkbox" data-cb="title" checked> Title</label>' +
-            '<span class="st-chip st-chip-title' + (r.titleEdit ? ' st-chip-edited' : '') + '" title="Double-click to rename">' + esc(r.titleEdit || scrapedTitle(scraped.title)) + '</span>' +
+            '<span class="st-chip st-chip-title' + (r.titleEdit ? ' st-chip-edited' : '') + '" title="Double-click to rename">' + esc(r.titleEdit || scrapedTitle(scraped.title, r, scraped)) + '</span>' +
           '</div>'
         );
       }
@@ -3532,9 +3533,9 @@
           titleChip.removeEventListener("keydown", onKey);
           var text = (titleChip.textContent || "").replace(/\s+/g, " ").trim();
           if (!commit) { titleChip.textContent = before; return; }
-          if (!text || text === scrapedTitle(scraped.title)) {
+          if (!text || text === scrapedTitle(scraped.title, r, scraped)) {
             delete r.titleEdit;
-            titleChip.textContent = scrapedTitle(scraped.title);
+            titleChip.textContent = scrapedTitle(scraped.title, r, scraped);
             titleChip.classList.remove("st-chip-edited");
           } else {
             r.titleEdit = text;
@@ -4290,6 +4291,28 @@
     });
   }
 
+  // Middle-click on a performer pill (already on the scene, suggested, or just added) opens the performer's
+  // page in a new tab. Only the pill body counts: the x / undo buttons keep their own click.
+  (function wirePerformerMiddleClick() {
+    function perfIdOf(el) {
+      var pill = el.closest && el.closest(".st-existing-pill-perf, .st-sugg-chip, .st-perf-added-chip");
+      if (!pill || el.closest("button")) return null;
+      var id = pill.getAttribute("data-perf-id") || pill.getAttribute("data-sugg-id") || "";
+      return /^\d+$/.test(id) ? id : null;
+    }
+    document.addEventListener("mousedown", function (e) {
+      if (e.button === 1 && perfIdOf(e.target)) e.preventDefault();   // no browser auto-scroll
+    }, true);
+    document.addEventListener("auxclick", function (e) {
+      if (e.button !== 1) return;
+      var id = perfIdOf(e.target);
+      if (!id) return;
+      e.preventDefault(); e.stopPropagation();
+      var inStashUI = location.pathname.indexOf("/plugin/stashui") !== -1;
+      window.open(inStashUI ? location.origin + location.pathname + "#/performer/" + id : location.origin + "/performers/" + id, "_blank", "noopener");
+    }, true);
+  })();
+
   // Shared hover-preview wiring for any container holding .st-perf-chip-avatar
   // images (the confirmed-performer chips AND the scraped-performers
   // checkbox grid both use it) - one reusable floating <img>, repositioned
@@ -4437,8 +4460,21 @@
   // The title the scraper returned, as it is shown and saved: [..] / (..) groups removed per the settings,
   // then the patterns that have "Scraped title" ticked (only when the feature is on). A title edited by hand
   // never goes through here. This is the one place where the patterns change what Apply saves in Stash.
-  function scrapedTitle(title) {
-    var s = stripTitleGroups(title);
+  // Option "Remove the studio name from the saved title": a [..] or (..) group that is only the studio name
+  // (case, spaces, "_", "-" and "." ignored) goes. The studio is the scraped one, else the one already on the scene.
+  function stripStudioName(title, r, scraped) {
+    if (!pluginConfig.stripStudioName) return title;
+    var name = (scraped && scraped.studio && scraped.studio.name) || (r && r.scene && r.scene.studio && r.scene.studio.name) || "";
+    var norm = function (x) { return String(x || "").toLowerCase().replace(/[\s._-]+/g, ""); };
+    var key = norm(name);
+    if (!key) return title;
+    var out = String(title || "").replace(/\[([^\[\]]*)\]|\(([^()]*)\)/g, function (m, a, b) {
+      return norm(a != null ? a : b) === key ? " " : m;
+    }).replace(/\s{2,}/g, " ").trim();
+    return out || title;   // never an empty title
+  }
+  function scrapedTitle(title, r, scraped) {
+    var s = stripTitleGroups(stripStudioName(title, r, scraped));
     var p = applyNamePatterns(s, "title", true);
     return p ? p : s;
   }
@@ -4477,6 +4513,9 @@
       },
       sampleNames: function () {
         return (state.scenes || []).map(function (s) { return getFilename(s).replace(/^.*[\\\/]/, ""); });
+      },
+      sampleTitles: function () {
+        return (state.scenes || []).map(function (s) { return String(s.title || "").trim(); });
       },
       finalSearch: function (t) { return pluginConfig.cleanSearchTitle ? cleanSearchQuery(t) : t; },
       onChange: refresh,
@@ -5703,6 +5742,7 @@
     stItem("st-cfg-manual-fallback-prefill", "manualFallbackPrefillFilename", "scrape", "When scraping fails", "cb", "Pre-fill title with file name", { lvl: 1, par: "st-cfg-manual-fallback-title", kw: "filename" }),
     stItem("st-cfg-clean-search", "cleanSearchTitle", "scrape", "Search & saved title", "cb", "Clean title in \"Search title\" (strip dates, resolution, punctuation)", { short: "Clean the search text", hint: "Strips the extension, dates, resolutions and punctuation before searching (some scrapers 404 on it).", kw: "search title pornhub" }),
     stItem("st-cfg-name-patterns", "namePatternsOn", "scrape", "Search & saved title", "cb", "Clean file names with my patterns (words, text or regex)", { short: "Use my file-name patterns", hint: "Cleans the file name before it fills \"Search title\" (and, for the patterns that ask for it, the pre-filled manual title). Nothing is renamed. Only a pattern with \"Scraped title\" ticked changes the title that Apply saves.", kw: "regex pattern file name filename clean remove words" }),
+    stItem("st-cfg-strip-studio", "stripStudioName", "scrape", "Search & saved title", "cb", "Remove the studio name from the saved title", { short: "Remove the studio name from the title", hint: "Removes a [..] or (..) group that is only the studio name (the scraped studio, else the scene's studio), e.g. \"[Concat1110]\". Other brackets are kept.", kw: "studio name title bracket artist" }),
     stItem("st-cfg-strip-br-names", "stripBracketNames", "scrape", "Search & saved title", "cb", "Remove [names] from the saved title", { kw: "bracket brackets title" }),
     stItem("st-cfg-strip-br-nums", "stripBracketNumbers", "scrape", "Search & saved title", "cb", "Remove [numbers / resolution] (4K, 1080p, 60fps) from the saved title", { short: "Remove [4K, 1080p, 60fps] from the saved title", kw: "bracket resolution" }),
     stItem("st-cfg-strip-pa-names", "stripParenNames", "scrape", "Search & saved title", "cb", "Remove (names) from the saved title", { kw: "parenthesis parentheses title" }),
@@ -6125,7 +6165,10 @@
       '</div>' +
       settingsPanelHTML() +
       '<div id="st-panel-header">' +
-        '<button class="st-btn st-btn-primary"  id="st-btn-scrape-all">Scrape All</button>' +
+        // CUSTOM: label wrapped in a <span> so the button has no direct text node. The
+        // 7dJx1qP Userscript Library looks for //button[text()='Scrape All'] (Stash's own Tagger page) and
+        // threw "Cannot read properties of null (reading 'lastChild')" on /scenes when it found this one.
+        '<button class="st-btn st-btn-primary"  id="st-btn-scrape-all"><span>Scrape All</span></button>' +
         '<button class="st-btn st-btn-success"  id="st-btn-apply-all" disabled>Apply All</button>' +
         '<button class="st-btn st-btn-danger"   id="st-btn-skip-all" disabled>Skip All</button>' +
         '<button class="st-btn st-btn-ghost"    id="st-btn-clear">Clear</button>' +
@@ -6765,7 +6808,6 @@
     bindSettingCb("st-cfg-prioritize-existing", "prioritizeExistingStudio");
     bindSettingCb("st-cfg-use-url",             "useUrlIfPresent");
     bindSettingCb("st-cfg-scrape-by-stashid",   "scrapeByStashId");
-    bindSettingCb("st-cfg-auto-other-studios",  "autoAddOtherStudios");
     (function () {   // several studios per scene: needs the skExtra-Multiple-Studios-Custom plugin
       var el = document.getElementById("st-cfg-multi-studio-select");
       if (!el) return;
@@ -6861,20 +6903,6 @@
     bindSettingCb("st-cfg-suggest-precheck",    "suggestPrecheck");
     bindSettingNum("st-cfg-suggest-min",        "suggestMinScore", 20, 0);
     // the suggestions are drawn with the row: redraw the open ones
-    bindSettingCb("st-cfg-suggest-visual",      "suggestVisual");
-    bindSettingCb("st-cfg-studio-social",       "studioSocialFetch");
-    bindSettingCb("st-cfg-suggest-visual-auto", "suggestVisualAuto");
-    bindSettingNum("st-cfg-suggest-visual-frames", "suggestVisualFrames", 12, 6);
-    (function () {
-      var el = document.getElementById("st-cfg-suggest-visual-url");
-      if (!el) return;
-      el.value = pluginConfig.suggestVisualUrl || "";
-      el.addEventListener("change", function () {
-        pluginConfig.suggestVisualUrl = el.value.trim() || "http://localhost:7861";
-        el.value = pluginConfig.suggestVisualUrl;
-        savePluginConfig();
-      });
-    })();
     ["st-cfg-suggest-perf", "st-cfg-suggest-precheck", "st-cfg-suggest-min", "st-cfg-suggest-visual", "st-cfg-suggest-visual-auto"].forEach(function (elId) {
       var el = document.getElementById(elId);
       if (el) el.addEventListener("change", function () { Object.keys(state.rows).forEach(function (rid) { renderRow(rid); }); });
@@ -6909,6 +6937,7 @@
     bindSettingCb("st-cfg-clean-search",          "cleanSearchTitle");
     bindSettingCb("st-cfg-name-patterns",         "namePatternsOn");
     bindSettingCb("st-cfg-name-patterns-glass",   "namePatternsGlass");
+    bindSettingCb("st-cfg-strip-studio",          "stripStudioName");
     bindSettingCb("st-cfg-strip-br-names",        "stripBracketNames");
     bindSettingCb("st-cfg-strip-br-nums",         "stripBracketNumbers");
     bindSettingCb("st-cfg-strip-pa-names",        "stripParenNames");
@@ -7780,7 +7809,8 @@
     // rating stars, so "ST" is inserted as a bare sibling there instead of
     // as its own top-level group (previous approach anchored on the
     // favourite/heart button from AdvancedRatingHeartFix, which isn't
-    // installed on every instance - and its "append at the very end" fallback pushed "ST"
+    // installed on every instance
+    // - and its "append at the very end" fallback pushed "ST"
     // past every native icon and the "..." menu). Falls back to
     // toolbar.firstChild only if neither anchor is found at all.
     var advRating = toolbar.querySelector("#adv-rating-trigger");
