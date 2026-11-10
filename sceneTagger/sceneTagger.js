@@ -604,11 +604,42 @@
     });
   }
 
+  // CUSTOM: "already exists" during a massive Apply all. Scenes are applied
+  // ~300 ms apart WITHOUT waiting for the previous one, so two scenes sharing a studio / tag /
+  // performer that is not in Stash yet both searched (nothing found) and both created it: the
+  // second creation failed with "<kind> with name 'X' already exists" and the scene failed.
+  // 1) singleFlight(): one lookup+creation per kind+name, shared by every concurrent caller.
+  // 2) resolveOrCreate / resolveStudio / resolvePerformer: if the creation is still refused with
+  //    "already exists", search again and use the entity that is now there.
+  // 3) cleanName(): trims (and turns a no-break space into a space) before searching.
+  var inflightResolve = {};
+  function singleFlight(key, fn) {
+    if (inflightResolve[key]) return inflightResolve[key];
+    var p = fn();
+    inflightResolve[key] = p;
+    var clear = function () { if (inflightResolve[key] === p) delete inflightResolve[key]; };
+    p.then(clear, clear);
+    return p;
+  }
+  function isAlreadyExists(e) { return /already exists/i.test(String((e && e.message) || e || "")); }
+  function cleanName(n) { return String(n == null ? "" : n).replace(/[ ​﻿]/g, " ").trim(); }
+
   function resolveOrCreate(fq, fo, fk, sk, cm, co, ck, name) {
-    return gql(fo, fq, { n: name }).then(function (d) {
-      var lst = (d[fk] || {})[sk] || [];
-      if (lst.length) return lst[0].id;
-      return gql(co, cm, { n: name }).then(function (d2) { return d2[ck].id; });
+    name = cleanName(name);
+    var find = function () {
+      return gql(fo, fq, { n: name }).then(function (d) {
+        var lst = (d[fk] || {})[sk] || [];
+        return lst.length ? lst[0].id : null;
+      });
+    };
+    return singleFlight(co + ":" + name.toLowerCase(), function () {
+      return find().then(function (id) {
+        if (id) return id;
+        return gql(co, cm, { n: name }).then(function (d2) { return d2[ck].id; }, function (e) {
+          if (!isAlreadyExists(e)) throw e;
+          return find().then(function (id2) { if (id2) return id2; throw e; });
+        });
+      });
     });
   }
 
@@ -711,25 +742,38 @@
   // ({name, image, url}) so the logo/URL are carried over on creation.
   function resolveStudio(studioOrName) {
     var studio = typeof studioOrName === "string" ? { name: studioOrName } : (studioOrName || {});
-    var name = studio.name;
-    return gql("FS", Q_FS, { n: name }).then(function (d) {
-      var lst = (d.findStudios || {}).studios || [];
-      if (lst.length) return lst[0].id;
-      // Not found by name → search by alias
-      return gql("FSA", Q_FS_ALIAS, { n: name }).then(function (d2) {
-        var studios = (d2.findStudios || {}).studios || [];
-        // Double-check the alias matches exactly (defensive, EQUALS should
-        // already guarantee it server-side)
-        for (var i = 0; i < studios.length; i++) {
-          var s = studios[i];
-          var aliases = s.aliases || [];
-          for (var j = 0; j < aliases.length; j++) {
-            if (aliases[j].toLowerCase() === name.toLowerCase()) return s.id;
+    var name = cleanName(studio.name);
+    // Search by exact name, then by alias; resolves with an id or null
+    function findIt() {
+      return gql("FS", Q_FS, { n: name }).then(function (d) {
+        var lst = (d.findStudios || {}).studios || [];
+        if (lst.length) return lst[0].id;
+        // Not found by name → search by alias
+        return gql("FSA", Q_FS_ALIAS, { n: name }).then(function (d2) {
+          var studios = (d2.findStudios || {}).studios || [];
+          // Double-check the alias matches exactly (defensive, EQUALS should
+          // already guarantee it server-side)
+          for (var i = 0; i < studios.length; i++) {
+            var s = studios[i];
+            var aliases = s.aliases || [];
+            for (var j = 0; j < aliases.length; j++) {
+              if (aliases[j].toLowerCase() === name.toLowerCase()) return s.id;
+            }
           }
-        }
+          return null;
+        });
+      });
+    }
+    // CUSTOM: one lookup+creation per name (see singleFlight) + retry on "already exists"
+    return singleFlight("CS:" + name.toLowerCase(), function () {
+      return findIt().then(function (id) {
+        if (id) return id;
         // Still not found → create it (with logo/URL if scraped)
         return gql("CS", M_CS, { n: name, image: studio.image || null, url: studio.url || null, details: studio.details || null })
-          .then(function (d3) { return d3.studioCreate.id; });
+          .then(function (d3) { return d3.studioCreate.id; }, function (e) {
+            if (!isAlreadyExists(e)) throw e;
+            return findIt().then(function (id2) { if (id2) return id2; throw e; });
+          });
       });
     });
   }
@@ -815,10 +859,16 @@
 
   function resolvePerformer(performerOrName) {
     var p = typeof performerOrName === "string" ? { name: performerOrName } : (performerOrName || {});
-    var name = p.name;
-    return gql("FP", Q_FP, { n: name }).then(function (d) {
-      var lst = (d.findPerformers || {}).performers || [];
-      if (lst.length) return lst[0].id;
+    var name = cleanName(p.name);
+    var findIt = function () {
+      return gql("FP", Q_FP, { n: name }).then(function (d) {
+        var lst = (d.findPerformers || {}).performers || [];
+        return lst.length ? lst[0].id : null;
+      });
+    };
+    // CUSTOM: one lookup+creation per name (see singleFlight) + retry on "already exists"
+    return singleFlight("CP:" + name.toLowerCase(), function () { return findIt().then(function (foundId) {
+      if (foundId) return foundId;
       var toInt = function (v) { var n = parseInt(v, 10); return isNaN(n) ? null : n; };
       var toFloat = function (v) { var n = parseFloat(v); return isNaN(n) ? null : n; };
       var vars = {
@@ -846,8 +896,11 @@
         hair_color: p.hair_color || null,
         weight: p.weight ? toInt(p.weight) : null
       };
-      return gql("CP", M_CP, vars).then(function (d2) { return d2.performerCreate.id; });
-    });
+      return gql("CP", M_CP, vars).then(function (d2) { return d2.performerCreate.id; }, function (e) {
+        if (!isAlreadyExists(e)) throw e;
+        return findIt().then(function (id2) { if (id2) return id2; throw e; });
+      });
+    }); });
   }
   function resolveTag(name)       { return resolveOrCreate(Q_FT,"FT","findTags","tags",M_CT,"CT","tagCreate",name); }
 
