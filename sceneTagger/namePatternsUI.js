@@ -26,6 +26,8 @@
     search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
     pencil: '<path d="M4 20l1-4L16 5l3 3L8 19z"/>',
     title: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
+    cloud: '<path d="M7 18a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17 8.5a4.5 4.5 0 0 1 .5 9.5"/><path d="M12 11v8M9 16l3 3 3-3"/>',
+    scene: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 12h7M9 15h7M9 18h4"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
     up: '<path d="M6 15l6-6 6 6"/>'
   };
@@ -72,8 +74,8 @@
     var u = {};
     names().forEach(function (f, i) {
       var tt = titleOf(i);
-      ["search", "manual", "title"].forEach(function (t) {
-        var r = t === "search" && tt ? NP.run(tt, S.pats, t, { noExt: true }) : t === "title" ? NP.run(f.replace(/\.[A-Za-z0-9]{1,5}$/, ""), S.pats, t, { noExt: true }) : NP.run(f, S.pats, t);
+      ["search", "manual", "title", "scene"].forEach(function (t) {
+        var r = t === "search" && tt ? NP.run(tt, S.pats, t, { noExt: true }) : (t === "title" || t === "scene") ? NP.run(f.replace(/\.[A-Za-z0-9]{1,5}$/, ""), S.pats, t, { noExt: true }) : NP.run(f, S.pats, t);
         r.trace.forEach(function (x) { if (x.st === "hit") u[x.p.id] = true; });
       });
     });
@@ -169,7 +171,8 @@
         '<div class="st-np-info" data-a="edit"><div class="st-np-top"><span class="st-np-tp ' + p.type + '">' + p.type + '</span><span class="st-np-nm">' + esc(p.name) + "</span>" +
           '<span class="st-np-ric">' + (p.stop ? '<span class="w" title="Stops the chain when it changes a name">' + ico("stop") + "</span>" : "") +
           (a.search ? '<span title="Applies to Search title">' + ico("search") + "</span>" : "") + (a.manual ? '<span title="Applies to Manual title">' + ico("pencil") + "</span>" : "") +
-          (a.title ? '<span class="t" title="Applies to the scraped title: changes what Apply saves">' + ico("title") + "</span>" : "") + "</span></div>" +
+          (a.title ? '<span class="t" title="Applies to the scraped title: changes what Apply saves">' + ico("cloud") + "</span>" : "") +
+          (a.scene ? '<span class="t" title="Applies to the scene title: changes what Apply saves when the scraper gives no title">' + ico("scene") + "</span>" : "") + "</span></div>" +
           '<div class="st-np-sm">' + esc(NP.summary(p)) + "</div>" + condHTML(p, used) + "</div>" +
         '<div class="st-np-mv"><button data-a="up" title="Move up"' + (i === 0 ? ' disabled style="opacity:.3"' : "") + '>&#9650;</button><button data-a="down" title="Move down"' + (i === S.pats.length - 1 ? ' disabled style="opacity:.3"' : "") + ">&#9660;</button></div>" +
         '<span class="st-np-x st-np-small" data-a="copy" title="Copy this pattern">copy</span><span class="st-np-x" data-a="del" title="Delete">&#10005;</span></div>';
@@ -217,8 +220,8 @@
         "<label></label>" + chk(!!v.cs, "Match case (upper / lower case count)", 'data-a="cs"');
     }
     var a = applyOf(v);
-    h += "<label>Apply to</label>" + '<div class="st-np-orow" style="gap:18px;flex-wrap:wrap">' + chk(a.search, "Search title", 'data-a="ap" data-t="search"') + chk(a.manual, "Manual title", 'data-a="ap" data-t="manual"') + chk(a.title, "Scraped title", 'data-a="ap" data-t="title"') + "</div>" +
-      '<div class="st-np-hint">Search title: the name used to search. Manual title: the title prefilled when a scrape fails (it can end up saved in Stash). <b>Scraped title</b>: the title returned by the scraper, cleaned just before Apply saves it in Stash (a title you edited by hand is left as it is). It runs after the "Remove [names] / (numbers) from the saved title" settings.</div>';
+    h += "<label>Apply to</label>" + '<div class="st-np-orow" style="gap:18px;flex-wrap:wrap">' + chk(a.search, "Search title", 'data-a="ap" data-t="search"') + chk(a.manual, "Manual title", 'data-a="ap" data-t="manual"') + chk(a.title, "Scraped title", 'data-a="ap" data-t="title"') + chk(a.scene, "Scene title", 'data-a="ap" data-t="scene"') + "</div>" +
+      '<div class="st-np-hint">Search title: the name used to search. Manual title: the title prefilled when a scrape fails (it can end up saved in Stash). <b>Scraped title</b>: the title returned by the scraper, cleaned just before Apply saves it in Stash (a title you edited by hand is left as it is). It runs after the "Remove [names] / (numbers) from the saved title" settings. <b>Scene title</b>: the title the scene already has in Stash (its file name when it has none), cleaned and saved by Apply when the scraper returns no title.</div>';
     h += onlyHTML(v);
     h += "<label></label>" + chk(!!v.stop, "Stop here if this pattern changed the name", 'data-a="stop"') + '<div class="st-np-hint">The patterns below it in the list will not be applied to that file.</div>';
     h += "<label>Name</label>" + '<input class="st-np-inp" data-f="name" placeholder="optional, e.g. Release tags" value="' + esc(v.name) + '">';
@@ -238,9 +241,9 @@
   function renderDyn() {
     var p = draft(), b = NP.build(p);
     var started = S.type === "words" ? !!p.words : S.type === "text" ? !!p.a : !!p.find;
-    var a = applyOf(p), noT = !(a.search || a.manual || a.title);
+    var a = applyOf(p), noT = !(a.search || a.manual || a.title || a.scene);
     var eb = ov.querySelector("#st-np-err");
-    if (eb) eb.innerHTML = b.err && (started || (b.err.indexOf("Condition") === 0)) ? '<div class="st-np-err">' + esc(b.err) + "</div>" : (noT ? '<div class="st-np-err">Choose where this pattern applies: Search title, Manual title or Scraped title.</div>' : "");
+    if (eb) eb.innerHTML = b.err && (started || (b.err.indexOf("Condition") === 0)) ? '<div class="st-np-err">' + esc(b.err) + "</div>" : (noT ? '<div class="st-np-err">Choose where this pattern applies: Search title, Manual title, Scraped title or Scene title.</div>' : "");
     ov.querySelector("#st-np-save").disabled = !!b.err || noT;
     ov.querySelector("#st-np-asmodel").disabled = !!b.err || noT;
     var os = ov.querySelector("#st-np-onlysum");

@@ -71,7 +71,8 @@
   }
 
   // target: "search" | "manual" | "title" (the title returned by the scraper, cleaned before Apply saves it)
-  function normTarget(t) { return t === "manual" || t === "title" ? t : "search"; }
+  // "scene" = the title the scene already has in Stash (or its file name), cleaned when Apply saves
+  function normTarget(t) { return t === "manual" || t === "title" || t === "scene" ? t : "search"; }
   function applies(p, target) {
     return !!applyOf(p)[normTarget(target)];
   }
@@ -199,7 +200,7 @@
     var b = build(p);
     if (b.err) return b.err;
     var a = applyOf(p);
-    if (!a.search && !a.manual && !a.title) return "Choose where this pattern applies: Search title, Manual title or Scraped title.";
+    if (!a.search && !a.manual && !a.title && !a.scene) return "Choose where this pattern applies: Search title, Manual title, Scraped title or Scene title.";
     return "";
   }
 
@@ -259,7 +260,7 @@
         .map(function (i) { return { mode: i.mode, not: !!i.not, text: String(i.text == null ? "" : i.text) }; });
     }
     var a = q.apply && typeof q.apply === "object" ? q.apply : { search: true, manual: false };
-    q.apply = { search: !!a.search, manual: !!a.manual, title: !!a.title };
+    q.apply = { search: !!a.search, manual: !!a.manual, title: !!a.title, scene: !!a.scene };
     q.on = q.on !== false;
     q.stop = !!q.stop;
     if (q.type === "text" && TEXT_MODES.indexOf(q.mode) < 0) q.mode = "exact";

@@ -48,7 +48,7 @@ export default function setup(stashui) {
   stashui.addSlot("list.toolbar", {
     id: "scene-tagger",
     title: "Scene Tagger",
-    match: (ctx) => ctx.kind === "scene" && (ctx.page === "scenes" || ctx.page === "studio"), // also the Scenes tab of a studio page
+    match: (ctx) => ctx.kind === "scene" && (ctx.page === "scenes" || ctx.page === "studio" || ctx.page === "performer"), // also the Scenes tab of a studio or performer page
     mount(el, ctx) {
       const btn = document.createElement("button");
       btn.type = "button";

@@ -1559,6 +1559,11 @@
       filtered.title = r.titleEdit || scraped.title;
       titleIsManual = !!r.titleEdit;
     }
+    // No scraped title: the patterns ticked "Scene title" clean the title the scene already has
+    if (!scraped.title && cb('[data-cb="title"]')) {
+      var sceneClean = sceneTitleClean(r);
+      if (sceneClean) { filtered.title = sceneClean; titleIsManual = true; }
+    }
     // Manually typed title (manualFallbackOnFail + manualFallbackAllowTitle mode)
     if (r.manualFallback && pluginConfig.manualFallbackAllowTitle) {
       var manualTitleEl = row.querySelector(".st-manual-title-input");
@@ -2320,9 +2325,12 @@
       var badges = c.reasons.filter(function (x) { return SUGG_BADGE[x.k]; }).map(function (x) {
         return '<span class="st-sugg-badge st-sugg-b-' + x.k + '">' + SUGG_BADGE[x.k] + '</span>';
       }).join("");
-      var tip = '<span class="st-sugg-tip"><b>' + esc(c.name) + '</b> &middot; score ' + c.score + '/100' +
+      // CUSTOM: performer photo in the hover card (skipped when Stash only has its default placeholder)
+      var tipImg = c.image_path && c.image_path.indexOf("default=true") === -1
+        ? '<img class="st-sugg-tip-img" loading="lazy" src="' + esc(c.image_path) + '" alt="">' : '';
+      var tip = '<span class="st-sugg-tip' + (tipImg ? ' st-sugg-tip-has-img' : '') + '">' + tipImg + '<span class="st-sugg-tip-body"><b>' + esc(c.name) + '</b> &middot; score ' + c.score + '/100' +
         c.reasons.map(function (x) { return '<span class="st-sugg-row"><span>' + esc(x.label) + '</span><i>+' + x.pts + '</i></span>'; }).join("") +
-        '<small>Click to add or remove. Nothing is written until Apply.</small></span>';
+        '<small>Click to add or remove. Nothing is written until Apply.</small></span></span>';
       return '<span class="st-sugg-chip st-sugg-' + c.tier + (on ? ' st-on' : '') + '" data-sugg-id="' + esc(c.id) + '" data-sugg-name="' + esc(c.name) + '"' +
         (on ? ' data-cb="performer-added" data-perf-id="' + esc(c.id) + '" data-perf-name="' + esc(c.name) + '"' : '') + '>' +
         (c.image_path ? '<img class="st-perf-chip-avatar" src="' + esc(c.image_path) + '">' : '') +
@@ -2582,6 +2590,13 @@
           '<div class="st-inline-field">' +
             '<label class="st-inline-label"><input type="checkbox" data-cb="title" checked> Title</label>' +
             '<span class="st-chip st-chip-title' + (r.titleEdit ? ' st-chip-edited' : '') + '" title="Double-click to rename">' + esc(r.titleEdit || scrapedTitle(scraped.title, r, scraped)) + '</span>' +
+          '</div>'
+        );
+      } else if (sceneTitleClean(r)) {
+        fields.push(
+          '<div class="st-inline-field">' +
+            '<label class="st-inline-label"><input type="checkbox" data-cb="title" checked> Title</label>' +
+            '<span class="st-chip st-chip-title" title="Scene title cleaned by your file-name patterns">' + esc(sceneTitleClean(r)) + '</span>' +
           '</div>'
         );
       }
@@ -4530,6 +4545,16 @@
     var s = stripTitleGroups(stripStudioName(title, r, scraped));
     var p = applyNamePatterns(s, "title", true);
     return p ? p : s;
+  }
+  // CUSTOM: patterns with "Scene title" ticked clean the title the scene already has (its file name
+  // when it has none). Only used when the scraper returns no title. Returns the cleaned text, or null.
+  function sceneTitleClean(r) {
+    if (!r || !r.scene) return null;
+    var own = (r.scene.title || "").trim();
+    var base = own || String(getFilename(r.scene) || "").replace(/\.[A-Za-z0-9]{2,4}$/, "");
+    if (!base) return null;
+    var out = applyNamePatterns(base, "scene", true);
+    return out && out !== own ? out : null;
   }
 
   // Title-bar ".*" button: opens the "File-name patterns" overlay (namePatternsUI.js). The overlay
@@ -7613,6 +7638,8 @@
     // The Images / Galleries / Performers... tabs have no scene grid; Image Tagger
     // takes the Images tab.
     if (pathname.match(/^\/studios\/\d+(\/scenes)?\/?$/)) return true;
+    // A performer page: only its Scenes tab (default one), same reasoning as studios.
+    if (pathname.match(/^\/performers\/\d+(\/scenes)?\/?$/)) return true;
     return false;
   }
 
