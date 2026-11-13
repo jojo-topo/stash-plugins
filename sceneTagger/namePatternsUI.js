@@ -217,7 +217,8 @@
     } else {
       h += "<label>Find</label>" + '<input class="st-np-inp st-np-mono" data-f="find" spellcheck="false" placeholder="\\[[^\\]]*\\]" value="' + esc(v.find) + '">' +
         "<label>Replace with</label>" + '<input class="st-np-inp st-np-mono" data-f="repl" spellcheck="false" placeholder="(empty = remove)" value="' + esc(v.repl) + '">' +
-        "<label></label>" + chk(!!v.cs, "Match case (upper / lower case count)", 'data-a="cs"');
+        "<label></label>" + chk(!!v.cs, "Match case (upper / lower case count)", 'data-a="cs"') +
+        '<div class="st-np-hint st-np-wide">The file extension (.mp4, .mkv...) is always removed from a file name, so you do not need a pattern for it.</div>';
     }
     var a = applyOf(v);
     h += "<label>Apply to</label>" + '<div class="st-np-orow" style="gap:18px;flex-wrap:wrap">' + chk(a.search, "Search title", 'data-a="ap" data-t="search"') + chk(a.manual, "Manual title", 'data-a="ap" data-t="manual"') + chk(a.title, "Scraped title", 'data-a="ap" data-t="title"') + chk(a.scene, "Scene title", 'data-a="ap" data-t="scene"') + "</div>" +
@@ -266,7 +267,7 @@
         : t.st === "hit" ? '<span class="st-np-fc hit">' + n + "</span>"
         : t.st === "skip" ? '<span class="st-np-fc skip" title="the file name does not match the filter">' + n + ": skipped</span>"
         : t.st === "error" ? '<span class="st-np-fc error" title="' + esc(t.msg) + '">' + n + ": error</span>"
-        : '<span class="st-np-fc">' + n + ": no effect</span>";
+        : '<span class="st-np-fc">' + n + ": nothing to remove</span>";
     }).join("");
   }
 
