@@ -26,6 +26,8 @@
     search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
     pencil: '<path d="M4 20l1-4L16 5l3 3L8 19z"/>',
     title: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
+    cloud: '<path d="M7 18a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17 8.5a4.5 4.5 0 0 1 .5 9.5"/><path d="M12 11v8M9 16l3 3 3-3"/>',
+    scene: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 12h7M9 15h7M9 18h4"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
     up: '<path d="M6 15l6-6 6 6"/>'
   };
@@ -42,10 +44,24 @@
   function names() { return S.base.concat(S.extra); }
   // The file names of the scenes currently in the panel (the first 8, or all of them with "Show all").
   // Names you pasted yourself (S.extra) are kept when the list is read again.
+  // Added / removed test names and the "scene titles" switch are remembered in this browser.
+  var LS_KEY = "stNpTestNames";
+  function lsLoad() {
+    try { var o = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); return { extra: o.extra || [], removed: o.removed || [], titles: o.titles !== false }; }
+    catch (e) { return { extra: [], removed: [], titles: true }; }
+  }
+  function lsSave() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ extra: S.extra, removed: S.removed, titles: S.showTitles })); } catch (e) { /* storage blocked */ }
+  }
   function readBase() {
-    var all = (host.sampleNames() || []).filter(Boolean);
+    var raw = host.sampleNames() || [], tl = host.sampleTitles ? (host.sampleTitles() || []) : [], all = [], ts = [];
+    raw.forEach(function (n, i) {
+      if (!n || S.removed.indexOf(n) !== -1) return;
+      all.push(n); ts.push(tl[i] || "");
+    });
     S.total = all.length;
     S.base = S.showAll ? all : all.slice(0, 8);
+    S.baseT = S.showAll ? ts : ts.slice(0, 8);
     S.cur = 0;
   }
   function applyOf(f) { return f.apply || { search: true, manual: false, title: false }; }
@@ -56,9 +72,10 @@
   function usedIds() {
     if (!host.isOn()) return null;
     var u = {};
-    names().forEach(function (f) {
-      ["search", "manual", "title"].forEach(function (t) {
-        var r = t === "title" ? NP.run(f.replace(/\.[A-Za-z0-9]{1,5}$/, ""), S.pats, t, { noExt: true }) : NP.run(f, S.pats, t);
+    names().forEach(function (f, i) {
+      var tt = titleOf(i);
+      ["search", "manual", "title", "scene"].forEach(function (t) {
+        var r = t === "search" && tt ? NP.run(tt, S.pats, t, { noExt: true }) : (t === "title" || t === "scene") ? NP.run(f.replace(/\.[A-Za-z0-9]{1,5}$/, ""), S.pats, t, { noExt: true }) : NP.run(f, S.pats, t);
         r.trace.forEach(function (x) { if (x.st === "hit") u[x.p.id] = true; });
       });
     });
@@ -66,15 +83,17 @@
   }
 
   function hasHit(r) { return r.trace.some(function (x) { return x.st === "hit"; }); }
-  function resultsFor(f) {
-    var on = host.isOn();
-    var rs = on ? NP.run(f, S.pats, "search") : { out: f, trace: [] };
+  // Same rule as the real Search title: the scene title when the scene has one, else the file name.
+  function titleOf(i) { return i < S.base.length ? (S.baseT[i] || "") : ""; }
+  function resultsFor(f, ttl) {
+    var on = host.isOn(), src = ttl || f;
+    var rs = on ? (ttl ? NP.run(ttl, S.pats, "search", { noExt: true }) : NP.run(f, S.pats, "search")) : { out: src, trace: [] };
     var rm = on ? NP.run(f, S.pats, "manual") : { out: f, trace: [] };
     var mBase = f.replace(/\.[A-Za-z0-9]{1,5}$/, "");
     var rt = on ? NP.run(mBase, S.pats, "title", { noExt: true }) : { out: mBase, trace: [] };   // the file name stands in for a scraped title
     return {
       tBefore: mBase, tAfter: hasHit(rt) ? rt.out : mBase, tTrace: rt.trace,
-      sBefore: host.finalSearch(f), sAfter: host.finalSearch(hasHit(rs) ? rs.out : f), sTrace: rs.trace,
+      sBefore: host.finalSearch(src), sAfter: host.finalSearch(hasHit(rs) ? rs.out : src), sTrace: rs.trace,
       mBefore: mBase, mAfter: hasHit(rm) ? rm.out : mBase, mTrace: rm.trace
     };
   }
@@ -120,7 +139,7 @@
           '</table><div class="st-np-note">Engine: JavaScript. Matching ignores case unless "Match case" is ticked. Lookahead / lookbehind work here but not in Stash\'s own filters. A special character (. [ ( + ?) must be written with a \\ in front to be searched as itself.</div></details></div>' +
       "</div>" +
       '<div class="st-np-test"><div class="st-np-lbl">Test on file names <span class="st-np-r" id="st-np-tcount"></span></div>' +
-        '<div class="st-np-trow"><input class="st-np-inp st-np-mono" id="st-np-addname" spellcheck="false" placeholder="Paste a file name here, then press Enter or Add name"><button class="st-np-ghost" data-a="addname">Add name</button><button class="st-np-ghost" data-a="reloadnames" title="Read the scenes of the panel again (brings back the names you removed)">Reload names</button><button class="st-np-ghost" id="st-np-all" data-a="allnames" style="display:none">Show all</button></div>' +
+        '<div class="st-np-trow"><input class="st-np-inp st-np-mono" id="st-np-addname" spellcheck="false" placeholder="Paste a file name here, then press Enter or Add name"><button class="st-np-ghost" data-a="addname">Add name</button><button class="st-np-ghost" data-a="reloadnames" title="Read the scenes of the panel again and bring back the names you removed (names you added are kept)">Reload from panel</button><button class="st-np-ghost" id="st-np-titles" data-a="showtitles" title="Show the scene title as the main line instead of the file name">Scene titles</button><button class="st-np-ghost" id="st-np-clr" data-a="clearextra" title="Remove the names you added by hand" style="display:none">Clear added</button><button class="st-np-ghost" id="st-np-all" data-a="allnames" style="display:none">Show all</button></div>' +
         '<table class="st-np-res"><thead><tr><th style="width:30%">File name</th><th style="width:28%">Search title</th><th style="width:20%" id="st-np-thm">Manual title</th><th style="width:20%" id="st-np-tht" title="The file name stands in for a scraped title. Only the patterns are shown here: the &quot;Remove [names] / (numbers)&quot; settings are not applied in this test.">Scraped title</th><th>Patterns</th></tr></thead><tbody id="st-np-tbody"></tbody></table>' +
         '<div class="st-np-steps" id="st-np-steps"></div></div>' +
       '<div class="st-np-mf"><span id="st-np-foot"></span><span style="flex:1"></span><button class="st-np-btn" data-a="close">Done</button></div>' +
@@ -152,7 +171,8 @@
         '<div class="st-np-info" data-a="edit"><div class="st-np-top"><span class="st-np-tp ' + p.type + '">' + p.type + '</span><span class="st-np-nm">' + esc(p.name) + "</span>" +
           '<span class="st-np-ric">' + (p.stop ? '<span class="w" title="Stops the chain when it changes a name">' + ico("stop") + "</span>" : "") +
           (a.search ? '<span title="Applies to Search title">' + ico("search") + "</span>" : "") + (a.manual ? '<span title="Applies to Manual title">' + ico("pencil") + "</span>" : "") +
-          (a.title ? '<span class="t" title="Applies to the scraped title: changes what Apply saves">' + ico("title") + "</span>" : "") + "</span></div>" +
+          (a.title ? '<span class="t" title="Applies to the scraped title: changes what Apply saves">' + ico("cloud") + "</span>" : "") +
+          (a.scene ? '<span class="t" title="Applies to the scene title: changes what Apply saves when the scraper gives no title">' + ico("scene") + "</span>" : "") + "</span></div>" +
           '<div class="st-np-sm">' + esc(NP.summary(p)) + "</div>" + condHTML(p, used) + "</div>" +
         '<div class="st-np-mv"><button data-a="up" title="Move up"' + (i === 0 ? ' disabled style="opacity:.3"' : "") + '>&#9650;</button><button data-a="down" title="Move down"' + (i === S.pats.length - 1 ? ' disabled style="opacity:.3"' : "") + ">&#9660;</button></div>" +
         '<span class="st-np-x st-np-small" data-a="copy" title="Copy this pattern">copy</span><span class="st-np-x" data-a="del" title="Delete">&#10005;</span></div>';
@@ -197,11 +217,12 @@
     } else {
       h += "<label>Find</label>" + '<input class="st-np-inp st-np-mono" data-f="find" spellcheck="false" placeholder="\\[[^\\]]*\\]" value="' + esc(v.find) + '">' +
         "<label>Replace with</label>" + '<input class="st-np-inp st-np-mono" data-f="repl" spellcheck="false" placeholder="(empty = remove)" value="' + esc(v.repl) + '">' +
-        "<label></label>" + chk(!!v.cs, "Match case (upper / lower case count)", 'data-a="cs"');
+        "<label></label>" + chk(!!v.cs, "Match case (upper / lower case count)", 'data-a="cs"') +
+        '<div class="st-np-hint st-np-wide">The file extension (.mp4, .mkv...) is already removed before the patterns run, so you do not need a pattern for it.</div>';
     }
     var a = applyOf(v);
-    h += "<label>Apply to</label>" + '<div class="st-np-orow" style="gap:18px;flex-wrap:wrap">' + chk(a.search, "Search title", 'data-a="ap" data-t="search"') + chk(a.manual, "Manual title", 'data-a="ap" data-t="manual"') + chk(a.title, "Scraped title", 'data-a="ap" data-t="title"') + "</div>" +
-      '<div class="st-np-hint">Search title: the name used to search. Manual title: the title prefilled when a scrape fails (it can end up saved in Stash). <b>Scraped title</b>: the title returned by the scraper, cleaned just before Apply saves it in Stash (a title you edited by hand is left as it is). It runs after the "Remove [names] / (numbers) from the saved title" settings.</div>';
+    h += "<label>Apply to</label>" + '<div class="st-np-orow" style="gap:18px;flex-wrap:wrap">' + chk(a.search, "Search title", 'data-a="ap" data-t="search"') + chk(a.manual, "Manual title", 'data-a="ap" data-t="manual"') + chk(a.title, "Scraped title", 'data-a="ap" data-t="title"') + chk(a.scene, "Scene title", 'data-a="ap" data-t="scene"') + "</div>" +
+      '<div class="st-np-hint">Search title: the name used to search. Manual title: the title prefilled when a scrape fails (it can end up saved in Stash). <b>Scraped title</b>: the title returned by the scraper, cleaned just before Apply saves it in Stash (a title you edited by hand is left as it is). It runs after the "Remove [names] / (numbers) from the saved title" settings. <b>Scene title</b>: the title the scene already has in Stash (its file name when it has none), cleaned and saved by Apply when the scraper returns no title.</div>';
     h += onlyHTML(v);
     h += "<label></label>" + chk(!!v.stop, "Stop here if this pattern changed the name", 'data-a="stop"') + '<div class="st-np-hint">The patterns below it in the list will not be applied to that file.</div>';
     h += "<label>Name</label>" + '<input class="st-np-inp" data-f="name" placeholder="optional, e.g. Release tags" value="' + esc(v.name) + '">';
@@ -221,14 +242,14 @@
   function renderDyn() {
     var p = draft(), b = NP.build(p);
     var started = S.type === "words" ? !!p.words : S.type === "text" ? !!p.a : !!p.find;
-    var a = applyOf(p), noT = !(a.search || a.manual || a.title);
+    var a = applyOf(p), noT = !(a.search || a.manual || a.title || a.scene);
     var eb = ov.querySelector("#st-np-err");
-    if (eb) eb.innerHTML = b.err && (started || (b.err.indexOf("Condition") === 0)) ? '<div class="st-np-err">' + esc(b.err) + "</div>" : (noT ? '<div class="st-np-err">Choose where this pattern applies: Search title, Manual title or Scraped title.</div>' : "");
+    if (eb) eb.innerHTML = b.err && (started || (b.err.indexOf("Condition") === 0)) ? '<div class="st-np-err">' + esc(b.err) + "</div>" : (noT ? '<div class="st-np-err">Choose where this pattern applies: Search title, Manual title, Scraped title or Scene title.</div>' : "");
     ov.querySelector("#st-np-save").disabled = !!b.err || noT;
     ov.querySelector("#st-np-asmodel").disabled = !!b.err || noT;
     var os = ov.querySelector("#st-np-onlysum");
     if (os) os.textContent = NP.onlySentence(p) ? "In words: " + NP.onlySentence(p) + "." : "";
-    var f = names()[S.cur] || "", pv = '<div class="st-np-k">This pattern alone, on the highlighted name below</div><div class="st-np-r2"><b>Name</b><span class="st-np-fnm">' + esc(f) + "</span></div>";
+    var f = titleOf(S.cur) || names()[S.cur] || "", pv = '<div class="st-np-k">This pattern alone, on the highlighted name below</div><div class="st-np-r2"><b>Name</b><span class="st-np-fnm">' + esc(f) + "</span></div>";
     if (!f) pv += '<div class="st-np-r2"><b>Result</b><span class="st-np-dim">Add a file name in the test area to see it.</span></div>';
     else if (b.err) pv += '<div class="st-np-r2"><b>Result</b><span class="st-np-dim">Fill the fields above to see what this pattern does.</span></div>';
     else if (!NP.matchesOnly(p, f)) pv += '<div class="st-np-r2"><b>Result</b><span class="st-np-fc skip">skipped: this name does not match the filter</span></div>';
@@ -246,30 +267,35 @@
         : t.st === "hit" ? '<span class="st-np-fc hit">' + n + "</span>"
         : t.st === "skip" ? '<span class="st-np-fc skip" title="the file name does not match the filter">' + n + ": skipped</span>"
         : t.st === "error" ? '<span class="st-np-fc error" title="' + esc(t.msg) + '">' + n + ": error</span>"
-        : '<span class="st-np-fc">' + n + ": no effect</span>";
+        : '<span class="st-np-fc">' + n + ": nothing to remove</span>";
     }).join("");
   }
 
   function renderTable() {
     var list = names(), anyMan = S.pats.some(function (p) { return p.on !== false && NP.applies(p, "manual"); });
     ov.querySelector("#st-np-tcount").textContent = "(" + list.length + " names, click one to highlight it)";
+    var tb = ov.querySelector("#st-np-titles"), cb2 = ov.querySelector("#st-np-clr");
+    if (tb) { tb.textContent = S.showTitles ? "Scene titles: on" : "Scene titles: off"; }
+    if (cb2) cb2.style.display = S.extra.length ? "" : "none";
     var allBtn = ov.querySelector("#st-np-all");
     if (allBtn) { allBtn.style.display = S.total > 8 ? "" : "none"; allBtn.textContent = S.showAll ? "Show first 8" : "Show all " + S.total; }
     var anyTitle = S.pats.some(function (p) { return p.on !== false && NP.applies(p, "title"); });
     ov.querySelector("#st-np-thm").style.display = anyMan ? "" : "none";
     ov.querySelector("#st-np-tht").style.display = anyTitle ? "" : "none";
     ov.querySelector("#st-np-tbody").innerHTML = list.map(function (f, i) {
-      var r = resultsFor(f), hits = r.sTrace.filter(function (t) { return t.st === "hit"; }).length;
+      var r = resultsFor(f, titleOf(i)), hits = r.sTrace.filter(function (t) { return t.st === "hit"; }).length;
       var remove = '<span class="st-np-x st-np-small" data-a="rmname" data-i="' + i + '" title="Remove this name from the test (the scene is not touched)">remove</span>';
-      return '<tr class="' + (i === S.cur ? "cur" : "") + '" data-i="' + i + '"><td><div class="st-np-fnm" data-a="pick">' + esc(f) + "</div>" + remove + "</td><td>" + cmp(r.sBefore, r.sAfter) + "</td>" +
+      var ttl = i < S.base.length ? (S.baseT[i] || "") : "", useT = S.showTitles && ttl && ttl !== f;
+      var sub = useT ? '<div class="st-np-small" style="opacity:.65">' + esc(f) + "</div>" : "";
+      return '<tr class="' + (i === S.cur ? "cur" : "") + '" data-i="' + i + '"><td><div class="st-np-fnm" data-a="pick" title="' + esc(useT ? f : ttl) + '">' + esc(useT ? ttl : f) + "</div>" + sub + remove + "</td><td>" + cmp(r.sBefore, r.sAfter) + "</td>" +
         (anyMan ? "<td>" + cmp(r.mBefore, r.mAfter) + '<div class="st-np-fire">' + r.mTrace.filter(function (t) { return t.st === "hit"; }).map(function (t) { return '<span class="st-np-fc hit">' + esc(t.p.name) + "</span>"; }).join("") + "</div></td>" : "") +
         (anyTitle ? "<td>" + cmp(r.tBefore, r.tAfter) + '<div class="st-np-fire">' + r.tTrace.filter(function (t) { return t.st === "hit"; }).map(function (t) { return '<span class="st-np-fc hit">' + esc(t.p.name) + "</span>"; }).join("") + "</div></td>" : "") +
         '<td><div class="st-np-fire">' + (host.isOn() ? (hits > 1 ? '<span class="st-np-fc warn" title="Open Step by step below to see the order">' + hits + " patterns changed this name</span>" : "") + chips(r.sTrace) || '<span class="st-np-fc">no pattern</span>' : '<span class="st-np-fc skip">patterns are switched off</span>') + "</div></td></tr>";
     }).join("") || '<tr><td colspan="4" class="st-np-empty">Add a file name above to test your patterns.</td></tr>';
     var f = list[S.cur], st = ov.querySelector("#st-np-steps");
     if (f) {
-      var r2 = NP.run(f, S.pats, "search");
-      st.innerHTML = "<i>Step by step for the highlighted name:</i><div>" + esc(NP.stripExt(f)) + " <i>(start)</i></div>" +
+      var t2 = titleOf(S.cur), r2 = t2 ? NP.run(t2, S.pats, "search", { noExt: true }) : NP.run(f, S.pats, "search");
+      st.innerHTML = "<i>Step by step for the highlighted name:</i><div>" + esc(t2 || NP.stripExt(f)) + " <i>(start)</i></div>" +
         r2.trace.filter(function (t) { return t.st === "hit"; }).map(function (t) { return "<div>" + esc(t.p.name) + " <i>&rarr;</i> " + esc(t.to) + "</div>"; }).join("") +
         "<div><i>then the usual cleaning &rarr;</i> " + esc(host.finalSearch(r2.out)) + "</div>";
     } else st.innerHTML = "";
@@ -337,7 +363,7 @@
   function addName() {
     var inp = ov.querySelector("#st-np-addname"), v = inp.value.trim();
     if (!v) return;
-    S.extra.push(v); S.cur = names().length - 1; inp.value = ""; renderAll();
+    S.extra.push(v); lsSave(); S.cur = names().length - 1; inp.value = ""; renderAll();
   }
 
   function onClick(e) {
@@ -376,11 +402,14 @@
     else if (a === "addname") addName();
     else if (a === "rmname") {
       var gi = +el.getAttribute("data-i");
-      if (gi < S.base.length) S.base.splice(gi, 1); else S.extra.splice(gi - S.base.length, 1);
+      if (gi < S.base.length) { S.removed.push(S.base[gi]); S.base.splice(gi, 1); S.baseT.splice(gi, 1); } else S.extra.splice(gi - S.base.length, 1);
+      lsSave();
       if (S.cur >= names().length) S.cur = Math.max(0, names().length - 1);
       renderAll();
     }
-    else if (a === "reloadnames") { readBase(); renderAll(); }
+    else if (a === "reloadnames") { S.removed = []; lsSave(); readBase(); renderAll(); }
+    else if (a === "clearextra") { S.extra = []; lsSave(); S.cur = 0; renderAll(); }
+    else if (a === "showtitles") { S.showTitles = !S.showTitles; lsSave(); renderAll(); }
     else if (a === "allnames") { S.showAll = !S.showAll; readBase(); renderAll(); }
     else if (a === "pick") { var tr = el.closest("tr"); S.cur = +tr.getAttribute("data-i"); renderTable(); renderDyn(); }
     else if (a === "exp") { ov.querySelector("#st-np-io").value = NP.exportList(S.pats); flash("#st-np-iomsg", "Copy this text to back up your list.", true); }
@@ -423,8 +452,9 @@
     if (!NP || !h) return;
     if (ov) { close(); }
     host = h;
-    S = { pats: clone(host.getPatterns() || []), editId: null, form: {}, type: "words", cur: 0, extra: [], openC: {},
-          base: [], showAll: false, total: 0, models: clone(host.getModels ? host.getModels() : []) };
+    var ls = lsLoad();
+    S = { pats: clone(host.getPatterns() || []), editId: null, form: {}, type: "words", cur: 0, extra: ls.extra, removed: ls.removed, showTitles: ls.titles, openC: {},
+          base: [], baseT: [], showAll: false, total: 0, models: clone(host.getModels ? host.getModels() : []) };
     readBase();
     var n = 0; S.pats.forEach(function (p) { if (p.id == null) p.id = ++n + 100000; });
     ov = document.createElement("div");

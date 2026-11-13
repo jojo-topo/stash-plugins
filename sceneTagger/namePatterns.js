@@ -71,7 +71,8 @@
   }
 
   // target: "search" | "manual" | "title" (the title returned by the scraper, cleaned before Apply saves it)
-  function normTarget(t) { return t === "manual" || t === "title" ? t : "search"; }
+  // "scene" = the title the scene already has in Stash (or its file name), cleaned when Apply saves
+  function normTarget(t) { return t === "manual" || t === "title" || t === "scene" ? t : "search"; }
   function applies(p, target) {
     return !!applyOf(p)[normTarget(target)];
   }
@@ -152,7 +153,9 @@
       if (p.type === "words") {
         var w = String(p.words || "").split(/[,\n]/).map(function (x) { return x.trim(); }).filter(Boolean);
         if (!w.length) return { err: "Type at least one word, separated by commas." };
-        return { re: new RegExp("(?<![A-Za-z0-9])(?:" + w.map(esc).join("|") + ")(?![A-Za-z0-9])", "gi"), repl: " " };
+        // A word alone inside [..] or (..) goes with its brackets ("[4K]" leaves no empty "[]").
+        var alt = w.map(esc).join("|");
+        return { re: new RegExp("\\[\\s*(?:" + alt + ")\\s*\\]|\\(\\s*(?:" + alt + ")\\s*\\)|(?<![A-Za-z0-9])(?:" + alt + ")(?![A-Za-z0-9])", "gi"), repl: " " };
       }
       if (p.type === "text") {
         var mode = p.mode || "exact";
@@ -197,7 +200,7 @@
     var b = build(p);
     if (b.err) return b.err;
     var a = applyOf(p);
-    if (!a.search && !a.manual && !a.title) return "Choose where this pattern applies: Search title, Manual title or Scraped title.";
+    if (!a.search && !a.manual && !a.title && !a.scene) return "Choose where this pattern applies: Search title, Manual title, Scraped title or Scene title.";
     return "";
   }
 
@@ -257,7 +260,7 @@
         .map(function (i) { return { mode: i.mode, not: !!i.not, text: String(i.text == null ? "" : i.text) }; });
     }
     var a = q.apply && typeof q.apply === "object" ? q.apply : { search: true, manual: false };
-    q.apply = { search: !!a.search, manual: !!a.manual, title: !!a.title };
+    q.apply = { search: !!a.search, manual: !!a.manual, title: !!a.title, scene: !!a.scene };
     q.on = q.on !== false;
     q.stop = !!q.stop;
     if (q.type === "text" && TEXT_MODES.indexOf(q.mode) < 0) q.mode = "exact";

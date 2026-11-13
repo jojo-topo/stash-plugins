@@ -4557,6 +4557,11 @@ html.st-sui #st-panel .st-perf-added-chip { padding-left: 3px; }
 html.st-sui #st-panel .st-perf-item:hover { background: color-mix(in srgb, var(--st-vio) 22%, transparent); }
 html.st-sui #st-panel .st-perf-item .st-perf-chip-avatar,
 html.st-sui #st-panel .st-perf-added-chip .st-perf-chip-avatar { width: 34px; height: 34px; }
+/* CUSTOM (Sina): "Already on this scene" performer pills - the avatar circle must sit at the same distance
+   from the left edge as from the top and bottom. The generic Stash UI pill rules above force 11px on the left. */
+html.st-sui #st-panel .st-existing-pill-perf:has(.st-perf-chip-avatar) { padding: 3px 12px 3px 6px; }
+html.st-sui.kb-glass #st-panel .st-existing-pill-perf:has(.st-perf-chip-avatar) { padding: 3px 12px 3px 3px; }
+html.st-sui #st-panel .st-existing-pill-perf .st-perf-chip-avatar { width: 34px; height: 34px; }
 html.st-sui #st-panel .st-perf-item.st-perf-new,
 html.st-sui #st-panel .st-perf-item.st-perf-new:hover {
   background: color-mix(in srgb, var(--st-acc) 22%, transparent);
@@ -4923,6 +4928,11 @@ html.st-sui.kb-glass #st-panel .st-multi-studio-toggle.st-multi-exclude {
   cursor: default;
 }
 #st-panel .st-sugg-chip:hover .st-sugg-tip { display: block; }
+/* performer photo on the left of the hover card (CUSTOM Sina) */
+#st-panel .st-sugg-tip.st-sugg-tip-has-img:hover,
+#st-panel .st-sugg-chip:hover .st-sugg-tip.st-sugg-tip-has-img { display: flex; gap: 12px; align-items: flex-start; }
+#st-panel .st-sugg-tip-img { flex: none; width: 88px; height: 118px; object-fit: cover; border-radius: 8px; background: #1a2029; }
+#st-panel .st-sugg-tip-body { flex: 1; min-width: 0; display: block; }
 #st-panel .st-sugg-tip b { color: #e4e7eb; }
 #st-panel .st-sugg-row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
 #st-panel .st-sugg-row i { font-style: normal; font-weight: 700; color: #8fd19e; }
