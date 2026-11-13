@@ -7989,7 +7989,10 @@
         var patIsTitle = !!r.scene.title;
         var patBase = patIsTitle ? r.scene.title : getFilename(r.scene);
         var patOut = applyNamePatterns(patBase, "search", patIsTitle);   // file-name patterns (off by default)
-        r.titleSearchQuery = patOut !== null ? patOut : patBase;
+        // No pattern changed the name (patterns off, none defined, or none matched): a file name still loses
+        // its extension ("x.mp4" -> "x"; a site title never has one), a scene title is left as it is.
+        var patPlain = patIsTitle ? patBase : (String(patBase).replace(/\.[A-Za-z0-9]{2,4}$/, "") || patBase);
+        r.titleSearchQuery = patOut !== null ? patOut : patPlain;
         if (pluginConfig.cleanSearchTitle) r.titleSearchQuery = cleanSearchQuery(r.titleSearchQuery);
       }
     }
