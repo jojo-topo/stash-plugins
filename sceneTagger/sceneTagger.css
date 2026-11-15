@@ -3579,7 +3579,7 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
     min-width: 0;
   }
   #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]) { grid-column: 1; order: 1; border-top: none; padding-right: 18px; }
-  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) { grid-column: 2; order: 2; border-top: none; padding-left: 18px; border-left: 1px solid #2c3542; }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:is(:has([data-cb="date"]), .st-inline-date) { grid-column: 2; order: 2; border-top: none; padding-left: 18px; border-left: 1px solid #2c3542; }
   #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-performers { grid-column: 1; order: 3; padding-right: 18px; }
   #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls { grid-column: 2; order: 4; padding-left: 18px; border-left: 1px solid #2c3542; }
   #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-tags { order: 5; }
@@ -3612,7 +3612,7 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard { display: flex; flex-direction: column; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field { order: 7; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]) { order: 1; }
-  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) { order: 2; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:is(:has([data-cb="date"]), .st-inline-date) { order: 2; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-performers { order: 3; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls { order: 4; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-tags { order: 5; }
@@ -3636,14 +3636,18 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
     margin: 0;
   }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]),
-  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:is(:has([data-cb="date"]), .st-inline-date) {
     border-top: 1px solid #2c3542;
   }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-artists .st-studio-idrow { padding-left: 0; padding-right: 0; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-artists .st-studio-search-wrap {
     margin-left: 0;
     max-width: 100%;
-    flex-basis: 100%;
+    /* 1.31.2: was "flex-basis: 100%", which in this COLUMN flex container means 100% of the HEIGHT: the
+       wrapper grew to the height of the whole studio block and the suggestion list (top: 100%) opened far
+       below the field. Full width is all that was wanted. */
+    flex: 0 0 auto;
+    width: 100%;
   }
 }
 
@@ -4789,7 +4793,7 @@ html.st-sui:has(#st-panel.st-fullscreen:not([style*="display: none"])) { overflo
   html.st-sui.kb-glass #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field { border-top: 1px solid var(--glass-edge); }
   html.st-sui.kb-glass #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:first-child,
   html.st-sui.kb-glass #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]) { border-top: 0; }
-  html.st-sui.kb-glass #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) { border-top: 0; border-left: 1px solid var(--glass-edge); }
+  html.st-sui.kb-glass #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:is(:has([data-cb="date"]), .st-inline-date) { border-top: 0; border-left: 1px solid var(--glass-edge); }
   html.st-sui.kb-glass #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls { border-left: 1px solid var(--glass-edge); }
   /* two-column mode has no top padding (its banner goes to the card edge with margin-top 0): keep it, or a 4px strip shows above the banner */
   html.st-sui.kb-glass #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard { padding: 0 18px; }
@@ -5633,3 +5637,100 @@ html.st-sui #st-np-ov .st-np-btn:disabled { background: color-mix(in srgb, var(-
 html.st-sui.kb-glass #st-np-ov .st-np-inp,
 html.st-sui.kb-glass #st-np-ov .st-np-sel,
 html.st-sui.kb-glass #st-np-ov textarea { border-radius: 10px; }
+
+/* 1.31.2 file-name hints: button that offers the date read from the file name */
+#st-panel .st-fnhint { margin-top: 6px; font-size: 0.78em; }
+/* 1.31.2: in the mass list the card (.st-onecard) clips anything that overflows, so the calendar opens IN the flow (the card grows) instead of floating under the field. Solo keeps the floating popover. */
+#st-panel:not(.st-panel-solo) .st-date-popover { position: static; margin-top: 8px; }
+/* 1.31.2: the file-name studio button sits in the same wrap as the search input: same left edge, same width */
+#st-panel .st-ss-box { position: relative; }
+#st-panel .st-studio-search-wrap .st-fnhint-studio {
+  display: block; width: 100%; box-sizing: border-box; margin-top: 6px; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#st-panel .st-inline-artists .st-studio-search-wrap .st-fnhint-studio { max-width: 260px; }
+#st-panel .st-studio-search-wrap .st-fnhint-studio { font-size: 11px; }
+
+/* 1.31.2 Mass search: candidates of a row as a horizontal strip (the per-row "Search title" list stays vertical) */
+#st-panel .st-btn-mass { background: #5b46a8; border-color: #7f6bd6; color: #fff; }
+#st-panel .st-btn-mass:hover { background: #6b55bd; }
+#st-panel .st-btn-mass:disabled { opacity: 0.6; cursor: default; }
+#st-panel .st-title-search.st-ts-h { align-items: stretch; min-width: 0; }
+#st-panel .st-ts-h .st-ts-results {
+  flex-direction: row; max-height: none; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; gap: 8px;
+}
+#st-panel .st-ts-h .st-ts-result {
+  display: flex; flex-direction: column; flex: 0 0 190px; width: 190px; gap: 6px; box-sizing: border-box;
+}
+#st-panel .st-ts-h .st-ts-thumb { width: 100%; }
+#st-panel .st-ts-result-exact { border-color: #4c9a6a; background: #1c2a24; }
+#st-panel .st-ts-exact {
+  display: inline-block; margin-top: 4px; font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 1px 7px;
+  background: #2a3d33; color: #8fd1a9;
+}
+/* Mass search split button: main part + caret that opens the scraper list */
+#st-panel .st-mass-split { display: inline-flex; position: relative; align-items: stretch; }
+#st-panel .st-mass-split .st-mass-main { border-radius: 999px 0 0 999px; }
+#st-panel .st-mass-split .st-mass-caret { border-radius: 0 999px 999px 0; border-left: 1px solid #9b8be0; padding-left: 9px; padding-right: 10px; min-width: 0; }
+#st-panel .st-mass-split .st-combo-list { top: 100%; left: 0; min-width: 190px; }
+/* Stash UI skin: the glass style rounds every .kb-btn fully, which made "Mass search" and its caret two separate pills.
+   Joined here: round only the outer ends, 1px divider. */
+html.st-sui #st-panel .st-mass-split .st-mass-main { border-radius: 999px 0 0 999px !important; padding-right: 12px; }
+html.st-sui #st-panel .st-mass-split .st-mass-caret {
+  border-radius: 0 999px 999px 0 !important; padding: 0 11px !important; margin-left: -1px;
+  border-left-color: #9b8be0;
+}
+/* ...and keeps its violet (the skin's .st-btn-ghost rule would turn it grey) */
+/* !important + the kb-glass variant: the glass skin's .st-btn-ghost rules are more specific */
+html.st-sui #st-panel .st-btn-mass,
+html.st-sui.kb-glass #st-panel .st-btn-mass { background: #5b46a8 !important; border-color: #7f6bd6 !important; color: #fff !important; }
+html.st-sui #st-panel .st-btn-mass:hover:not(:disabled),
+html.st-sui.kb-glass #st-panel .st-btn-mass:hover:not(:disabled) { background: #6b55bd !important; border-color: #9b8be0 !important; color: #fff !important; }
+html.st-sui #st-panel .st-mass-split .st-mass-caret,
+html.st-sui.kb-glass #st-panel .st-mass-split .st-mass-caret { border-left-color: #9b8be0 !important; }
+
+/* "Panel bar" settings: hide a button of the header bar (the feature keeps its setting) */
+body.st-hide-b-mass #st-btn-mass-search, body.st-hide-b-mass #st-mass-combo { display: none !important; }
+body.st-hide-b-clear #st-btn-clear { display: none !important; }
+body.st-hide-b-mode #st-btn-scraper-mode { display: none !important; }
+body.st-hide-b-sfw #st-btn-nsfw { display: none !important; }
+body.st-hide-b-bulk #st-btn-bulk { display: none !important; }
+body.st-hide-b-fields #st-btn-fields { display: none !important; }
+
+/* Mass search "All scrapers": caret list entry, one-time warning, scraper badge on the cards */
+#st-panel .st-mass-all { display: flex; justify-content: space-between; gap: 12px; }
+/* gold only while "All scrapers" is the selected entry (it used to stay gold next to another selected scraper) */
+#st-panel .st-mass-all.st-combo-option-selected { color: #e9d9a6; }
+#st-panel .st-mass-all small { color: #8a93a1; font-size: 11px; }
+#st-panel .st-mass-sep { border-top: 1px solid #2f3642; margin: 4px 0; }
+#st-panel .st-mass-warn {
+  margin: 8px 12px; border: 1px solid #6b5a2a; background: #2a2412; color: #e9d9a6; border-radius: 8px; padding: 8px 10px; font-size: 12px;
+}
+#st-panel .st-mass-warn-btns { display: inline-flex; gap: 8px; margin-left: 8px; vertical-align: middle; }
+#st-panel .st-ts-src { display: inline-block; font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 1px 8px; margin-top: 4px; margin-right: 4px; }
+#st-panel .st-ts-src-0 { background: #3a2d52; color: #c3aef0; }
+#st-panel .st-ts-src-1 { background: #2d3a52; color: #9bb8e8; }
+#st-panel .st-ts-src-2 { background: #4a3524; color: #e8bf9b; }
+#st-panel .st-ts-src-3 { background: #27403a; color: #9be0cf; }
+#st-panel .st-ts-src-4 { background: #4a2d3a; color: #e8a6c3; }
+#st-panel .st-ts-src-5 { background: #3d4a24; color: #c6dc8f; }
+/* badges row of a result card + the "Open" link (new tab, does not pick the card) */
+#st-panel .st-ts-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+#st-panel .st-ts-badges .st-ts-src, #st-panel .st-ts-badges .st-ts-exact { margin: 0; }
+#st-panel .st-ts-open {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 1px 8px;
+  background: #2a3342; color: #9fb4d0; border: 1px solid #3b4b63; text-decoration: none; cursor: pointer;
+}
+#st-panel .st-ts-open:hover { background: #33405a; color: #cfe0f5; border-color: #5e81ac; text-decoration: none; }
+
+/* Mass search is a list tool: not in the single-scene panel */
+#st-panel.st-panel-solo #st-btn-mass-search,
+#st-panel.st-panel-solo #st-mass-combo,
+#st-panel.st-panel-solo #st-mass-warn { display: none !important; }
+
+/* Compact mode (a ~400px panel): the mass list's "existing / new" columns are stacked, like in the wide layouts.
+   Without it the base two-column grid squeezed the "New from scrape" column to ~80px and clipped its chips. */
+#st-panel.st-compact:not(.st-panel-solo) .st-split-list .st-split-cols.st-split-stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}

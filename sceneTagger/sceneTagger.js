@@ -771,6 +771,358 @@
     fieldsRefresh();
   }
 
+  // ── File-name hints: date read from the file name (1.31.2) ─────────────────
+  // Feature request (forum, DrWigglesWeinerWagon): a file named "... 23.02.07 ..." gets no date.
+  // Nothing here writes anything: the date is only OFFERED as a button next to the Date field
+  // (a click = stDatePick). Both settings are OFF by default (fileNameDate, showDateField).
+  // All names are prefixed fnHints* (everything shares one scope, see src/README.md).
+
+  function fnHintsDaysIn(y, m) { return new Date(y, m, 0).getDate(); }
+
+  // y (4 digits), m, d -> "YYYY-MM-DD" or "" when it is not a plausible calendar date
+  function fnHintsISO(y, m, d) {
+    y = parseInt(y, 10); m = parseInt(m, 10); d = parseInt(d, 10);
+    var maxYear = new Date().getFullYear() + 1;
+    if (!(y >= 1990 && y <= maxYear)) return "";
+    if (!(m >= 1 && m <= 12)) return "";
+    if (!(d >= 1 && d <= fnHintsDaysIn(y, m))) return "";
+    return y + "-" + (m < 10 ? "0" : "") + m + "-" + (d < 10 ? "0" : "") + d;
+  }
+
+  // 2-digit year form "23.02.07". dmy = false: YY.MM.DD (default), true: DD.MM.YY.
+  // When the preferred order gives no valid date, the other one is tried.
+  function fnHintsTwoDigit(a, b, c, dmy) {
+    var ymd = fnHintsISO(2000 + parseInt(a, 10), b, c);
+    var dmyISO = fnHintsISO(2000 + parseInt(c, 10), b, a);
+    return dmy ? (dmyISO || ymd) : (ymd || dmyISO);
+  }
+
+  // name: file name (extension optional). Returns "YYYY-MM-DD" or "".
+  function fnHintsParseDate(name, dmy) {
+    var s = String(name || "").replace(/\.[A-Za-z0-9]{2,4}$/, "");
+    var m;
+    // 2023-02-07, 2023.02.07, 2023_02_07, 2023 02 07
+    m = /(^|\D)((?:19|20)\d{2})[.\-_ ](\d{1,2})[.\-_ ](\d{1,2})(?!\d)/.exec(s);
+    if (m) { var a = fnHintsISO(m[2], m[3], m[4]); if (a) return a; }
+    // 07.02.2023 / 02.07.2023 (day first unless the second number cannot be a month)
+    m = /(^|\D)(\d{1,2})[.\-_ ](\d{1,2})[.\-_ ]((?:19|20)\d{2})(?!\d)/.exec(s);
+    if (m) {
+      var first = parseInt(m[2], 10), second = parseInt(m[3], 10);
+      var b = second > 12 ? fnHintsISO(m[4], m[2], m[3]) : fnHintsISO(m[4], m[3], m[2]);
+      if (b) return b;
+      if (first <= 12) { b = fnHintsISO(m[4], m[2], m[3]); if (b) return b; }
+    }
+    // 20230207 (8 digits)
+    m = /(^|\D)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)/.exec(s);
+    if (m) { var c8 = fnHintsISO(m[2], m[3], m[4]); if (c8) return c8; }
+    // 23.02.07 (2-digit year, separators required: a bare 6-digit number is far too often an id)
+    m = /(^|\D)(\d{2})[.\-_ ](\d{2})[.\-_ ](\d{2})(?!\d)/.exec(s);
+    if (m) { var d2 = fnHintsTwoDigit(m[2], m[3], m[4], !!dmy); if (d2) return d2; }
+    return "";
+  }
+
+  // The date to OFFER for a scene ("" when the setting is off, nothing found, or the scene already has it).
+  function fnHintsDateFor(scene) {
+    if (!pluginConfig.fileNameDate || !scene) return "";
+    var iso = fnHintsParseDate(getFilename(scene), pluginConfig.fileNameDateDmy);
+    if (!iso || iso === String(scene.date || "").trim()) return "";
+    return iso;
+  }
+
+  // Button shown under the Date field. Clicking it fills the field (stDatePick); Apply is still up to the user.
+  function fnHintsDateButtonHTML(id, r, scene) {
+    var iso = fnHintsDateFor(scene);
+    if (!iso || iso === r.dateEditValue) return "";
+    return '<button type="button" class="st-btn st-btn-ghost st-fnhint" onclick="stDatePick(\'' + esc(id) + '\',\'' + esc(iso) + '\')">' +
+      'Use ' + esc(iso) + ' (from file name)</button>';
+  }
+
+  // ── Studio read from the start of the file name (1.31.2) ───────────────────
+  // "Studio - 23.02.07 - Title.mp4": the first words are compared (exact match, case / spaces / punctuation
+  // ignored) with every studio name and alias of the library. Longest match wins; a name shared by two
+  // different studios is ignored. Only OFFERED (button), only when the scene and the scrape have no studio.
+  // Setting: fileNameStudio (OFF by default).
+  var fnHintsStudioIndex = null, fnHintsStudiosLoading = false;
+
+  function fnHintsNorm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+  function fnHintsStudiosLoad() {
+    if (fnHintsStudioIndex || fnHintsStudiosLoading) return;
+    fnHintsStudiosLoading = true;
+    gql("FHS", "query FHS{findStudios(filter:{per_page:-1}){studios{id name aliases}}}", {}).then(function (d) {
+      var idx = {};
+      (((d || {}).findStudios || {}).studios || []).forEach(function (s) {
+        [s.name].concat(s.aliases || []).forEach(function (nm) {
+          var k = fnHintsNorm(nm);
+          if (k.length < 3) return;
+          if (idx[k] === undefined) idx[k] = { id: s.id, name: s.name };
+          else if (idx[k] && idx[k].id !== s.id) idx[k] = null;   // ambiguous
+        });
+      });
+      fnHintsStudioIndex = idx;
+      fnHintsStudiosLoading = false;
+    }).catch(function () { fnHintsStudiosLoading = false; });
+  }
+
+  // {id, name} of the studio the file name starts with, or null (also null while the list is still loading).
+  function fnHintsStudioFor(scene) {
+    if (!pluginConfig.fileNameStudio || !scene || scene.studio) return null;
+    if (!fnHintsStudioIndex) { fnHintsStudiosLoad(); return null; }
+    var base = String(getFilename(scene) || "").replace(/\.[A-Za-z0-9]{2,4}$/, "");
+    var tokens = base.split(/[\s._\-\[\]()+,]+/).filter(Boolean);
+    while (tokens.length && /^\d+$/.test(tokens[0])) tokens.shift();   // leading date / number
+    for (var n = Math.min(5, tokens.length); n >= 1; n--) {
+      var typed = tokens.slice(0, n).join(" ");
+      var hit = fnHintsStudioIndex[fnHintsNorm(typed.replace(/ /g, ""))];
+      // A studio on the studio blacklist (Blacklist category), by its name or by the text matched, is never offered
+      if (hit && !isBlacklisted(hit.name) && !isBlacklisted(typed)) return hit;
+    }
+    return null;
+  }
+
+  // Called at the end of renderRow(): with "Pick it automatically" ON, picks the studio the file name starts with
+  // (same click as the button). Not when a studio is already chosen (Bulk, manual), nor after the user pressed the
+  // cross (r.fnStudioCleared). Nothing is written to Stash here: Apply does that.
+  function fnHintsStudioAuto(id, el, status) {
+    if (!pluginConfig.fileNameStudio || !pluginConfig.fileNameStudioAuto || status !== "scraped") return;
+    var r = state.rows[id];
+    if (!r || r.fnStudioCleared) return;
+    var ov = el.querySelector('[data-cb="studio-override"]');
+    if (!ov || ov.value) return;
+    var btn = el.querySelector(".st-fnhint-studio");
+    if (btn) window.stFnHintStudio(id, btn);
+  }
+
+  function fnHintsStudioButtonHTML(id, scene, scraped) {
+    if (scraped && scraped.studio) return "";
+    var s = fnHintsStudioFor(scene);
+    if (!s) return "";
+    return '<button type="button" class="st-btn st-btn-ghost st-fnhint st-fnhint-studio" data-sid="' + esc(s.id) + '" data-sname="' + esc(s.name) +
+      '" title="Studio found at the start of the file name" onclick="stFnHintStudio(\'' + esc(id) + '\',this)">Use studio ' + esc(s.name) + '</button>';
+  }
+
+  // Click = the same as picking that studio in the search box (reuses its handler: chip, logo, pin to filter).
+  window.stFnHintStudio = function (id, btn) {
+    var el = document.getElementById("st-row-" + id);
+    var res = el && el.querySelector(".st-studio-search-results");
+    if (!res || !btn) return;
+    res.innerHTML = '<div class="st-studio-result-item" data-id="' + esc(btn.getAttribute("data-sid")) + '" data-name="' + esc(btn.getAttribute("data-sname")) + '"></div>';
+    res.firstChild.click();
+    btn.remove();
+  };
+
+  // ── Mass search (1.31.2) ────────────────────────────────────────────────────
+  // A button NEXT TO "Scrape All" (which is untouched): for every scene of the page that is still idle / failed /
+  // skipped it runs the same query-based search as the per-row "Search title" button (scrapeSingleSceneByQuery),
+  // 3 rows at a time, and leaves the candidates in the row as a horizontal strip to pick from. Picking one is the
+  // existing stPickTitleResult(), so Apply / Apply All work as usual. Nothing is written until Apply.
+  // The caret lists the scrapers and, first, "All scrapers": a scene WITHOUT a known scraper (see 06-scraperdetect.js)
+  // is then searched on every search-capable scraper - one request at a time per scraper, 20 s timeout, results
+  // interleaved with a scraper badge on each card. A scene that points to a scraper keeps using only that one.
+  // It sends the title to several sites, so it is never the default and asks once per browser session.
+  // Setting: massSearchMax (candidates shown per row, 3-25). All names are prefixed massSearch*.
+
+  var massSearch = { scraperID: "", running: false };
+  var MASS_ALL = "__all__";
+  var massSearchChains = {};   // scraper id -> promise chain: one request at a time per scraper in "All scrapers" mode
+
+  function massSearchBoxes(scrapers) {
+    return (typeof state !== "undefined" && state && state.scrapers && state.scrapers.length)
+      ? getSearchScrapers()
+      : (scrapers || []).filter(isSearchCapable);
+  }
+
+  function massSearchNorm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+  // The last scraper used is remembered per browser (localStorage); the combobox is a small caret glued to the
+  // button (split button), so the usual case is ONE click and the bar stays compact.
+  var MASS_LS = "stMassSearchScraper";
+  var MASS_SS = "stMassAllOk";   // sessionStorage: the "All scrapers" warning was accepted in this browser session
+  function massSearchRemembered() { try { return localStorage.getItem(MASS_LS) || ""; } catch (e) { return ""; } }
+  function massSearchTip(name) { return "Search every scene of this page by title" + (name ? " on " + name : "") + " (Scrape All is not affected)"; }
+
+  // Bar HTML: the button, plus (when several scrapers can search) a caret that opens a custom list - never a native select.
+  function massSearchBarHTML(scrapers) {
+    var boxes = massSearchBoxes(scrapers);
+    if (!boxes.length) return "";
+    var want = massSearch.scraperID || massSearchRemembered();
+    if (want === MASS_ALL && boxes.length < 2) want = "";
+    var cur = want === MASS_ALL ? { id: MASS_ALL, name: "All scrapers" } : (boxes.filter(function (b) { return b.id === want; })[0] || boxes[0]);
+    massSearch.scraperID = cur.id;
+    var main = '<button class="st-btn st-btn-ghost st-btn-mass st-mass-main" id="st-btn-mass-search" title="' + esc(massSearchTip(cur.name)) + '">Mass search</button>';
+    if (boxes.length < 2) return main;
+    return '<span class="st-combo st-mass-split" id="st-mass-combo">' + main +
+      '<button type="button" class="st-btn st-btn-ghost st-btn-mass st-mass-caret" id="st-mass-combo-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose the scraper used by Mass search" title="Choose the scraper">&#9662;</button>' +
+      '<div class="st-combo-list" id="st-mass-combo-list" role="listbox" style="display:none">' +
+        '<div class="st-combo-option st-mass-all' + (cur.id === MASS_ALL ? ' st-combo-option-selected' : '') + '" role="option" data-id="' + MASS_ALL + '" data-name="All scrapers">All scrapers' +
+          '<small>sends each title to ' + boxes.length + ' scrapers</small></div>' +
+        '<div class="st-mass-sep"></div>' +
+        boxes.map(function (b) {
+          return '<div class="st-combo-option' + (b.id === cur.id ? ' st-combo-option-selected' : '') + '" role="option" data-id="' + esc(b.id) + '" data-name="' + esc(b.name) + '">' + esc(b.name) + '</div>';
+        }).join("") +
+      '</div></span>';
+  }
+
+  function massSearchBind() {
+    var btn = document.getElementById("st-btn-mass-search");
+    if (btn) btn.addEventListener("click", massSearchRun);
+    var cb = document.getElementById("st-mass-combo-btn"), list = document.getElementById("st-mass-combo-list"), wrap = document.getElementById("st-mass-combo");
+    if (!cb || !list) return;
+    cb.addEventListener("click", function () {
+      var open = list.style.display === "block";
+      list.style.display = open ? "none" : "block";
+      cb.setAttribute("aria-expanded", open ? "false" : "true");
+    });
+    list.addEventListener("click", function (e) {
+      var opt = e.target.closest(".st-combo-option");
+      if (!opt) return;
+      massSearch.scraperID = opt.getAttribute("data-id");
+      try { localStorage.setItem(MASS_LS, massSearch.scraperID); } catch (e) {}
+      var mainBtn = document.getElementById("st-btn-mass-search");
+      if (mainBtn) mainBtn.title = massSearchTip(opt.getAttribute("data-name"));
+      list.querySelectorAll(".st-combo-option").forEach(function (o) { o.classList.toggle("st-combo-option-selected", o === opt); });
+      list.style.display = "none";
+      cb.setAttribute("aria-expanded", "false");
+    });
+    document.addEventListener("click", function (e) {
+      if (list.style.display === "block" && wrap && !wrap.contains(e.target)) { list.style.display = "none"; cb.setAttribute("aria-expanded", "false"); }
+    });
+  }
+
+  // One request at a time per scraper (the next one starts when the previous settled, whatever its outcome)
+  function massSearchLimited(sid, fn) {
+    var prev = massSearchChains[sid] || Promise.resolve();
+    var p = prev.then(fn, fn);
+    massSearchChains[sid] = p.then(function () {}, function () {});
+    return p;
+  }
+
+  function massSearchTimeout(p, ms) {
+    return new Promise(function (resolve, reject) {
+      var t = setTimeout(function () { reject(new Error("timeout")); }, ms);
+      p.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
+    });
+  }
+
+  // One result of each scraper in turn (none drowns the others), then the exact-title ones first
+  function massSearchMerge(lists, query) {
+    var out = [], i = 0, more = true;
+    while (more) {
+      more = false;
+      lists.forEach(function (l) { if (l && i < l.length) { out.push(l[i]); more = true; } });
+      i++;
+    }
+    var qn = massSearchNorm(query);
+    return out.filter(function (x) { return massSearchNorm(x.title) === qn; })
+      .concat(out.filter(function (x) { return massSearchNorm(x.title) !== qn; }));
+  }
+
+  // Badge of the scraper a card comes from ("All scrapers" rows only)
+  function massSearchBadgeHTML(cand, r) {
+    if (!r.massAll || !cand._scraperName) return "";
+    return '<span class="st-ts-src st-ts-src-' + ((cand._scraperIdx || 0) % 6) + '">' + esc(cand._scraperName) + '</span>';
+  }
+
+  function massSearchWarned() { try { return sessionStorage.getItem(MASS_SS) === "1"; } catch (e) { return false; } }
+
+  // Yellow banner under the bar, asked once per browser session before an "All scrapers" run
+  function massSearchWarn(boxes, nAll, nOwn) {
+    var old = document.getElementById("st-mass-warn"); if (old) old.remove();
+    var hdr = document.getElementById("st-panel-header"); if (!hdr) return;
+    var div = document.createElement("div");
+    div.id = "st-mass-warn"; div.className = "st-mass-warn";
+    div.innerHTML = 'Search on all scrapers will send the title of ' + nAll + ' scene' + (nAll === 1 ? '' : 's') + ' without a known scraper to ' + boxes.length +
+      ' scrapers (' + boxes.map(function (b) { return esc(b.name); }).join(", ") + ').' +
+      (nOwn ? ' ' + nOwn + ' scene' + (nOwn === 1 ? '' : 's') + ' that already point to a scraper are searched only there.' : '') +
+      ' <span class="st-mass-warn-btns"><button type="button" class="st-btn st-btn-ghost" id="st-mass-warn-go">Search</button>' +
+      '<button type="button" class="st-btn st-btn-ghost" id="st-mass-warn-no">Cancel</button></span>';
+    hdr.parentNode.insertBefore(div, hdr.nextSibling);
+    document.getElementById("st-mass-warn-go").addEventListener("click", function () {
+      try { sessionStorage.setItem(MASS_SS, "1"); } catch (e) {}
+      div.remove();
+      massSearchRun();
+    });
+    document.getElementById("st-mass-warn-no").addEventListener("click", function () { div.remove(); });
+  }
+
+  function massSearchRun() {
+    if (massSearch.running || state.running) return;
+    var boxes = getSearchScrapers();
+    if (!boxes.length) { updateStatus("No scraper can search by title"); return; }
+    var sid = massSearch.scraperID || boxes[0].id;
+    var allMode = sid === MASS_ALL && boxes.length > 1;
+    if (sid === MASS_ALL && !allMode) sid = boxes[0].id;
+    var todo = state.scenes.filter(function (scene) {
+      var s = (state.rows[scene.id] || {}).status;
+      return !s || s === "idle" || s === "error" || s === "skipped";
+    });
+    if (!todo.length) { updateStatus("Nothing to search"); return; }
+
+    // "All scrapers": scenes that point to a scraper (setting on) are searched only there
+    var nOwn = allMode ? todo.filter(function (scene) { return pluginConfig.massSearchAutoScraper && scraperDetectFor(scene); }).length : 0;
+    var nAll = todo.length - nOwn;
+    if (allMode && nAll > 0 && !massSearchWarned()) { massSearchWarn(boxes, nAll, nOwn); return; }
+
+    massSearch.running = true;
+    var btn = document.getElementById("st-btn-mass-search");
+    if (btn) btn.disabled = true;
+    var next = 0, active = 0, done = 0, LIMIT = 3;
+    var sname = allMode ? "" : ((boxes.filter(function (b) { return b.id === sid; })[0] || {}).name || "");
+    var on = allMode ? " on " + boxes.length + " scrapers" + (nOwn ? " (" + nOwn + " use their own scraper)" : "") : (sname ? " on " + sname : "");
+
+    function finishOne() {
+      active--; done++;
+      updateStatus("Searching " + done + " of " + todo.length + on + (done === todo.length ? " - done" : ""));
+      pump();
+    }
+    function startOne(scene) {
+      var id = scene.id, r = state.rows[id];
+      if (!r) { done++; return; }
+      active++;
+      if (!r.titleSearchOpen) window.stToggleTitleSearch(id);   // opens the panel and fills the query (patterns / cleaning)
+      r.massSearch = true;
+      var detRow = pluginConfig.massSearchAutoScraper ? scraperDetectFor(scene) : "";   // this scene's own scraper
+      var useAll = allMode && !detRow;
+      var rowSid = detRow || (allMode ? boxes[0].id : sid);
+      r.titleSearchScraperID = rowSid;
+      r.massAll = false;
+      var query = (r.titleSearchQuery || "").trim();
+      if (!query) { r.titleSearchResults = []; renderRow(id); finishOne(); return; }
+      r.titleSearchLoading = true; r.titleSearchError = ""; r.titleSearchResults = null;
+      renderRow(id);
+
+      if (!useAll) {
+        scrapeSingleSceneByQuery(rowSid, query)
+          .then(function (results) { r.titleSearchResults = results; r.titleSearchRan = { q: query, s: rowSid }; })
+          .catch(function (err) { r.titleSearchError = (err && err.message) || String(err); })
+          .then(function () { r.titleSearchLoading = false; renderRow(id); finishOne(); });
+        return;
+      }
+      // every search-capable scraper, one request at a time per scraper, 20 s each; a scraper that fails is skipped
+      var lists = [], failed = 0;
+      Promise.all(boxes.map(function (b, bi) {
+        return massSearchLimited(b.id, function () { return massSearchTimeout(scrapeSingleSceneByQuery(b.id, query), 20000); })
+          .then(function (res) {
+            lists[bi] = (res || []).filter(Boolean).map(function (x) { x._scraperID = b.id; x._scraperName = b.name; x._scraperIdx = bi; return x; });
+          })
+          .catch(function () { failed++; lists[bi] = []; });
+      })).then(function () {
+        if (failed === boxes.length) { r.titleSearchError = "No scraper answered"; }
+        else { r.titleSearchResults = massSearchMerge(lists, query); r.massAll = true; r.titleSearchRan = { q: query, s: rowSid }; }
+        r.titleSearchLoading = false; renderRow(id); finishOne();
+      });
+    }
+    function pump() {
+      while (active < LIMIT && next < todo.length) startOne(todo[next++]);
+      if (done >= todo.length && massSearch.running) {
+        massSearch.running = false;
+        if (btn) btn.disabled = false;
+        updatePageInfo();
+      }
+    }
+    updateStatus("Searching 0 of " + todo.length + on);
+    pump();
+  }
 
   // ── Inject : toggle buttons, setup, scene button, Stash UI host ──
 
@@ -920,6 +1272,17 @@
     return m ? m[1] : null;
   }
 
+  // Compact mode belongs to the LIST only: a single scene needs no compact layout, and keeping the class on the solo
+  // panel (the panel is built once, with the list's classes) made odd artefacts. Solo drops it (and shows the resize
+  // handle the wide layout has); the list gets it back from the setting.
+  function panelSoloCompact(panelEl, solo) {
+    if (!panelEl) return;
+    var compact = !solo && !!pluginConfig.compactMode;
+    panelEl.classList.toggle("st-compact", compact);
+    var handle = document.getElementById("st-resize-handle");
+    if (handle) handle.style.display = compact ? "none" : "flex";
+  }
+
   function openPanelForScene(sceneID) {
     var sp = state.scrapers.length > 0
       ? Promise.resolve(state.scrapers)
@@ -940,6 +1303,7 @@
         var panelEl = document.getElementById(PANEL_ID);
         if (panelEl) {
           panelEl.classList.add("st-panel-solo");
+          panelSoloCompact(panelEl, true);   // never compact in solo
           panelEl.classList.toggle("st-hide-scene-mode-toggle", !!pluginConfig.hideSceneModeToggle);
           panelEl.classList.toggle("st-fullscreen", !!pluginConfig.fullscreenSolo);
           var fsBtnSolo = document.getElementById("st-titlebar-fullscreen");
@@ -2097,6 +2461,7 @@
   function rowBindMainButtons(cx) {
     var ui = cx.ui;
     document.getElementById("st-btn-scrape-all").addEventListener("click", function () { if (!state.running) scrapeAll(); });
+    massSearchBind();   // "Mass search" button + its scraper combobox (06-masssearch.js)
     document.getElementById("st-btn-apply-all").addEventListener("click", applyAll);
     document.getElementById("st-btn-skip-all").addEventListener("click", skipAll);
     bindBulk();
@@ -2397,6 +2762,20 @@
     bindSettingCb("st-cfg-manual-fallback-title", "manualFallbackAllowTitle");
     bindSettingCb("st-cfg-manual-fallback-prefill", "manualFallbackPrefillFilename");
     bindSettingCb("st-cfg-clean-search",          "cleanSearchTitle");
+    bindSettingCb("st-cfg-filename-date",         "fileNameDate");
+    bindSettingCb("st-cfg-filename-date-dmy",     "fileNameDateDmy");
+    bindSettingCb("st-cfg-show-date-field",       "showDateField");
+    bindSettingCb("st-cfg-filename-studio",       "fileNameStudio");
+    bindSettingCb("st-cfg-filename-studio-auto",  "fileNameStudioAuto");
+    bindSettingRange("st-cfg-mass-max", "massSearchMax", "");
+    bindSettingCb("st-cfg-mass-auto-scraper", "massSearchAutoScraper");
+    bindSettingCb("st-cfg-open-classic", "openSceneClassic");
+    bindSettingCb("st-cfg-hide-b-mass",   "hideBtnMass");
+    bindSettingCb("st-cfg-hide-b-clear",  "hideBtnClear");
+    bindSettingCb("st-cfg-hide-b-mode",   "hideBtnMode");
+    bindSettingCb("st-cfg-hide-b-sfw",    "hideBtnSfw");
+    bindSettingCb("st-cfg-hide-b-bulk",   "hideBtnBulk");
+    bindSettingCb("st-cfg-hide-b-fields", "hideBtnFields");
     bindSettingCb("st-cfg-name-patterns",         "namePatternsOn");
     bindSettingCb("st-cfg-name-patterns-glass",   "namePatternsGlass");
     bindSettingCb("st-cfg-strip-studio",          "stripStudioName");
@@ -2736,6 +3115,7 @@
         // 7dJx1qP Userscript Library looks for //button[text()='Scrape All'] (Stash's own Tagger page) and
         // threw "Cannot read properties of null (reading 'lastChild')" on /scenes when it found this one.
         '<button class="st-btn st-btn-primary"  id="st-btn-scrape-all"><span>Scrape All</span></button>' +
+        massSearchBarHTML(scrapers) +
         '<button class="st-btn st-btn-success"  id="st-btn-apply-all" disabled>Apply All</button>' +
         '<button class="st-btn st-btn-danger"   id="st-btn-skip-all" disabled>Skip All</button>' +
         '<button class="st-btn st-btn-ghost"    id="st-btn-clear">Clear</button>' +
@@ -3564,7 +3944,11 @@
     var rowSecRight_cx = { status: status, id: id, searchTitleBtnHTML: searchTitleBtnHTML }; rowSecRight(rowSecRight_cx);
     rightHTML = rowSecRight_cx.rightHTML;
 
-    var sceneUrl = window.location.origin + "/scenes/" + id;
+    // Thumbnail link: in Stash UI it opens the scene in Stash UI ("#/scene/<id>", like the performer middle-click in
+    // 10-body.js) unless "Open scenes in the classic Stash" (openSceneClassic) is on; the classic page always opens it as is.
+    var sceneUrl = (window.location.pathname.indexOf("/plugin/stashui") !== -1 && !pluginConfig.openSceneClassic)
+      ? window.location.origin + window.location.pathname + "#/scene/" + id
+      : window.location.origin + "/scenes/" + id;
 
     var manualUrlHTML;
     var rowSecManualUrlHtml_cx = { status: status, r: r }; rowSecManualUrlHtml(rowSecManualUrlHtml_cx);
@@ -3681,6 +4065,7 @@
 
     // Bulk: selection box + the studio / performers / tags set by Bulk (they live in r.bulk, the DOM is rebuilt)
     bulkDecorateRow(id, el);
+    fnHintsStudioAuto(id, el, status);   // 1.31.2: "Pick it automatically" (file-name studio), see 06-filenamehints.js
     fieldsDim(el);   // greys out the fields that a "Fields" restriction leaves out
 
     // Apply the studio filter after every render
@@ -4254,9 +4639,15 @@
       var studioSearchWidget =
         '<div class="st-studio-search-wrap">' +
           '<input type="hidden" data-cb="studio-override" data-studio-id="" value="">' +
-          '<input type="text" class="st-studio-search-input" placeholder="Search for an existing studio..." autocomplete="off">' +
-          '<div class="st-studio-search-results" style="display:none"></div>' +
+          // .st-ss-box (1.31.2): the input and its list sit in their own positioned box so the file-name
+          // studio button can live in the same wrap (same left edge and width as the input) without
+          // pushing the list down.
+          '<div class="st-ss-box">' +
+            '<input type="text" class="st-studio-search-input" placeholder="Search for an existing studio..." autocomplete="off">' +
+            '<div class="st-studio-search-results" style="display:none"></div>' +
+          '</div>' +
           '<span class="st-studio-selected" style="display:none"></span>' +
+          fnHintsStudioButtonHTML(id, scene, scraped) +
         '</div>';
 
       // ── Stacked existing-vs-new wrapper (logo reserved zone, not forced
@@ -4480,7 +4871,10 @@
       // calendar widget (buildDateFieldHTML), with the existing-vs-new
       // split when the two differ. The mass list keeps the original plain
       // checkbox+chip - see isSolo.
-      if (!isSolo) {
+      // 1.31.2: "Always show a Date field" (showDateField, OFF by default) gives the mass list the same
+      // calendar widget as solo (scraped date prefilled, or empty when the scrape found none): the date can be edited by hand.
+      var dateWidget = isSolo || !!pluginConfig.showDateField;   // 1.31.2: also when a date WAS scraped (the field starts with it)
+      if (!dateWidget) {
         if (scraped.date) {
           fields.push(
             '<div class="st-inline-field">' +
@@ -4510,6 +4904,7 @@
               '<div class="st-details-col">' +
                 (hasNewDate ? '<span class="st-existing-caption st-new">New from scrape (editable)</span>' : '') +
                 buildDateFieldHTML(id, r) +
+                (!scrapedDateText ? fnHintsDateButtonHTML(id, r, scene) : "") +
               '</div>' +
             '</div>' +
           '</div>'
@@ -4971,29 +5366,44 @@
         if (!r.titleSearchResults.length) {
           tsResultsHTML = '<div class="st-ts-status">No results</div>';
         } else {
-          tsResultsHTML = '<div class="st-ts-results">' + r.titleSearchResults.map(function (cand, idx) {
+          // Mass search (06-masssearch.js): only the first massSearchMax candidates, as a horizontal strip.
+          // Same indexes as r.titleSearchResults, so stPickTitleResult() is unchanged.
+          var tsShown = r.massSearch ? r.titleSearchResults.slice(0, Math.max(1, parseInt(pluginConfig.massSearchMax, 10) || 8)) : r.titleSearchResults;
+          var tsQueryNorm = massSearchNorm(tsQuery);
+          tsResultsHTML = '<div class="st-ts-results">' + tsShown.map(function (cand, idx) {
             var studioName = cand.studio && cand.studio.name ? cand.studio.name : "";
             var studioIsBl = studioName && isBlacklisted(studioName);
             var studioBadgeHTML = studioName
               ? '<span class="' + (studioIsBl ? 'st-ts-studio-bl' : 'st-ts-studio-ok') + '">' + esc(studioName) + (studioIsBl ? ' &#9888; blacklisted' : '') + '</span>'
               : "";
-            return '<div class="st-ts-result" onclick="stPickTitleResult(\'' + esc(id) + '\',' + idx + ')">' +
+            var tsExact = !!(r.massSearch && tsQueryNorm && massSearchNorm(cand.title) === tsQueryNorm);
+            // "Open" badge: the result's page in a new tab, WITHOUT picking the card (stopPropagation); only http(s) links
+            var tsOpenUrl = (cand.urls && cand.urls[0]) || cand.url || "";
+            if (!/^https?:\/\//i.test(tsOpenUrl)) tsOpenUrl = "";
+            var tsOpenHTML = tsOpenUrl
+              ? '<a class="st-ts-open" href="' + esc(tsOpenUrl) + '" target="_blank" rel="noopener noreferrer" title="Open this result in a new tab" onclick="event.stopPropagation()">Open' +
+                '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>'
+              : "";
+            return '<div class="st-ts-result' + (tsExact ? ' st-ts-result-exact' : '') + '" onclick="stPickTitleResult(\'' + esc(id) + '\',' + idx + ')">' +
               (cand.image ? '<img class="st-ts-thumb" src="' + esc(cand.image) + '">' : '<div class="st-ts-thumb"></div>') +
               '<div class="st-ts-info">' +
                 '<div class="st-ts-title">' + esc(cand.title || "(no title)") + '</div>' +
                 '<div class="st-ts-meta">' + (cand.date ? esc(cand.date) + ' &middot; ' : '') + studioBadgeHTML + '</div>' +
+                '<div class="st-ts-badges">' + massSearchBadgeHTML(cand, r) + (tsExact ? '<span class="st-ts-exact">Exact title</span>' : '') + tsOpenHTML + '</div>' +
               '</div>' +
             '</div>';
-          }).join("") + '</div>';
+          }).join("") + '</div>' +
+          (tsShown.length < r.titleSearchResults.length
+            ? '<div class="st-ts-status">Showing ' + tsShown.length + ' of ' + r.titleSearchResults.length + ' results (setting "Mass search: results per row")</div>' : '');
         }
       }
 
       titleSearchHTML =
-        '<div class="st-title-search">' +
+        '<div class="st-title-search' + (r.massSearch ? ' st-ts-h' : '') + '">' +
           (stashBoxes.length > 1 ? '<select class="st-ts-source">' + tsBoxOptionsHTML + '</select>' : '') +
           '<div class="st-ts-search-row">' +
             '<input type="text" class="st-ts-input" value="' + esc(tsQuery) + '">' +
-            '<button class="st-btn st-btn-primary" onclick="stRunTitleSearch(\'' + esc(id) + '\')">Search</button>' +
+            '<button class="st-btn st-btn-primary" onclick="stTitleSearchButton(\'' + esc(id) + '\')">Search</button>' +
           '</div>' +
           tsResultsHTML +
         '</div>';
@@ -5640,6 +6050,7 @@
         if (selectedSpan) {
           selectedSpan.addEventListener("click", function () {
             pinRowToFilter(el.id.replace("st-row-", ""));
+            r.fnStudioCleared = true;   // the cross also stops the file-name studio from being picked again
             overrideInput.value = "";
             overrideInput.setAttribute("data-studio-id", "");
             selectedSpan.style.display = "none";
@@ -5649,6 +6060,42 @@
         }
       }
     }
+  }
+
+  // ── Which scraper fits a scene? (1.31.2) ────────────────────────────────────
+  // Stash lists, for each scraper, the URL patterns it handles (listScrapers -> scene.urls). A scene whose saved URL
+  // (or a YouTube id found in its file name, or a rule34 link) matches one of the patterns of a search-capable
+  // scraper gets THAT scraper as its default for "Search title", and for "Mass search" (setting massSearchAutoScraper).
+  // Only an offer of a default: the per-row list can still be changed. Nothing is sent anywhere here.
+
+  var SD_YT_ID = /(?:^|[_\s\[(-])([A-Za-z0-9_-]{11})\]?\)?\.[A-Za-z0-9]{1,5}$/;
+
+  function scraperDetectUrls(scene) {
+    var out = (scene.urls || []).slice();
+    var r34 = (typeof getR34URL === "function") ? getR34URL(scene) : null;
+    if (r34) out.push(r34);
+    var name = String(getFilename(scene) || "").split(/[\\/]/).pop();
+    var m = SD_YT_ID.exec(name);
+    // a YouTube id is random: it has a digit or a capital inside (a plain 11-letter word does not count)
+    if (m && (/\d/.test(m[1]) || /[A-Z]/.test(m[1].slice(1)))) out.push("https://www.youtube.com/watch?v=" + m[1]);
+    return out;
+  }
+
+  // id of the search-capable scraper that handles one of the scene's URLs, or "" when none does
+  function scraperDetectFor(scene) {
+    if (!scene) return "";
+    var boxes = getSearchScrapers().filter(function (b) { return b.urls && b.urls.length; });
+    if (!boxes.length) return "";
+    var urls = scraperDetectUrls(scene);
+    for (var i = 0; i < urls.length; i++) {
+      var u = String(urls[i] || "").toLowerCase();
+      for (var j = 0; j < boxes.length; j++) {
+        for (var k = 0; k < boxes[j].urls.length; k++) {
+          if (u.indexOf(String(boxes[j].urls[k]).toLowerCase()) !== -1) return boxes[j].id;
+        }
+      }
+    }
+    return "";
   }
 
   // ── Settings UI : categories, items, panel markup, bindings ──
@@ -5690,7 +6137,14 @@
     stItem("st-cfg-manual-fallback-title", "manualFallbackAllowTitle", "scrape", "When scraping fails", "cb", "Allow manual title", { lvl: 1, par: "st-cfg-manual-fallback" }),
     stItem("st-cfg-manual-fallback-prefill", "manualFallbackPrefillFilename", "scrape", "When scraping fails", "cb", "Pre-fill title with file name", { lvl: 1, par: "st-cfg-manual-fallback-title", kw: "filename" }),
     stItem("st-cfg-clean-search", "cleanSearchTitle", "scrape", "Search & saved title", "cb", "Clean title in \"Search title\" (strip dates, resolution, punctuation)", { short: "Clean the search text", hint: "Strips the extension, dates, resolutions and punctuation before searching (some scrapers 404 on it).", kw: "search title pornhub" }),
-    stItem("st-cfg-name-patterns", "namePatternsOn", "scrape", "Search & saved title", "cb", "Clean file names with my patterns (words, text or regex)", { short: "Use my file-name patterns", hint: "Cleans the file name before it fills \"Search title\" (and, for the patterns that ask for it, the pre-filled manual title). Nothing is renamed. Only a pattern with \"Scraped title\" ticked changes the title that Apply saves.", kw: "regex pattern file name filename clean remove words" }),
+    stItem("st-cfg-show-date-field", "showDateField", "scrape", "Date", "cb", "Editable Date field in the list (also when the scrape found a date)", { short: "Editable Date field in the list", hint: "In the list, every row gets the same calendar field as the single-scene panel: it starts with the scraped date (or is empty) and you can change or clear it. Off: a scraped date stays a chip with a tick box.", kw: "date calendar manual field" }),
+    stItem("st-cfg-filename-date", "fileNameDate", "scrape", "Date", "cb", "Offer the date found in the file name (e.g. 23.02.07)", { short: "Offer the date from the file name", hint: "Next to the Date field, a button fills in the date read from the file name. Nothing is written until you press Apply.", kw: "date filename file name 6 digit" }),
+    stItem("st-cfg-filename-date-dmy", "fileNameDateDmy", "scrape", "Date", "cb", "Read 23.02.07 as day.month.year (default: year.month.day)", { lvl: 1, par: "st-cfg-filename-date", kw: "date order dmy ymd" }),
+    stItem("st-cfg-filename-studio", "fileNameStudio", "scrape", "Studio", "cb", "Offer the studio the file name starts with", { short: "Offer the studio from the file name", hint: "When neither the scene nor the scrape has a studio, a button next to the studio search picks the library studio (or alias) the file name starts with. Nothing is written until you press Apply.", kw: "studio filename file name start" }),
+    stItem("st-cfg-filename-studio-auto", "fileNameStudioAuto", "scrape", "Studio", "cb", "Pick it automatically (no button to press)", { lvl: 1, par: "st-cfg-filename-studio", hint: "The studio is chosen as soon as the row is shown (the cross cancels it). A studio on your Blacklist is never picked. \"Apply All\" saves it without another look.", kw: "studio automatic auto pick filename" }),
+    stItem("st-cfg-mass-auto-scraper", "massSearchAutoScraper", "scrape", "Mass search", "cb", "Use the scraper that matches each scene (its URL or file name)", { short: "Pick the scraper from the scene", hint: "A scene whose saved URL (or a YouTube id in its file name) belongs to one of your search-capable scrapers is searched with that scraper; the others use the one chosen next to the Mass search button. The row's own Search title also starts on that scraper.", kw: "mass search scraper automatic detect url" }),
+    stItem("st-cfg-mass-max", "massSearchMax", "scrape", "Mass search", "range", "Mass search: results shown per row", { short: "Mass search: results per row", min: 3, max: 25, step: 1, unit: "", hint: "How many search results each row shows after \"Mass search\" (the scraper may return up to about 20-25). The strip scrolls sideways.", kw: "mass search results candidates per row number" }),
+    stItem("st-cfg-name-patterns","namePatternsOn", "scrape", "Search & saved title", "cb", "Clean file names with my patterns (words, text or regex)", { short: "Use my file-name patterns", hint: "Cleans the file name before it fills \"Search title\" (and, for the patterns that ask for it, the pre-filled manual title). Nothing is renamed. Only a pattern with \"Scraped title\" ticked changes the title that Apply saves.", kw: "regex pattern file name filename clean remove words" }),
     stItem("st-cfg-strip-studio", "stripStudioName", "scrape", "Search & saved title", "cb", "Remove the studio name from the saved title", { short: "Remove the studio name from the title", hint: "Removes a [..] or (..) group that is only the studio name (the scraped studio, else the scene's studio), e.g. \"[Concat1110]\". Other brackets are kept.", kw: "studio name title bracket artist" }),
     stItem("st-cfg-strip-br-names", "stripBracketNames", "scrape", "Search & saved title", "cb", "Remove [names] from the saved title", { kw: "bracket brackets title" }),
     stItem("st-cfg-strip-br-nums", "stripBracketNumbers", "scrape", "Search & saved title", "cb", "Remove [numbers / resolution] (4K, 1080p, 60fps) from the saved title", { short: "Remove [4K, 1080p, 60fps] from the saved title", kw: "bracket resolution" }),
@@ -5757,6 +6211,13 @@
       fields: [ { id: "st-cfg-scrub-slow", key: "scrubStepSlow", l: "slow" }, { id: "st-cfg-scrub-normal", key: "scrubStepNormal", l: "normal" }, { id: "st-cfg-scrub-fast", key: "scrubStepFast", l: "fast" } ] }),
     stItem("st-cfg-scrub-max-mult", "scrubMaxVelocityMultiplier", "thumbs", "Scrub", "num", "Max acceleration (x)", { adv: true, min: 1, step: 0.5, kw: "multiplier" }),
     // Stash integration
+    stItem("st-cfg-hide-b-mass", "hideBtnMass", "stash", "Panel bar", "cb", "Hide the \"Mass search\" button", { short: "Hide Mass search", kw: "hide button bar panel mass search" }),
+    stItem("st-cfg-hide-b-clear", "hideBtnClear", "stash", "Panel bar", "cb", "Hide the \"Clear\" button", { short: "Hide Clear", kw: "hide button bar panel clear" }),
+    stItem("st-cfg-hide-b-mode", "hideBtnMode", "stash", "Panel bar", "cb", "Hide the \"Auto / Manual\" button", { short: "Hide Auto / Manual", kw: "hide button bar panel auto / manual" }),
+    stItem("st-cfg-hide-b-sfw", "hideBtnSfw", "stash", "Panel bar", "cb", "Hide the \"SFW\" button", { short: "Hide SFW", kw: "hide button bar panel sfw" }),
+    stItem("st-cfg-hide-b-bulk", "hideBtnBulk", "stash", "Panel bar", "cb", "Hide the \"Bulk\" button", { short: "Hide Bulk", kw: "hide button bar panel bulk" }),
+    stItem("st-cfg-hide-b-fields", "hideBtnFields", "stash", "Panel bar", "cb", "Hide the \"Fields\" button", { short: "Hide Fields", kw: "hide button bar panel fields" }),
+    stItem("st-cfg-open-classic", "openSceneClassic", "stash", "Buttons", "cb", "Thumbnails open the classic Stash page (when used in Stash UI)", { short: "Open scenes in the classic Stash", hint: "Only matters inside Stash UI: a click on a row's thumbnail opens the scene in Stash UI by default; with this on it opens the classic Stash page instead. In the classic Stash nothing changes.", kw: "thumbnail open scene classic stash ui link" }),
     stItem("st-cfg-hide-scene-mode", "hideSceneModeToggle", "stash", "Buttons", "cb", "Hide Auto/Manual toggle on scene page", { short: "Hide Auto/Manual button (single scene)", adv: true, kw: "mode toggle" }),
     stItem("st-cfg-hide-toolbar-btn", "hideToolbarButton", "stash", "Buttons", "cb", "Hide \"ST\" button in scene toolbar", { adv: true, kw: "toolbar badge" }),
     stItem("st-cfg-hide-edit-btn", "hideEditButton", "stash", "Buttons", "cb", "Hide \"sceneTagger\" button on scene Edit tab", { adv: true, kw: "edit tab" })
@@ -6657,6 +7118,18 @@
     // Cleans the text sent by "Search title" (strips extension, dates,
     // resolutions and punctuation) - some scrapers (Pornhub) 404 on it.
     cleanSearchTitle: false,
+    // 1.31.2 file-name hints (src/06-filenamehints.js): OFFER the date found in the file name next to the Date
+    // field; day-first reading of "23.02.07"; always show the Date field (mass list too) when the scrape has none.
+    fileNameDate: false,
+    fileNameDateDmy: false,
+    showDateField: false,
+    fileNameStudio: false,   // OFFER the studio the file name starts with
+    fileNameStudioAuto: false,   // ...and pick it by itself (sub-option)
+    // Panel bar: hide a button (its function stays as set). Scrape All / Apply All / Skip All cannot be hidden.
+    hideBtnMass: false, hideBtnClear: false, hideBtnMode: false, hideBtnSfw: false, hideBtnBulk: false, hideBtnFields: false,
+    massSearchAutoScraper: true,   // Mass search: a scene whose URL / file name matches a scraper is searched with THAT scraper
+    openSceneClassic: false,   // Stash UI only: the thumbnail opens the classic Stash page instead of the Stash UI one
+    massSearchMax: 8,   // "Mass search": candidates shown per row (3-25)
     // File-name patterns (namePatterns.js): clean the file name before it fills
     // "Search title" (and, per pattern, the pre-filled manual title). OFF by default.
     // The list is stored as JSON, like scraperChain.
@@ -6792,6 +7265,15 @@
           if (cfg.manualFallbackAllowTitle !== undefined) pluginConfig.manualFallbackAllowTitle = !!cfg.manualFallbackAllowTitle;
           if (cfg.manualFallbackPrefillFilename !== undefined) pluginConfig.manualFallbackPrefillFilename = !!cfg.manualFallbackPrefillFilename;
           if (cfg.cleanSearchTitle !== undefined) pluginConfig.cleanSearchTitle = !!cfg.cleanSearchTitle;
+          if (cfg.fileNameDate !== undefined) pluginConfig.fileNameDate = !!cfg.fileNameDate;
+          if (cfg.fileNameDateDmy !== undefined) pluginConfig.fileNameDateDmy = !!cfg.fileNameDateDmy;
+          if (cfg.showDateField !== undefined) pluginConfig.showDateField = !!cfg.showDateField;
+          if (cfg.fileNameStudio !== undefined) pluginConfig.fileNameStudio = !!cfg.fileNameStudio;
+          if (cfg.fileNameStudioAuto !== undefined) pluginConfig.fileNameStudioAuto = !!cfg.fileNameStudioAuto;
+          ["hideBtnMass", "hideBtnClear", "hideBtnMode", "hideBtnSfw", "hideBtnBulk", "hideBtnFields"].forEach(function (k) { if (cfg[k] !== undefined) pluginConfig[k] = !!cfg[k]; });
+          if (cfg.massSearchAutoScraper !== undefined) pluginConfig.massSearchAutoScraper = !!cfg.massSearchAutoScraper;
+          if (cfg.openSceneClassic !== undefined) pluginConfig.openSceneClassic = !!cfg.openSceneClassic;
+          if (cfg.massSearchMax !== undefined && !isNaN(parseInt(cfg.massSearchMax, 10))) pluginConfig.massSearchMax = Math.min(25, Math.max(3, parseInt(cfg.massSearchMax, 10)));
           if (cfg.namePatternsOn !== undefined) pluginConfig.namePatternsOn = !!cfg.namePatternsOn;
           if (cfg.namePatternsGlass !== undefined) pluginConfig.namePatternsGlass = !!cfg.namePatternsGlass;
           if (typeof cfg.namePatternsSolid === "number") pluginConfig.namePatternsSolid = cfg.namePatternsSolid;
@@ -6894,6 +7376,10 @@
     document.body.classList.toggle("st-split-side", !!pluginConfig.splitSideBySide);
     document.body.classList.toggle("st-opaque", !!pluginConfig.opaquePanel);
     document.body.classList.toggle("st-np-glass", !!pluginConfig.namePatternsGlass);
+    [["Mass", "mass"], ["Clear", "clear"], ["Mode", "mode"], ["Sfw", "sfw"], ["Bulk", "bulk"], ["Fields", "fields"]].forEach(function (p) {
+      document.body.classList.toggle("st-hide-b-" + p[1], !!pluginConfig["hideBtn" + p[0]]);   // CSS: "Hide buttons of the bar" (settings)
+    });
+    if (pluginConfig.hideBtnBulk && typeof bulk !== "undefined" && bulk.open) { bulk.open = false; if (typeof bulkRefresh === "function") bulkRefresh(); }
     document.body.style.setProperty("--st-gsolid", Math.min(100, Math.max(40, pluginConfig.glassSolid)) + "%");
     document.body.style.setProperty("--st-gblur", Math.min(80, Math.max(0, pluginConfig.glassBlur)) + "px");
     document.body.style.setProperty("--st-npsolid", Math.min(100, Math.max(40, pluginConfig.namePatternsSolid)) + "%");   // patterns window
@@ -6964,11 +7450,11 @@
     // 2026-09-16) that several community scrapers do (AniDB, JAVDatabase,
     // Pornhub, Rule34Video, Rule34VideoFromID on this instance). Used by
     // isSearchCapable() below to offer "Search title" beyond stash-box only.
-    return gql("ListScrapers", "query ListScrapers{listScrapers(types:[SCENE]){id name scene{supported_scrapes}}}")
+    return gql("ListScrapers", "query ListScrapers{listScrapers(types:[SCENE]){id name scene{urls supported_scrapes}}}")
       .then(function (d) {
         return (d.listScrapers || []).map(function (s) {
           var supports = (s.scene && s.scene.supported_scrapes) || [];
-          return { id: s.id, name: s.name, supportsName: supports.indexOf("NAME") !== -1 };
+          return { id: s.id, name: s.name, supportsName: supports.indexOf("NAME") !== -1, urls: (s.scene && s.scene.urls) || [] };
         });
       });
   }
@@ -7978,6 +8464,7 @@
     if (!r) return;
     r.titleSearchOpen = !r.titleSearchOpen;
     if (r.titleSearchOpen) {
+      if (!r.titleSearchScraperID) { var detSid = scraperDetectFor(r.scene); if (detSid) r.titleSearchScraperID = detSid; }   // scene URL / file name -> its scraper (06-scraperdetect.js)
       r.titleSearchResults = null;
       r.titleSearchError = "";
       // The input's displayed default (scene title, falls back to
@@ -7999,6 +8486,23 @@
     renderRow(id);
   };
 
+  // The "Search" button: a second click on an UNCHANGED search (same text, same scraper) closes the list instead of
+  // reloading it; edit the text (or press Enter) to search again.
+  window.stTitleSearchButton = function (id) {
+    var r = state.rows[id];
+    if (!r) return;
+    var boxes = getSearchScrapers();
+    var sid = r.titleSearchScraperID || (boxes[0] && boxes[0].id) || "";
+    var q = (r.titleSearchQuery || "").trim();
+    if (pluginConfig.cleanSearchTitle) q = cleanSearchQuery(q);
+    if (r.titleSearchResults && !r.titleSearchLoading && r.titleSearchRan && r.titleSearchRan.q === q && r.titleSearchRan.s === sid) {
+      r.titleSearchResults = null;
+      renderRow(id);
+      return;
+    }
+    window.stRunTitleSearch(id);
+  };
+
   window.stRunTitleSearch = function (id) {
     var r = state.rows[id];
     if (!r || !r.titleSearchOpen) return;
@@ -8011,13 +8515,14 @@
     }
     if (!scraperID || !query) return;
 
-    r.titleSearchLoading = true; r.titleSearchError = ""; r.titleSearchResults = null;
+    r.titleSearchLoading = true; r.titleSearchError = ""; r.titleSearchResults = null; r.massAll = false;
     renderRow(id);
 
     scrapeSingleSceneByQuery(scraperID, query)
       .then(function (results) {
         r.titleSearchLoading = false;
         r.titleSearchResults = results;
+        r.titleSearchRan = { q: query, s: scraperID };   // lets the Search button close the list (stTitleSearchButton)
         renderRow(id);
       })
       .catch(function (err) {
@@ -8035,7 +8540,8 @@
     if (!r || !r.titleSearchResults || !r.titleSearchResults[idx]) return;
     var candidate = r.titleSearchResults[idx];
     var stashBoxes = getSearchScrapers();
-    var box = stashBoxes.filter(function (s) { return s.id === r.titleSearchScraperID; })[0] || stashBoxes[0];
+    var pickSid = candidate._scraperID || r.titleSearchScraperID;   // "All scrapers" cards remember where they come from
+    var box = stashBoxes.filter(function (s) { return s.id === pickSid; })[0] || stashBoxes[0];
 
     function finish(scrapedIn) {
       stFilterLocalGender(scrapedIn).then(function (scraped) { finishNow(scraped); });
@@ -8043,7 +8549,7 @@
     function finishNow(scraped) {
       r.status = "scraped";
       r.scraped = stFilterScraped(scraped);
-      r.matchedScraperID = box ? box.id : r.titleSearchScraperID;
+      r.matchedScraperID = box ? box.id : pickSid;
       r.matchedScraperName = (box ? box.name : "Search") + " (search by title)";
       r.viaTitleSearch = true;
       r.manualFallback = false;
@@ -8352,6 +8858,7 @@
         var panelEl = document.getElementById(PANEL_ID);
         if (panelEl && panelEl.classList.contains("st-panel-solo")) {
           panelEl.classList.remove("st-panel-solo");
+          panelSoloCompact(panelEl, false);   // the list gets its compact layout back if the setting is on
           var fsOnBatch = !!pluginConfig.fullscreenOnDesktop && !pluginConfig.compactMode;
           panelEl.classList.toggle("st-fullscreen", fsOnBatch);
           var fsBtnBatch = document.getElementById("st-titlebar-fullscreen");

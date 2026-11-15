@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.31.1"
+version: "1.31.2"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -121,6 +121,76 @@ settings:
     displayName: "Clean title in Search title"
     description: "Strips the file extension, dates, resolutions and punctuation from the text sent by 'Search title' (some scrapers like Pornhub return 404 otherwise)."
     type: BOOLEAN
+
+  showDateField:
+    displayName: "Editable Date field in the list"
+    description: "In the list, every row gets the calendar field of the single-scene panel: it starts with the scraped date (or is empty when none was found) and can be changed or cleared. Off: a scraped date stays a chip with a tick box."
+    type: BOOLEAN
+
+  fileNameDate:
+    displayName: "Offer the date found in the file name"
+    description: "Reads a date such as 23.02.07 or 2023-02-07 in the file name and offers it next to the Date field (button). Nothing is written until Apply."
+    type: BOOLEAN
+
+  fileNameDateDmy:
+    displayName: "Read 23.02.07 as day.month.year"
+    description: "Sub-option of 'Offer the date found in the file name'. Default order is year.month.day."
+    type: BOOLEAN
+
+  fileNameStudio:
+    displayName: "Offer the studio the file name starts with"
+    description: "When neither the scene nor the scrape has a studio, offers (button) the library studio or alias the file name starts with. Nothing is written until Apply."
+    type: BOOLEAN
+
+  fileNameStudioAuto:
+    displayName: "Pick the file-name studio automatically"
+    description: "Sub-option of 'Offer the studio the file name starts with': the studio is chosen as soon as the row is shown (the cross cancels it) instead of waiting for a click. A studio on your Blacklist is never picked. Apply All saves it without another look."
+    type: BOOLEAN
+
+  hideBtnMass:
+    displayName: "Hide the 'Mass search' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnClear:
+    displayName: "Hide the 'Clear' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnMode:
+    displayName: "Hide the 'Auto / Manual' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnSfw:
+    displayName: "Hide the 'SFW' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnBulk:
+    displayName: "Hide the 'Bulk' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnFields:
+    displayName: "Hide the 'Fields' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  massSearchAutoScraper:
+    displayName: "Mass search: use the scraper that matches each scene"
+    description: "On by default. A scene whose saved URL (or a YouTube id in its file name) belongs to one of your search-capable scrapers is searched with that scraper; the others use the one chosen next to the Mass search button."
+    type: BOOLEAN
+
+  openSceneClassic:
+    displayName: "Thumbnails open the classic Stash page (in Stash UI)"
+    description: "Only inside Stash UI: a click on a row's thumbnail opens the scene in Stash UI by default; with this on it opens the classic Stash page instead."
+    type: BOOLEAN
+
+  massSearchMax:
+    displayName: "Mass search: results shown per row"
+    description: "3-25, default 8. How many search results each row shows after 'Mass search' (the scraper itself may return about 20-25)."
+    type: NUMBER
 
   namePatternsOn:
     displayName: "Use my file-name patterns"
