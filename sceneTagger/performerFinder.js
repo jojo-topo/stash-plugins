@@ -446,8 +446,11 @@
 
   // Sends one image to the Visage cloud and returns { faces: [{ performers: [{ id (local), name, visual (0-100) }] }] },
   // the same shape as the AnimeVisage /search answer.
-  function cloudSearch(blob) {
-    var api = CLOUD_URL + "/gradio_api";
+  // url = another Gradio server of the Visage family (setting suggestFaceCloudUrl); empty = the public Space.
+  function cloudSearch(blob, url) {
+    var root = String(url || CLOUD_URL).trim().replace(/\/+$/, "").replace(/\/gradio_api(\/.*)?$/i, "").replace(/\/+$/, "");
+    if (!/^https?:\/\/[^\s]+$/i.test(root)) return Promise.reject(new Error("Visage cloud: the server URL is not valid (expected https://host or http://host:port)"));
+    var api = root + "/gradio_api";
     var fail = function (what, r) { throw new Error("Visage cloud: " + what + " (HTTP " + r.status + ")"); };
     return cloudShrink(blob).then(function (small) {
       var fd = new FormData(); fd.append("files", small, "cover.jpg");
@@ -502,7 +505,7 @@
       .then(function (r) { if (!r.ok) throw new Error("This scene has no cover image (HTTP " + r.status + ")"); return r.blob(); })
       .then(function (blob) {
         if (opts.isCancelled && opts.isCancelled()) return { faces: [] };
-        if (cloud) return cloudSearch(blob);
+        if (cloud) return cloudSearch(blob, opts.cloudUrl);
         return fetch(base + "/search?results=6&scene=" + encodeURIComponent(sceneId) + "&off=nom,serie,tag,lie", {
           method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob, credentials: "omit"
         }).then(function (r) { if (!r.ok) throw new Error("Search failed: HTTP " + r.status); return r.json(); });

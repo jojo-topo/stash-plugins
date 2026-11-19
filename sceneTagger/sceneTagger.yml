@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.31.9"
+version: "1.31.10"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -301,6 +301,11 @@ settings:
     displayName: "Suggest performers - face recognition (Visage cloud)"
     description: "Adds a Scan face button to the Suggested block. The scene cover (reduced to 640 px) is sent to the public Visage server (cc1234-stashface-onnx.hf.space) when you press it. Only real performers known to StashDB are recognised."
     type: BOOLEAN
+
+  suggestFaceCloudUrl:
+    displayName: "Face recognition (Visage cloud) - server URL"
+    description: "Empty = the public Visage Space (https://cc1234-stashface-onnx.hf.space). To use another Visage-compatible server, type its address here AND add it under csp > connect-src in sceneTagger.yml (Stash blocks any other address), then reload plugins."
+    type: STRING
 
 ui:
   javascript:

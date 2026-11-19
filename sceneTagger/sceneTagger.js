@@ -3047,6 +3047,16 @@
     bindSettingNum("st-cfg-suggest-min",        "suggestMinScore", 20, 0);
     // the suggestions are drawn with the row: redraw the open ones
     bindSettingCb("st-cfg-suggest-facecloud",   "suggestFaceCloud");
+    (function () {
+      var el = document.getElementById("st-cfg-suggest-facecloud-url");
+      if (!el) return;
+      el.value = pluginConfig.suggestFaceCloudUrl || "";
+      el.addEventListener("change", function () {
+        pluginConfig.suggestFaceCloudUrl = el.value.trim().replace(/\/+$/, "");
+        el.value = pluginConfig.suggestFaceCloudUrl;
+        savePluginConfig();
+      });
+    })();
     bindSettingCb("st-cfg-suggest-visual-mass", "suggestVisualMass");
     bindSettingCb("st-cfg-suggest-facesure",    "suggestFaceSure");
     bindSettingNum("st-cfg-suggest-facesure-min", "suggestFaceSureMin", 90, 60);
@@ -6583,6 +6593,7 @@
     stItem("st-cfg-suggest-min", "suggestMinScore", "suggest", "Text suggestions", "num", "Minimum score (0-100)", { lvl: 1, adv: true, par: "st-cfg-suggest-perf", min: 0, max: 100, step: 5, kw: "score threshold" }),
     stItem("st-cfg-suggest-thumbs", "suggestThumbs", "suggest", "Text suggestions", "cb", "Show suggestions as thumbnails", { lvl: 1, par: "st-cfg-suggest-perf", hint: "Instead of pills, suggestions are a row of small portraits with a score ring: cards in the scene popup, round avatars (6 shown, the rest behind \"+N\") in the mass list. Photos load only when they scroll into view; hover a portrait for a bigger photo and the reasons.", kw: "thumbnails vignettes avatars cards layout" }),
     stItem("st-cfg-suggest-facecloud", "suggestFaceCloud", "suggest", "Face recognition", "cb", "Face recognition (Visage cloud)", { lvl: 1, par: "st-cfg-suggest-perf", hint: "Adds a round \"Scan face\" button to the Suggested block (scene popup and every row of the mass list). It sends the scene's COVER image, reduced to 640 px, to the public Visage server (cc1234-stashface-onnx.hf.space, the same service as the Visage plugin) and suggests the performers it recognises, matched to your local performers by their StashDB id. Only real performers known to StashDB are recognised. Off by default: nothing leaves your machine until you press the button.", kw: "visage cloud face recognition scan cover stashdb", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.cloudAvailable); } }),
+    stItem("st-cfg-suggest-facecloud-url", "suggestFaceCloudUrl", "suggest", "Face recognition", "text", "Visage server URL (empty = public Visage Space)", { lvl: 2, adv: true, par: "st-cfg-suggest-facecloud", ph: "https://cc1234-stashface-onnx.hf.space", hint: "Use another Visage-compatible server (your own Space or a LAN server), written as https://host or http://host:port with no path. IMPORTANT: Stash only lets the browser reach the addresses listed under csp > connect-src in sceneTagger.yml: add yours there too (and reload plugins), and again after each update of the plugin, otherwise the scan fails with \"not reachable\".", kw: "visage cloud server url space huggingface", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.cloudAvailable); } }),
     stItem("st-cfg-suggest-facesure", "suggestFaceSure", "suggest", "Face recognition (private)", "cb", "Pre-check very sure cover face matches", { lvl: 1, par: "st-cfg-suggest-visual", priv: true, hint: "A face-only suggestion is normally never pre-checked (a face alone is often wrong). With this on, a face found on the scene's COVER is pre-checked when its visual score reaches the minimum below AND it is at least 8 points ahead of the next candidate of the same face. Apply writes what is checked, so keep the minimum high. The frame scan of the scene popup is not concerned.", kw: "precheck pre-check sure confident face automatic cover", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualLocal); } }),
     stItem("st-cfg-suggest-facesure-min", "suggestFaceSureMin", "suggest", "Face recognition (private)", "num", "Very sure: minimum visual score (60-100)", { lvl: 2, adv: true, par: "st-cfg-suggest-facesure", priv: true, min: 60, max: 100, step: 1, kw: "visual score threshold", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualLocal); } }),
     stItem("st-cfg-suggest-visual-mass", "suggestVisualMass", "suggest", "Face recognition (private)", "cb", "Scan every row's cover in the mass list", { lvl: 1, par: "st-cfg-suggest-visual", priv: true, hint: "Mass list: each scraped row sends the scene's COVER image (not the video) to the AnimeVisage server, one at a time (about 0.5 second each), and the recognised performers appear as suggestions. Off: every row only gets a round \"Scan face\" button. Scenes without a cover are skipped.", kw: "animevisage mass bulk automatic all rows cover thumbnail", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualLocal); } }),
@@ -7513,7 +7524,7 @@
     var present = (r.scene.performers || []).map(function (p) { return String(p.id); })
       .concat(((r.scraped && r.scraped.performers) || []).map(function (p) { return p.stored_id ? String(p.stored_id) : ""; }).filter(Boolean));
     var scan = cover
-      ? F.visualScanCover(r.scene.id, { engine: faceEngine(), baseUrl: pluginConfig.suggestVisualUrl, isCancelled: function () { return r.visualCancel; }, excludeIds: present })
+      ? F.visualScanCover(r.scene.id, { engine: faceEngine(), cloudUrl: pluginConfig.suggestFaceCloudUrl, baseUrl: pluginConfig.suggestVisualUrl, isCancelled: function () { return r.visualCancel; }, excludeIds: present })
       : F.visualScan(r.scene.id, {
           baseUrl: pluginConfig.suggestVisualUrl, frames: pluginConfig.suggestVisualFrames,
           onProgress: progress, isCancelled: function () { return r.visualCancel; }
@@ -7671,6 +7682,7 @@
     suggestMinScore:         20,
     // Face recognition source (private AnimeVisage server, see performerFinder.js VISUAL_SOURCE)
     suggestVisual:           false,
+    suggestFaceCloudUrl:     "",      // empty = the public Visage Space; another Gradio server must also be listed in the yml csp
     suggestFaceCloud:        false,   // public face recognition: the Visage cloud (cover scan, performerFinder.js CLOUD_SOURCE)
     suggestVisualUrl:        "http://localhost:7861",
     suggestVisualFrames:     12,
@@ -7888,6 +7900,7 @@
           if (cfg.suggestPrecheck !== undefined) pluginConfig.suggestPrecheck = !!cfg.suggestPrecheck;
           if (typeof cfg.suggestMinScore === "number") pluginConfig.suggestMinScore = cfg.suggestMinScore;
           if (cfg.suggestVisual !== undefined) pluginConfig.suggestVisual = !!cfg.suggestVisual;
+          if (typeof cfg.suggestFaceCloudUrl === "string") pluginConfig.suggestFaceCloudUrl = cfg.suggestFaceCloudUrl;
           if (cfg.suggestFaceCloud !== undefined) pluginConfig.suggestFaceCloud = !!cfg.suggestFaceCloud;
           if (typeof cfg.suggestVisualUrl === "string" && cfg.suggestVisualUrl) pluginConfig.suggestVisualUrl = cfg.suggestVisualUrl;
           if (typeof cfg.suggestVisualFrames === "number") pluginConfig.suggestVisualFrames = cfg.suggestVisualFrames;
