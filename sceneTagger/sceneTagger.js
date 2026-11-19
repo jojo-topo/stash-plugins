@@ -340,6 +340,11 @@
     }
     var go = $("st-bulk-apply");
     if (go) { go.disabled = nothing || !ch; go.textContent = (!nothing && ch) ? "Set on " + ch + " scene" + (ch === 1 ? "" : "s") : "Set on scenes"; }
+    // CUSTOM (Sina, 2026-11-16): something is chosen but not set yet -> Set pulses and Apply All wears a warning mark
+    var pendingBulk = !!(go && !go.disabled);
+    if (go) go.classList.toggle("st-bulk-pending", pendingBulk);
+    var applyAllBtn = $("st-btn-apply-all");
+    if (applyAllBtn) { applyAllBtn.classList.toggle("st-bulk-pending", pendingBulk); applyAllBtn.title = pendingBulk ? "A Bulk choice is not set yet: click \"Set on ...\" first" : ""; }
     var undo = $("st-bulk-undo");
     if (undo) undo.disabled = !bulk.undo;
   }
@@ -371,6 +376,43 @@
     });
     // selection boxes of the rows (delegated: rows are rebuilt constantly)
     var rowsEl = $("st-rows");
+    // CUSTOM (Sina, 2026-11-16): Shift+click on a selection box selects (or unselects) the whole range of rows
+    // between the previous click and this one. Shift is read from the click AND from a global key tracker (a
+    // click on the label makes the browser fire a second, synthetic click on the input that may carry no
+    // shiftKey). The range is applied one tick AFTER the click, once the box has taken its new state.
+    var bulkLastId = null, shiftHeld = false;
+    document.addEventListener("keydown", function (e) { if (e.key === "Shift") shiftHeld = true; }, true);
+    document.addEventListener("keyup", function (e) { if (e.key === "Shift") shiftHeld = false; }, true);
+    window.addEventListener("blur", function () { shiftHeld = false; });
+    function bulkApplyRange(fromId, toId, want) {
+      var all = Array.prototype.slice.call(document.querySelectorAll("#st-rows .st-row"));
+      function idx(id) { for (var i = 0; i < all.length; i++) if (all[i].id === "st-row-" + id) return i; return -1; }
+      var a = idx(fromId), b = idx(toId);
+      if (a < 0 || b < 0) return false;
+      all.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(function (n) {
+        if (n.style.display === "none") return;   // rows hidden by a filter are not part of the range
+        var rid = n.id.replace("st-row-", "");
+        var cb = n.querySelector(".st-bulk-cb input");
+        if (cb) cb.checked = want;
+        if (want) bulk.checked[rid] = true; else delete bulk.checked[rid];
+      });
+      if (want) bulk.scope = "checked";
+      return true;
+    }
+    if (rowsEl) rowsEl.addEventListener("click", function (e) {
+      var t = e.target, lab = t && t.closest ? t.closest(".st-bulk-cb") : null;
+      if (!lab) return;
+      var row = lab.closest(".st-row");
+      if (!row) return;
+      var id = row.id.replace("st-row-", "");
+      var withShift = !!(e.shiftKey || shiftHeld);
+      setTimeout(function () {
+        var cb = row.querySelector(".st-bulk-cb input");
+        if (!cb) return;
+        if (withShift && bulkLastId && bulkLastId !== id && bulkApplyRange(bulkLastId, id, cb.checked)) bulkRefresh();
+        bulkLastId = id;
+      }, 0);
+    }, true);
     if (rowsEl) rowsEl.addEventListener("change", function (e) {
       var t = e.target, lab = t && t.closest ? t.closest(".st-bulk-cb") : null;
       if (!lab) return;
@@ -428,7 +470,7 @@
   var COVER_DROP_OV =
     '<span class="st-tile-ov"><span class="st-tile-ov-lbl">' +
       '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 16V8M8 12l4-4 4 4"/></svg>' +
-      '<span>Drop an image</span><small>file or web image</small>' +
+      '<span>Drop an image</span><small>file, web image or Ctrl+V</small>' +
     '</span></span>';
 
   // ── Drag & drop a cover image (file or web image) ───────────────────────
@@ -501,7 +543,13 @@
       if (tile && tile.querySelector(".st-tile-ov")) return { kind: "tile", el: tile, row: tile.closest(".st-row") };
       var clip = t.closest(".st-thumb-clip");
       var p = document.getElementById(PANEL_ID);
-      if (clip && p && !p.classList.contains("st-panel-solo") && !(p.classList.contains("st-cover-card") && p.classList.contains("st-banner-layout"))) return { kind: "clip", el: clip, row: clip.closest(".st-row") };
+      // CUSTOM (Sina, 2026-11-19): with "Cover card" + Banner layout the cover tiles live under the video, so the
+      // thumbnail was never a drop target - but when the scrape gave no image (failed scrape) there is no tile at
+      // all, and nothing could be dropped. The thumbnail accepts the drop again when its row has no drop tile.
+      var clipRow = clip ? clip.closest(".st-row") : null;
+      var tilesUnderVideo = !!(p && p.classList.contains("st-cover-card") && p.classList.contains("st-banner-layout"));
+      var rowHasTile = !!(clipRow && clipRow.querySelector(".st-cover-option .st-tile-ov"));
+      if (clip && p && !p.classList.contains("st-panel-solo") && (!tilesUnderVideo || !rowHasTile)) return { kind: "clip", el: clip, row: clipRow };
       return null;
     }
     document.addEventListener("dragenter", function (e) {
@@ -535,10 +583,143 @@
         var r = state.rows[id];
         if (!r || !src) return;
         r.customCover = src;
+        r.customCoverFrom = "drop";
         r.coverChoice = "custom";
         renderRow(id);
       });
     });
+  }
+
+
+  // ── Cover paste : Ctrl+V (or the "Paste" button) sets a pending cover ──
+  // CUSTOM (Sina, 2026-11-19): same result as a drop (r.customCover, pending until Apply), but the image comes
+  // from the clipboard. A paste has no cursor position, so the target row is the one under the mouse (the only
+  // row in solo mode). While Ctrl is held, that row gets a ring. Pastes made in a text field are left alone.
+  function clipHasImage(dt) {
+    if (!dt) return false;
+    var files = dt.files ? Array.prototype.slice.call(dt.files) : [];
+    if (files.some(function (f) { return /^image\//.test(f.type); })) return true;
+    var html = dt.getData("text/html") || "";
+    if (/<img[^>]+src=["'][^"']+["']/i.test(html)) return true;
+    var txt = (dt.getData("text/uri-list") || dt.getData("text/plain") || "").split("\n")[0].trim();
+    return /^(https?:\/\/|data:image\/)/i.test(txt);
+  }
+
+  function coverToast(msg) {
+    var old = document.getElementById("st-cover-toast");
+    if (old) old.remove();
+    var t = document.createElement("div");
+    t.id = "st-cover-toast";
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function () { if (t.parentNode) t.remove(); }, 2600);
+  }
+
+  function initCoverPaste() {
+    var hoverId = null;
+    var ctrlDown = false;
+    var armedId = null;     // row chosen by the "Paste" button when the clipboard could not be read directly
+    var armedTimer = null;
+
+    function panelEl() {
+      var p = document.getElementById(PANEL_ID);
+      return p && p.style.display !== "none" ? p : null;
+    }
+    function rowIdOf(row) { return row && row.id ? row.id.replace(/^st-row-/, "") : null; }
+    function targetId() {
+      var p = panelEl();
+      if (!p) return null;
+      if (armedId && state.rows[armedId]) return armedId;
+      var rows = p.querySelectorAll(".st-row");
+      if (rows.length === 1) return rowIdOf(rows[0]);
+      return hoverId && state.rows[hoverId] ? hoverId : null;
+    }
+    function markTarget() {
+      document.querySelectorAll(".st-row.st-paste-target").forEach(function (n) { n.classList.remove("st-paste-target"); });
+      if (!ctrlDown || !panelEl()) return;
+      var id = targetId();
+      var row = id ? document.getElementById("st-row-" + id) : null;
+      if (row) row.classList.add("st-paste-target");
+    }
+    function disarm() {
+      armedId = null;
+      if (armedTimer) { clearTimeout(armedTimer); armedTimer = null; }
+    }
+    function applyCover(id, dt) {
+      dropImageSource(dt, function (src) {
+        var r = state.rows[id];
+        if (!r || !src) return;
+        r.customCover = src;
+        r.customCoverFrom = "paste";
+        r.coverChoice = "custom";
+        renderRow(id);
+        coverToast("Cover pasted, waiting for Apply");
+      });
+    }
+
+    document.addEventListener("mouseover", function (e) {
+      var p = panelEl();
+      if (!p || !e.target || !e.target.closest) return;
+      var row = e.target.closest(".st-row");
+      var id = row && p.contains(row) ? rowIdOf(row) : null;
+      if (id === hoverId) return;
+      hoverId = id;
+      if (ctrlDown) markTarget();
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Control" || e.key === "Meta") { ctrlDown = true; markTarget(); }
+    });
+    document.addEventListener("keyup", function (e) {
+      if (e.key === "Control" || e.key === "Meta") { ctrlDown = false; markTarget(); }
+    });
+    window.addEventListener("blur", function () { ctrlDown = false; markTarget(); });
+
+    document.addEventListener("paste", function (e) {
+      if (!panelEl()) return;
+      var a = document.activeElement;
+      if (a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) return;
+      var dt = e.clipboardData;
+      if (!clipHasImage(dt)) return;
+      var id = targetId();
+      if (!id) { e.preventDefault(); coverToast("Hover a row, then press Ctrl+V"); return; }
+      e.preventDefault();
+      disarm();
+      applyCover(id, dt);
+    });
+
+    // "Paste" button next to the Cover label. Reads the clipboard directly when the browser allows it,
+    // otherwise waits 15 s for a manual Ctrl+V on this row.
+    window.stPasteCover = function (id) {
+      var r = state.rows[id];
+      if (!r) return;
+      function arm() {
+        disarm();
+        armedId = id;
+        armedTimer = setTimeout(disarm, 15000);
+        coverToast("Press Ctrl+V now to paste the cover");
+      }
+      if (!navigator.clipboard || !navigator.clipboard.read) { arm(); return; }
+      navigator.clipboard.read().then(function (items) {
+        for (var i = 0; i < items.length; i++) {
+          var type = items[i].types.filter(function (t) { return /^image\//.test(t); })[0];
+          if (type) {
+            items[i].getType(type).then(function (blob) {
+              readBlob(blob, function (src) {
+                var rr = state.rows[id];
+                if (!rr || !src) return;
+                rr.customCover = src;
+                rr.customCoverFrom = "paste";
+                rr.coverChoice = "custom";
+                renderRow(id);
+                coverToast("Cover pasted, waiting for Apply");
+              });
+            });
+            return;
+          }
+        }
+        coverToast("Clipboard has no image");
+      }).catch(arm);
+    };
   }
 
 
@@ -624,11 +805,28 @@
   // Batch refresh of just some data (e.g. only the tags of scenes already tagged). The scraper call itself
   // always returns the whole scene (Stash has no field selection), so this skips what the plugin does AROUND
   // it (studio logos, performer images, face scan, studio / performer resolution) and filters what is sent
-  // to Apply. Kept in memory only: back to "all fields" when the page is reloaded, on purpose.
+  // to Apply. Kept for the browser session (sessionStorage), see fieldsLoad().
   var FIELD_DEFS = [["title", "Title"], ["date", "Date"], ["studio", "Studio"], ["performers", "Performers"],
                     ["tags", "Tags"], ["details", "Details"], ["urls", "URLs"], ["cover", "Cover"], ["stashid", "Stash ID"]];
 
   var fieldsOnly = null;   // null = every field, otherwise { key: true, ... }
+  // CUSTOM (Sina, 2026-11-15): the selection is kept for the browser session (sessionStorage): it survives a page reload (F5)
+  // and is forgotten when the window / tab is closed (= a Stash restart). Unreadable or invalid storage -> every field.
+  var FIELDS_KEY = "stFieldsOnly";
+  function fieldsLoad() {
+    try {
+      var o = JSON.parse(sessionStorage.getItem(FIELDS_KEY) || "null");
+      if (!o || typeof o !== "object") return null;
+      var out = {};
+      FIELD_DEFS.forEach(function (f) { if (o[f[0]]) out[f[0]] = true; });
+      var n = Object.keys(out).length;
+      return n && n < FIELD_DEFS.length ? out : null;
+    } catch (e) { return null; }
+  }
+  function fieldsSave() {
+    try { if (fieldsOnly) sessionStorage.setItem(FIELDS_KEY, JSON.stringify(fieldsOnly)); else sessionStorage.removeItem(FIELDS_KEY); } catch (e) {}
+  }
+  fieldsOnly = fieldsLoad();
 
   var fieldsDocClick = null, fieldsDocKey = null;
 
@@ -732,7 +930,7 @@
         '<div class="st-fp-grid">' + FIELD_DEFS.map(function (f) {
           return '<label class="st-fp-fld" data-f="' + f[0] + '"><span class="st-fp-cb' + (fieldOn(f[0]) ? " on" : "") + '">&#10003;</span>' + f[1] + '</label>';
         }).join("") + '</div>' +
-        '<div class="st-fp-foot"><span>' + n + ' of ' + FIELD_DEFS.length + ' fields</span><span><b>Resets</b> when the page reloads</span></div>';
+        '<div class="st-fp-foot"><span>' + n + ' of ' + FIELD_DEFS.length + ' fields</span><span><b>Kept</b> on reload, reset when Stash is closed</span></div>';
     }
     function place() {
       var rc = btn.getBoundingClientRect();
@@ -761,6 +959,7 @@
         if (cur[k]) { if (Object.keys(cur).length > 1) delete cur[k]; } else cur[k] = true;   // at least one field stays on
         fieldsOnly = Object.keys(cur).length === FIELD_DEFS.length ? null : cur;
       } else return;
+      fieldsSave();
       render();
       fieldsRefresh();
     });
@@ -798,15 +997,15 @@
   }
 
   // name: file name (extension optional). Returns "YYYY-MM-DD" or "".
-  function fnHintsParseDate(name, dmy) {
+  function fnHintsParseDate(name, dmy, safeOnly) {
     var s = String(name || "").replace(/\.[A-Za-z0-9]{2,4}$/, "");
     var m;
     // 2023-02-07, 2023.02.07, 2023_02_07, 2023 02 07
     m = /(^|\D)((?:19|20)\d{2})[.\-_ ](\d{1,2})[.\-_ ](\d{1,2})(?!\d)/.exec(s);
     if (m) { var a = fnHintsISO(m[2], m[3], m[4]); if (a) return a; }
-    // 07.02.2023 / 02.07.2023 (day first unless the second number cannot be a month)
-    m = /(^|\D)(\d{1,2})[.\-_ ](\d{1,2})[.\-_ ]((?:19|20)\d{2})(?!\d)/.exec(s);
-    if (m) {
+    // 07.02.2023 / 02.07.2023 (day first unless the second number cannot be a month) - ambiguous: skipped when safeOnly
+    if (!safeOnly) m = /(^|\D)(\d{1,2})[.\-_ ](\d{1,2})[.\-_ ]((?:19|20)\d{2})(?!\d)/.exec(s);
+    if (m && !safeOnly) {
       var first = parseInt(m[2], 10), second = parseInt(m[3], 10);
       var b = second > 12 ? fnHintsISO(m[4], m[2], m[3]) : fnHintsISO(m[4], m[3], m[2]);
       if (b) return b;
@@ -816,17 +1015,133 @@
     m = /(^|\D)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)/.exec(s);
     if (m) { var c8 = fnHintsISO(m[2], m[3], m[4]); if (c8) return c8; }
     // 23.02.07 (2-digit year, separators required: a bare 6-digit number is far too often an id)
-    m = /(^|\D)(\d{2})[.\-_ ](\d{2})[.\-_ ](\d{2})(?!\d)/.exec(s);
+    m = safeOnly ? null : /(^|\D)(\d{2})[.\-_ ](\d{2})[.\-_ ](\d{2})(?!\d)/.exec(s);
     if (m) { var d2 = fnHintsTwoDigit(m[2], m[3], m[4], !!dmy); if (d2) return d2; }
     return "";
+  }
+
+  // ── Date from the folder names (fileNameDateFolders) ────────────────────────
+  // "...\2011\September\Author\Post\Entry\img041.jpg": a folder that is exactly a year followed by a month folder
+  // (English or French name, or 1-12) gives year + month. The DAY comes from a neighbouring scene of the same folder
+  // (a sure date in its file name, or its date already saved), looked up from the closest folder upwards; if the
+  // neighbours disagree or none has one, the 1st is used. Nothing is written until Apply.
+  var FN_MONTHS = { january: 1, jan: 1, janvier: 1, february: 2, feb: 2, fevrier: 2, fev: 2, march: 3, mar: 3, mars: 3, april: 4, apr: 4, avril: 4, avr: 4,
+    may: 5, mai: 5, june: 6, jun: 6, juin: 6, july: 7, jul: 7, juillet: 7, juil: 7, august: 8, aug: 8, aout: 8, september: 9, sep: 9, sept: 9, septembre: 9,
+    october: 10, oct: 10, octobre: 10, november: 11, nov: 11, novembre: 11, december: 12, dec: 12, decembre: 12 };
+  var fnHintsFolderCache = {}, fnHintsNeighCache = {};
+
+  function fnHintsMonthOf(seg) {
+    var s = String(seg || "").toLowerCase();
+    if (s.normalize) s = s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+    s = s.replace(/^\s+|\s+$/g, "");
+    if (/^(0?[1-9]|1[0-2])$/.test(s)) return parseInt(s, 10);
+    return Object.prototype.hasOwnProperty.call(FN_MONTHS, s) ? FN_MONTHS[s] : 0;
+  }
+  function fnHintsPathOf(item) { return (item && item.files && item.files.length && item.files[0].path) || ""; }
+  function fnHintsPad(n) { return (n < 10 ? "0" : "") + n; }
+
+  // closest "<year>/<month>" pair of folders in the path -> { y, m, idx (index of the month folder), dirs, sep } or null
+  function fnHintsFolderMonth(p) {
+    var segs = String(p || "").split(/[\\\/]+/);
+    var dirs = segs.slice(0, -1);
+    var sep = String(p || "").indexOf("\\") >= 0 ? "\\" : "/";
+    for (var i = dirs.length - 2; i >= 0; i--) {
+      if (!/^(19|20)\d{2}$/.test(dirs[i]) || !fnHintsISO(dirs[i], 1, 1)) continue;
+      var m = fnHintsMonthOf(dirs[i + 1]);
+      if (m) return { y: parseInt(dirs[i], 10), m: m, idx: i + 1, dirs: dirs, sep: sep };
+    }
+    return null;
+  }
+
+  // closest folder whose whole name is a year (1990..next year) -> "2019" or ""
+  function fnHintsFolderYear(p) {
+    var dirs = String(p || "").split(/[\\/]+/).slice(0, -1);
+    for (var i = dirs.length - 1; i >= 0; i--) { if (/^(19|20)\d{2}$/.test(dirs[i]) && fnHintsISO(dirs[i], 1, 1)) return dirs[i]; }
+    return "";
+  }
+
+  function fnHintsNeighborQuery(dir) {
+    if (!fnHintsNeighCache[dir]) {
+      fnHintsNeighCache[dir] = gql("FnHintsN", "query FnHintsN($f:SceneFilterType){findScenes(scene_filter:$f,filter:{per_page:200}){scenes{date files{path}}}}", { f: { path: { value: dir, modifier: "INCLUDES" } } })
+        .then(function (d) { return ((d.findScenes || {}).scenes) || []; })
+        .catch(function () { return []; });
+    }
+    return fnHintsNeighCache[dir];
+  }
+
+  // The single day found among the neighbours (year-month must match); "" = none or they disagree.
+  function fnHintsNeighborDay(fm) {
+    var ym = fm.y + "-" + fnHintsPad(fm.m), last = fm.dirs.length - 1;
+    function step(level) {
+      // only the image's own folder and its parent (one post = one folder, maybe with an "Entry" sub-folder); never the month folder
+      // (every post of the month) nor the author folder above a post: a neighbour from ANOTHER post would give a wrong day
+      if (level < fm.idx + 1 || level < last - 1) return Promise.resolve("");
+      var dir = fm.dirs.slice(0, level + 1).join(fm.sep);
+      var prefix = (dir + fm.sep).toLowerCase();
+      return fnHintsNeighborQuery(dir).then(function (list) {
+        var days = {};
+        list.forEach(function (n) {
+          var p = String((n.files && n.files[0] && n.files[0].path) || "");
+          if (p.toLowerCase().replace(/[\\\/]/g, fm.sep).indexOf(prefix) !== 0) return;
+          var cand = [fnHintsParseDate(p.split(/[\\\/]/).pop(), false, true), String(n.date || "").trim()];
+          cand.forEach(function (iso) { if (iso && iso.slice(0, 7) === ym) days[iso] = true; });
+        });
+        var keys = Object.keys(days);
+        if (keys.length === 1) return keys[0];
+        if (keys.length > 1) return "";
+        return step(level - 1);
+      });
+    }
+    return step(fm.dirs.length - 1);
+  }
+
+  // true while the folder date of this scene still has to be looked up (the lookup is async, the readers below are not)
+  function fnHintsNeedsFolderLookup(item) {
+    if (!pluginConfig.fileNameDate || !pluginConfig.fileNameDateFolders || !item) return false;
+    if (fnHintsFolderCache[String(item.id)] !== undefined) return false;
+    if (String(item.date || "").trim()) return false;
+    return true;
+  }
+  function fnHintsResolveFolderDate(item) {
+    var id = String(item.id), fm = fnHintsFolderMonth(fnHintsPathOf(item));
+    if (fnHintsParseDate(getFilename(item), false, true)) { fnHintsFolderCache[id] = ""; return Promise.resolve(""); }
+    if (!fm) {   // no month folder: a lone year folder (".../Speedo/2019/9-2 (6).png") gives that year, 01-01
+      var fy = fnHintsFolderYear(fnHintsPathOf(item));
+      fnHintsFolderCache[id] = fy ? fy + "-01-01" : "";
+      return Promise.resolve(fnHintsFolderCache[id]);
+    }
+    var first = fm.y + "-" + fnHintsPad(fm.m) + "-01";
+    return fnHintsNeighborDay(fm)
+      .then(function (iso) { fnHintsFolderCache[id] = iso || first; return fnHintsFolderCache[id]; })
+      .catch(function () { fnHintsFolderCache[id] = first; return first; });
+  }
+  function fnHintsFolderDateFor(item) {
+    if (!pluginConfig.fileNameDateFolders || !item) return "";
+    return fnHintsFolderCache[String(item.id)] || "";
   }
 
   // The date to OFFER for a scene ("" when the setting is off, nothing found, or the scene already has it).
   function fnHintsDateFor(scene) {
     if (!pluginConfig.fileNameDate || !scene) return "";
-    var iso = fnHintsParseDate(getFilename(scene), pluginConfig.fileNameDateDmy);
+    var iso = fnHintsParseDate(getFilename(scene), pluginConfig.fileNameDateDmy) || fnHintsFolderDateFor(scene);
     if (!iso || iso === String(scene.date || "").trim()) return "";
     return iso;
+  }
+
+  // fileNameDateAuto: the date to PRE-FILL by itself ("" unless every condition holds). Only the unambiguous formats
+  // (4-digit year, year-month-day order) and only when the scene has no date yet: never overwrites anything.
+  function fnHintsAutoDateFor(scene) {
+    if (!pluginConfig.fileNameDate || !pluginConfig.fileNameDateAuto || !scene) return "";
+    if (String(scene.date || "").trim()) return "";
+    return fnHintsParseDate(getFilename(scene), false, true) || fnHintsFolderDateFor(scene);
+  }
+
+  // Fast path ("Date only"): Fields has exactly one ticked field, Date, and the file name gives a sure date -> no scraper needed.
+  function fnHintsFastDate(item) {
+    if (!fieldsOnly) return "";
+    var on = Object.keys(fieldsOnly).filter(function (k) { return fieldsOnly[k]; });
+    if (on.length !== 1 || on[0] !== "date") return "";
+    return fnHintsAutoDateFor(item);
   }
 
   // Button shown under the Date field. Clicking it fills the field (stDatePick); Apply is still up to the user.
@@ -834,7 +1149,7 @@
     var iso = fnHintsDateFor(scene);
     if (!iso || iso === r.dateEditValue) return "";
     return '<button type="button" class="st-btn st-btn-ghost st-fnhint" onclick="stDatePick(\'' + esc(id) + '\',\'' + esc(iso) + '\')">' +
-      'Use ' + esc(iso) + ' (from file name)</button>';
+      'Use ' + esc(iso) + ' (from ' + (fnHintsParseDate(getFilename(scene), pluginConfig.fileNameDateDmy) ? 'file name' : 'folders') + ')</button>';
   }
 
   // ── Studio read from the start of the file name (1.31.2) ───────────────────
@@ -1506,14 +1821,14 @@
       scrapeOneEffective(scene.id)
         .then(function (res) { return stFilterLocalGender(res && res.scraped).then(function () { return res; }); })
         .then(function (res) { return studioSocialForScrape(scene.id, res).then(function () { return res; }); })
-        .then(function (res) { return progFinish(scene.id).then(function () { return res; }); })
+        .then(function (res) { return (res && res.fast) ? res : progFinish(scene.id).then(function () { return res; }); })
         .then(function (res) {
           if (!res.scraped) { handleScrapeFailure(r, "No result"); }
           else               { r.status = "scraped"; r.scraped = stFilterScraped(res.scraped); r.matchedScraperName = res.scraperName; r.matchedScraperID = res.scraperID; applyOrganizedAutoDefault(r); }
           renderRow(scene.id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
           progReveal(scene.id);
           if (r.status === "scraped") { refreshStudioAliasBadges(scene.id); fetchStoredPerformerImages(scene.id); }
-          setTimeout(function () { next(i + 1); }, 700);
+          setTimeout(function () { next(i + 1); }, (res && res.fast) ? 0 : 700);
         })
         .catch(function (err) {
           (r.progCtx ? Promise.resolve() : progFinish(scene.id)).then(function () {
@@ -2728,9 +3043,13 @@
     bindSettingCb("st-cfg-performer",           "autoCheckPerformer");
     bindSettingCb("st-cfg-suggest-perf",        "suggestPerformers");
     bindSettingCb("st-cfg-suggest-precheck",    "suggestPrecheck");
+    bindSettingCb("st-cfg-suggest-thumbs",      "suggestThumbs");
     bindSettingNum("st-cfg-suggest-min",        "suggestMinScore", 20, 0);
     // the suggestions are drawn with the row: redraw the open ones
-    ["st-cfg-suggest-perf", "st-cfg-suggest-precheck", "st-cfg-suggest-min", "st-cfg-suggest-visual", "st-cfg-suggest-visual-auto"].forEach(function (elId) {
+    bindSettingCb("st-cfg-suggest-visual-mass", "suggestVisualMass");
+    bindSettingCb("st-cfg-suggest-facesure",    "suggestFaceSure");
+    bindSettingNum("st-cfg-suggest-facesure-min", "suggestFaceSureMin", 90, 60);
+    ["st-cfg-suggest-perf", "st-cfg-suggest-precheck", "st-cfg-suggest-thumbs", "st-cfg-suggest-min", "st-cfg-suggest-visual", "st-cfg-suggest-visual-auto", "st-cfg-suggest-visual-mass", "st-cfg-suggest-facesure", "st-cfg-suggest-facesure-min"].forEach(function (elId) {
       var el = document.getElementById(elId);
       if (el) el.addEventListener("change", function () { Object.keys(state.rows).forEach(function (rid) { renderRow(rid); }); });
     });
@@ -2757,12 +3076,15 @@
       });
     })();
     bindSettingCb("st-cfg-details",             "autoCheckDetails");
+    bindSettingCb("st-cfg-protect-details",     "protectLongerDetails");
     bindSettingCb("st-cfg-mark-organized",      "autoMarkOrganized");
     bindSettingCb("st-cfg-manual-fallback",       "manualFallbackOnFail");
     bindSettingCb("st-cfg-manual-fallback-title", "manualFallbackAllowTitle");
     bindSettingCb("st-cfg-manual-fallback-prefill", "manualFallbackPrefillFilename");
     bindSettingCb("st-cfg-clean-search",          "cleanSearchTitle");
     bindSettingCb("st-cfg-filename-date",         "fileNameDate");
+    bindSettingCb("st-cfg-filename-date-auto",     "fileNameDateAuto");
+    bindSettingCb("st-cfg-filename-date-folders",  "fileNameDateFolders");
     bindSettingCb("st-cfg-filename-date-dmy",     "fileNameDateDmy");
     bindSettingCb("st-cfg-show-date-field",       "showDateField");
     bindSettingCb("st-cfg-filename-studio",       "fileNameStudio");
@@ -3122,13 +3444,6 @@
         '<button class="st-btn st-btn-ghost" id="st-btn-scraper-mode" title="Toggle between automatic fallback and manual choice">' +
           (pluginConfig.scraperMode === "manual" ? "Manual" : "Auto") +
         '</button>' +
-        '<button class="st-btn st-btn-ghost' + (pluginConfig.nsfwBlur ? ' st-btn-nsfw-on' : '') + '" id="st-btn-nsfw" title="SFW mode: blur thumbnails and previews">SFW</button>' +
-        '<button class="st-btn st-btn-ghost' + (bulk.open ? ' st-bulk-on' : '') + '" id="st-btn-bulk" title="Set a studio, performers and tags on several scenes at once">Bulk</button>' +
-        '<button class="st-btn st-btn-ghost" id="st-btn-fields" title="Choose which fields are fetched around the scrape and applied">Fields</button>' +
-        // Phones only (hidden by CSS elsewhere): shows / hides the filter rows of this header
-        '<button type="button" class="st-btn-collapse" id="st-btn-collapse" aria-expanded="true" title="Show / hide filters">' +
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>' +
-        '</button>' +
         // Custom combobox instead of a native <select> - Firefox styles a
         // native select's popup from the element's own CSS, but Chrome
         // ignores it and shows its generic OS-themed dropdown regardless
@@ -3146,6 +3461,13 @@
             }).join("") +
           '</div>' +
         '</div>' +
+        '<button class="st-btn st-btn-ghost' + (bulk.open ? ' st-bulk-on' : '') + '" id="st-btn-bulk" title="Set a studio, performers and tags on several scenes at once">Bulk</button>' +
+        '<button class="st-btn st-btn-ghost" id="st-btn-fields" title="Choose which fields are fetched around the scrape and applied">Fields</button>' +
+        '<button class="st-btn st-btn-ghost' + (pluginConfig.nsfwBlur ? ' st-btn-nsfw-on' : '') + '" id="st-btn-nsfw" title="SFW mode: blur thumbnails and previews">SFW</button>' +
+        // Phones only (hidden by CSS elsewhere): shows / hides the filter rows of this header
+        '<button type="button" class="st-btn-collapse" id="st-btn-collapse" aria-expanded="true" title="Show / hide filters">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>' +
+        '</button>' +
         '<div class="st-filter-radios">' +
           // Same custom combobox as the manual scraper picker above, for the
           // same reason (native <select> popups render inconsistently
@@ -3164,6 +3486,7 @@
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="all" checked> All</label>' +
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="new"> New</label>' +
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="existing"> Existing</label>' +
+            '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="none" title="Scrapes with no studio"> None</label>' +
             '<label class="st-filter-item"><input type="radio" name="st-studio-filter" value="failed" title="Scrapes that failed"> Failed</label>' +
           '</div>' +
           '<label class="st-multi-studio-toggle" id="st-multi-studio-label" title="Click: only scenes with several studio candidates. Click again: hide them (red). Third click: off.">' +
@@ -3187,9 +3510,9 @@
           '<div class="st-bulk-seg" id="st-bulk-mode"><button type="button" data-v="empty" class="on" title="Only scenes that have none yet">Fill empty only</button><button type="button" data-v="over" title="Replace the studio, add to performers and tags">Add / overwrite</button></div>' +
           '<div class="st-bulk-seg" id="st-bulk-scope"><button type="button" data-v="all" class="on">All shown</button><button type="button" data-v="checked">Checked only</button></div>' +
           '<span id="st-bulk-preview"></span>' +
+          '<button type="button" class="st-btn st-btn-primary" id="st-bulk-apply" disabled>Set on scenes</button>' +
           '<button type="button" class="st-btn st-btn-ghost" id="st-bulk-clear">Clear</button>' +
           '<button type="button" class="st-btn st-btn-ghost" id="st-bulk-undo" disabled>Undo</button>' +
-          '<button type="button" class="st-btn st-btn-primary" id="st-bulk-apply" disabled>Set on scenes</button>' +
         '</div>' +
       '</div>' +
       '<div id="st-status-bar">' +
@@ -3290,6 +3613,13 @@
     var s = stripTitleGroups(stripStudioName(title, r, scraped));
     var p = applyNamePatterns(s, "title", true);
     return p ? p : s;
+  }
+
+  // CUSTOM (Sina, 2026-11-19): the title the scene has now (its file name without extension when it has none).
+  function sceneCurrentTitle(r) {
+    if (!r || !r.scene) return "";
+    var own = (r.scene.title || "").trim();
+    return own || String(getFilename(r.scene) || "").replace(/\.[A-Za-z0-9]{2,4}$/, "");
   }
 
   // CUSTOM (Sina): patterns with "Scene title" ticked clean the title the scene already has (its file name
@@ -3533,6 +3863,8 @@
     if (!scraped.title && cb('[data-cb="title"]')) {
       var sceneClean = sceneTitleClean(r);
       if (sceneClean) { filtered.title = sceneClean; titleIsManual = true; }
+      // A title renamed by double-click wins (also when the scraper gave none)
+      if (r.titleEdit) { filtered.title = r.titleEdit; titleIsManual = true; }
     }
     // Manually typed title (manualFallbackOnFail + manualFallbackAllowTitle mode)
     if (r.manualFallback && pluginConfig.manualFallbackAllowTitle) {
@@ -4254,6 +4586,7 @@
       var status = getRowStudioStatus(scene.id);
       if (f === "new")      el.style.display = (status === "new")      ? "" : "none";
       if (f === "existing") el.style.display = (status === "existing") ? "" : "none";
+      if (f === "none")     el.style.display = (status === "none")     ? "" : "none";   // CUSTOM (Sina, 2026-11-16): scrapes without any studio
     });
   }
 
@@ -4525,7 +4858,17 @@
         fields.push(
           '<div class="st-inline-field">' +
             '<label class="st-inline-label"><input type="checkbox" data-cb="title" checked> Title</label>' +
-            '<span class="st-chip st-chip-title" title="Scene title cleaned by your file-name patterns">' + esc(sceneTitleClean(r)) + '</span>' +
+            '<span class="st-chip st-chip-title' + (r.titleEdit ? ' st-chip-edited' : '') + '" title="Scene title cleaned by your file-name patterns (double-click to rename)">' + esc(r.titleEdit || sceneTitleClean(r)) + '</span>' +
+          '</div>'
+        );
+      } else if (r.scene && document.getElementById(PANEL_ID) && document.getElementById(PANEL_ID).classList.contains("st-panel-solo")) {
+        // CUSTOM (Sina, 2026-11-19): the scraper gave no title (e.g. a tweet) and no pattern applies -> solo still
+        // shows a Title row with the scene's current title, so it can be renamed by double-click. Unticked by
+        // default: nothing changes unless the title is edited (editing ticks it).
+        fields.push(
+          '<div class="st-inline-field">' +
+            '<label class="st-inline-label"><input type="checkbox" data-cb="title"' + (r.titleEdit ? ' checked' : '') + '> Title</label>' +
+            '<span class="st-chip st-chip-title' + (r.titleEdit ? ' st-chip-edited' : '') + '" title="Double-click to rename">' + esc(r.titleEdit || sceneCurrentTitle(r)) + '</span>' +
           '</div>'
         );
       }
@@ -4580,14 +4923,16 @@
           ? '<div class="st-cover-custom-wrap">' +
               '<button type="button" class="st-cover-option' + (r.coverChoice === "custom" ? " st-cover-selected" : "") + '" onclick="stPickCover(\'' + esc(id) + '\',\'custom\')">' +
                 '<img src="' + esc(r.customCover) + '" alt="dropped cover">' + COVER_DROP_OV +
-                '<span class="st-cover-caption st-dropped">Dropped image</span>' +
+                '<span class="st-cover-caption st-dropped">' + (r.customCoverFrom === "paste" ? "Pasted image" : "Dropped image") + '</span>' +
               '</button>' +
               '<span class="st-cover-rm" role="button" title="Remove" onclick="stRemoveCustomCover(\'' + esc(id) + '\')">&#10005;</span>' +
             '</div>'
           : '';
         if (!coverUnderVideo || scraped.image || r.customCover) fields.push(
           '<div class="st-inline-field st-inline-cover">' +
-            '<span class="st-inline-label st-label-static">' + sectionIcon("cover") + 'Cover</span>' +
+            '<span class="st-inline-label st-label-static">' + sectionIcon("cover") + 'Cover' +
+              '<span class="st-cover-paste" role="button" title="Paste an image from the clipboard (or press Ctrl+V over this row)" onclick="stPasteCover(\'' + esc(id) + '\')">Paste</span>' +
+            '</span>' +
             '<div class="st-cover-options">' + coverExistingHTML + coverScrapedHTML + coverCustomHTML + '</div>' +
           '</div>'
         );
@@ -4873,7 +5218,7 @@
       // checkbox+chip - see isSolo.
       // 1.31.2: "Always show a Date field" (showDateField, OFF by default) gives the mass list the same
       // calendar widget as solo (scraped date prefilled, or empty when the scrape found none): the date can be edited by hand.
-      var dateWidget = isSolo || !!pluginConfig.showDateField;   // 1.31.2: also when a date WAS scraped (the field starts with it)
+      var dateWidget = isSolo || !!pluginConfig.showDateField || !!(pluginConfig.fileNameDate && pluginConfig.fileNameDateAuto);   // 1.31.2: also when a date WAS scraped (the field starts with it)
       if (!dateWidget) {
         if (scraped.date) {
           fields.push(
@@ -4889,6 +5234,11 @@
         var hasNewDate = !!scrapedDateText && scrapedDateText !== existingDateText;
         if (r.dateEditValue === undefined) {
           r.dateEditValue = hasNewDate ? scrapedDateText : existingDateText;
+        }
+        // fileNameDateAuto: pre-fill once (dateAutoDone = a clear by hand is respected on the next redraw)
+        if (!r.dateAutoDone && !scrapedDateText && !r.dateEditValue) {
+          var autoDateIso = fnHintsAutoDateFor(scene);
+          if (autoDateIso) { r.dateEditValue = autoDateIso; r.dateCalendarMonth = autoDateIso.slice(0, 7); r.dateAutoDone = true; }
         }
         var dateExistingColHTML = hasNewDate
           ? '<div class="st-details-col">' +
@@ -5196,6 +5546,8 @@
           var detailsParsedForDisplay = parseDetailsArtists(scraped.details);
           var hasRealContent = !!detailsParsedForDisplay.rest;
           var detailsChecked = pluginConfig.autoCheckDetails ? true : hasRealContent;
+          // CUSTOM (Sina): protect a longer existing Details text
+          if (pluginConfig.protectLongerDetails && (scene.details || "").trim().length > scraped.details.replace(/\[(\w+)\]/g, "").trim().length) detailsChecked = false;
           var detailsShort = scraped.details.length > 80 ? scraped.details.substring(0, 80) + "…" : scraped.details;
           fields.push(
             '<div class="st-inline-field st-inline-details-chip">' +
@@ -5208,9 +5560,19 @@
         var scrapedDetailsClean = scraped.details ? scraped.details.replace(/\[(\w+)\]/g, "").trim() : "";
         var existingDetailsText = (scene.details || "").trim();
         var hasNewDetails = !!scrapedDetailsClean && scrapedDetailsClean !== existingDetailsText;
+        // CUSTOM (Sina): "Protect longer details" - an existing text longer than the scrape is kept.
+        var detailsProtected = !!pluginConfig.protectLongerDetails && hasNewDetails && existingDetailsText.length > scrapedDetailsClean.length;
+        r.detailsExisting = existingDetailsText;
+        r.detailsScrapedClean = scrapedDetailsClean;
         if (r.detailsEditValue === undefined) {
-          r.detailsEditValue = hasNewDetails ? scrapedDetailsClean : existingDetailsText;
+          r.detailsEditValue = (hasNewDetails && !detailsProtected) ? scrapedDetailsClean : existingDetailsText;
+          r.detailsMode = (hasNewDetails && !detailsProtected) ? "use" : "keep";
         }
+        var detailsModeHTML = (hasNewDetails && existingDetailsText)
+          ? '<div class="st-details-modes">' + [["keep", "Keep existing"], ["use", "Use scraped"], ["append", "Append scraped"]].map(function (m) {
+              return '<button type="button" class="st-details-mode' + (r.detailsMode === m[0] ? ' st-on' : '') + '" data-dmode="' + m[0] + '">' + m[1] + '</button>';
+            }).join("") + '</div>'
+          : "";
         var detailsExistingColHTML = hasNewDetails
           ? '<div class="st-details-col">' +
               '<span class="st-existing-caption">Already on this scene</span>' +
@@ -5227,6 +5589,7 @@
           detailsLabelHTML = '<span class="st-inline-label st-label-static">' + sectionIcon("details") + 'Details</span>';
         } else {
           var detailsListChecked = pluginConfig.autoCheckDetails ? true : !!parseDetailsArtists(scraped.details).rest;
+          if (detailsProtected) detailsListChecked = false;
           detailsLabelHTML = '<label class="st-inline-label"><input type="checkbox" data-cb="details"' + (detailsListChecked ? ' checked' : '') + '> Details</label>';
         }
         fields.push(
@@ -5236,6 +5599,7 @@
               detailsExistingColHTML +
               '<div class="st-details-col">' +
                 (hasNewDetails ? '<span class="st-existing-caption st-new">New from scrape (editable)</span>' : '') +
+                detailsModeHTML +
                 '<textarea class="st-details-edit" placeholder="Details...">' + esc(r.detailsEditValue) + '</textarea>' +
               '</div>' +
             '</div>' +
@@ -5278,8 +5642,10 @@
         }
         var urlRowsHTML = r.urlEditList.map(function (u, i) {
           return '<div class="st-url-row' + (u.isNew ? ' st-url-row-new' : '') + '">' +
-            '<span class="st-url-link" title="' + esc(u.value) + '">' + esc(u.value) + '</span>' +
+            // CUSTOM (Sina, 2026-11-16): the URL opens in a new tab and can be copied, like the mass list
+            '<a class="st-url-link" href="' + esc(u.value) + '" target="_blank" rel="noopener" title="' + esc(u.value) + '">' + esc(u.value) + '</a>' +
             (u.isNew ? '<span class="st-url-badge-new">new</span>' : '') +
+            '<button type="button" class="st-url-copy" data-url="' + esc(u.value) + '" title="Copy the full URL">' + ST_ICON_COPY + '</button>' +
             '<button class="st-url-remove" onclick="stRemoveUrl(\'' + esc(id) + '\',' + i + ')" title="Remove">&#10005;</button>' +
           '</div>';
         }).join("");
@@ -5529,11 +5895,14 @@
           titleChip.classList.remove("st-chip-editing");
           titleChip.removeEventListener("blur", onBlur);
           titleChip.removeEventListener("keydown", onKey);
+          titleChip.removeEventListener("paste", onPaste);
           var text = (titleChip.textContent || "").replace(/\s+/g, " ").trim();
           if (!commit) { titleChip.textContent = before; return; }
-          if (!text || text === scrapedTitle(scraped.title, r, scraped)) {
+          // Baseline = what the chip showed before any edit (scraped title, else cleaned/current scene title)
+          var baseTitle = scraped.title ? scrapedTitle(scraped.title, r, scraped) : (sceneTitleClean(r) || sceneCurrentTitle(r));
+          if (!text || text === baseTitle) {
             delete r.titleEdit;
-            titleChip.textContent = scrapedTitle(scraped.title, r, scraped);
+            titleChip.textContent = baseTitle;
             titleChip.classList.remove("st-chip-edited");
           } else {
             r.titleEdit = text;
@@ -5547,6 +5916,13 @@
           if (ev.key === "Enter") { ev.preventDefault(); finish(true); }
           else if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
         }
+        // Paste as plain text only (a rich paste brought the source page's font/background into the chip)
+        function onPaste(ev) {
+          ev.preventDefault();
+          var txt = ((ev.clipboardData || window.clipboardData).getData("text") || "").replace(/\s+/g, " ");
+          document.execCommand("insertText", false, txt);
+        }
+        titleChip.addEventListener("paste", onPaste);
         titleChip.addEventListener("blur", onBlur);
         titleChip.addEventListener("keydown", onKey);
       });
@@ -5598,7 +5974,34 @@
         detailsEdit.style.height = "auto";
         detailsEdit.style.height = (detailsEdit.scrollHeight + 2) + "px";
       };
+      // CUSTOM (Sina): Keep / Use scraped / Append chips fill the field from the two texts.
+      var setModeChips = function (mode) {
+        el.querySelectorAll(".st-details-mode").forEach(function (b) { b.classList.toggle("st-on", b.getAttribute("data-dmode") === mode); });
+      };
+      el.querySelectorAll(".st-details-mode").forEach(function (b) {
+        b.addEventListener("click", function (e) {
+          e.preventDefault(); e.stopPropagation();
+          var mode = b.getAttribute("data-dmode"), ex = r.detailsExisting || "", sc = r.detailsScrapedClean || "", val;
+          if (mode === "keep") val = ex;
+          else if (mode === "use") val = sc;
+          else {
+            var have = {};
+            ex.split(/\r?\n/).forEach(function (l) { have[l.trim()] = true; });
+            var add = sc.split(/\r?\n/).filter(function (l) { return l.trim() && !have[l.trim()]; });
+            val = add.length ? (ex ? ex + "\n" + add.join("\n") : add.join("\n")) : ex;
+          }
+          r.detailsMode = mode;
+          r.detailsEditValue = val;
+          detailsEdit.value = val;
+          setModeChips(mode);
+          autoGrowDetails();
+          var chipCb = el.querySelector('[data-cb="details"]');
+          if (chipCb) chipCb.checked = true;
+        });
+      });
       detailsEdit.addEventListener("input", function () {
+        r.detailsMode = "custom";
+        setModeChips("custom");
         r.detailsEditValue = detailsEdit.value;
         autoGrowDetails();
         // Mass list editor has a per-row checkbox: typing means "apply this".
@@ -5719,18 +6122,21 @@
       var suggEl = el.querySelector(".st-sugg");
       if (suggEl) {
         suggEl.addEventListener("click", function (e) {
-          var scanBtn = e.target.closest(".st-sugg-scan");
+          var scanBtn = e.target.closest(".st-sugg-scan, .st-sugg-fab");
           if (scanBtn) {
-            if (scanBtn.getAttribute("data-act") === "cancel") r.visualCancel = true;
-            else runSuggestedScan(id);
+            var isFab = scanBtn.classList.contains("st-sugg-fab");   // mass list round button = scan of the cover
+            if (scanBtn.getAttribute("data-act") === "cancel") {
+              r.visualCancel = true;
+              if (r.visualState && r.visualState.status === "queued") { r.visualState = { status: "idle" }; renderRow(id); }   // not started yet: just leave the queue
+            } else runSuggestedScan(id, false, isFab ? "cover" : undefined);
             return;
           }
-          if (e.target.closest(".st-sugg-low-toggle")) {
+          if (e.target.closest(".st-sugg-low-toggle, .st-th-more")) {
             r.suggLowOpen = !r.suggLowOpen;
             suggEl.classList.toggle("st-low-open", r.suggLowOpen);
             return;
           }
-          var chip = e.target.closest(".st-sugg-chip");
+          var chip = e.target.closest(".st-sugg-chip, .st-sugg-thumb");
           if (!chip) return;
           var pid = chip.getAttribute("data-sugg-id"), on = !chip.classList.contains("st-on");
           chip.classList.toggle("st-on", on);
@@ -6139,6 +6545,8 @@
     stItem("st-cfg-clean-search", "cleanSearchTitle", "scrape", "Search & saved title", "cb", "Clean title in \"Search title\" (strip dates, resolution, punctuation)", { short: "Clean the search text", hint: "Strips the extension, dates, resolutions and punctuation before searching (some scrapers 404 on it).", kw: "search title pornhub" }),
     stItem("st-cfg-show-date-field", "showDateField", "scrape", "Date", "cb", "Editable Date field in the list (also when the scrape found a date)", { short: "Editable Date field in the list", hint: "In the list, every row gets the same calendar field as the single-scene panel: it starts with the scraped date (or is empty) and you can change or clear it. Off: a scraped date stays a chip with a tick box.", kw: "date calendar manual field" }),
     stItem("st-cfg-filename-date", "fileNameDate", "scrape", "Date", "cb", "Offer the date found in the file name (e.g. 23.02.07)", { short: "Offer the date from the file name", hint: "Next to the Date field, a button fills in the date read from the file name. Nothing is written until you press Apply.", kw: "date filename file name 6 digit" }),
+    stItem("st-cfg-filename-date-auto", "fileNameDateAuto", "scrape", "Date", "cb", "Fill it in automatically (no button to press)", { lvl: 1, par: "st-cfg-filename-date", short: "Fill the date from the file name by itself", hint: "When the scrape found no date and the scene has none yet, the Date field is pre-filled with the date read from the file name (you can still change or clear it). Only unambiguous names are used: a 4-digit year first (2011-09-20, 2011.09.20, 20110920); 23.02.07 and 07.02.2023 are never filled automatically. Apply All writes it.", kw: "date filename file name automatic auto prefill" }),
+    stItem("st-cfg-filename-date-folders", "fileNameDateFolders", "scrape", "Date", "cb", "Also read year and month from the folder names", { lvl: 1, par: "st-cfg-filename-date", short: "Date from the folder names", hint: "A folder named like a year followed by a month folder (2011\\September, 2011\\09, 2011\\Septembre) gives year and month. The day is taken from a neighbouring scene of the same folder when it has one (a clear date in its file name, or a date already saved); otherwise the 1st is used. A year folder with no month folder gives the 1st of January of that year (2019 -> 2019-01-01). The date in the file name always wins. Nothing is written until Apply.", kw: "date folder directory path year month" }),
     stItem("st-cfg-filename-date-dmy", "fileNameDateDmy", "scrape", "Date", "cb", "Read 23.02.07 as day.month.year (default: year.month.day)", { lvl: 1, par: "st-cfg-filename-date", kw: "date order dmy ymd" }),
     stItem("st-cfg-filename-studio", "fileNameStudio", "scrape", "Studio", "cb", "Offer the studio the file name starts with", { short: "Offer the studio from the file name", hint: "When neither the scene nor the scrape has a studio, a button next to the studio search picks the library studio (or alias) the file name starts with. Nothing is written until you press Apply.", kw: "studio filename file name start" }),
     stItem("st-cfg-filename-studio-auto", "fileNameStudioAuto", "scrape", "Studio", "cb", "Pick it automatically (no button to press)", { lvl: 1, par: "st-cfg-filename-studio", hint: "The studio is chosen as soon as the row is shown (the cross cancels it). A studio on your Blacklist is never picked. \"Apply All\" saves it without another look.", kw: "studio automatic auto pick filename" }),
@@ -6165,12 +6573,17 @@
     stItem("st-cfg-replace-performers", "replacePerformers", "apply", "Stay in sync with the scrape", "cb", "Replace the performers on the scene", { hint: "On Apply, performers already on the scene that the scrape does not return are removed (struck through in the row, click the arrow to keep one). Only when the scrape returns at least one performer.", kw: "replace remove sync overwrite stashbox" }),
     stItem("st-cfg-skip-genders", "skipGenders", "apply", "Stay in sync with the scrape", "genders", "Ignore scraped performers of these genders", { hint: "Scraped performers of the genders you pick are left out of the row (nothing to tick, nothing created). A performer already in your database is judged on the gender of its own record, otherwise on the one the scraper returns; a performer with no known gender is kept. Performers already on the scene are not removed by this.", kw: "gender male female trans non-binary intersex exclude skip" }),
     stItem("st-cfg-details", "autoCheckDetails", "apply", "Pre-checked after a scrape", "cb", "Auto-check details", { short: "Pre-check details", kw: "auto-check precheck" }),
+    stItem("st-cfg-protect-details", "protectLongerDetails", "apply", "Stay in sync with the scrape", "cb", "Protect longer details", { hint: "When the Details already on the scene are longer than the scraped ones, they are kept: the editable field starts with the existing text (and the mass list does not pre-check Details). The Keep / Use scraped / Append chips above the field let you choose anyway.", kw: "details protect keep longer overwrite replace" }),
     stItem("st-cfg-mark-organized", "autoMarkOrganized", "apply", "Apply & Skip", "cb", "Auto-organize on Apply", { short: "Mark as organized on Apply", kw: "organized auto-organize" }),
     stItem("st-cfg-eject-skipped", "ejectSkipped", "apply", "Apply & Skip", "cb", "Eject skipped scenes from the list (Skip removes the row)", { short: "Skip removes the row from the list", kw: "skip eject remove" }),
     // Performer suggestions
     stItem("st-cfg-suggest-perf", "suggestPerformers", "suggest", "Text suggestions", "cb", "Suggest performers", { hint: "Shows a Suggested block with performers whose name or alias appears in the title, file name, details or tags (scene popup and mass list).", kw: "suggested fasttag" }),
     stItem("st-cfg-suggest-precheck", "suggestPrecheck", "suggest", "Text suggestions", "cb", "Pre-check high-confidence suggestions", { lvl: 1, par: "st-cfg-suggest-perf", kw: "precheck" }),
     stItem("st-cfg-suggest-min", "suggestMinScore", "suggest", "Text suggestions", "num", "Minimum score (0-100)", { lvl: 1, adv: true, par: "st-cfg-suggest-perf", min: 0, max: 100, step: 5, kw: "score threshold" }),
+    stItem("st-cfg-suggest-thumbs", "suggestThumbs", "suggest", "Text suggestions", "cb", "Show suggestions as thumbnails", { lvl: 1, par: "st-cfg-suggest-perf", hint: "Instead of pills, suggestions are a row of small portraits with a score ring: cards in the scene popup, round avatars (6 shown, the rest behind \"+N\") in the mass list. Photos load only when they scroll into view; hover a portrait for a bigger photo and the reasons.", kw: "thumbnails vignettes avatars cards layout" }),
+    stItem("st-cfg-suggest-facesure", "suggestFaceSure", "suggest", "Face recognition (private)", "cb", "Pre-check very sure cover face matches", { lvl: 1, par: "st-cfg-suggest-visual", priv: true, hint: "A face-only suggestion is normally never pre-checked (a face alone is often wrong). With this on, a face found on the scene's COVER is pre-checked when its visual score reaches the minimum below AND it is at least 8 points ahead of the next candidate of the same face. Apply writes what is checked, so keep the minimum high. The frame scan of the scene popup is not concerned.", kw: "precheck pre-check sure confident face automatic cover", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualAvailable); } }),
+    stItem("st-cfg-suggest-facesure-min", "suggestFaceSureMin", "suggest", "Face recognition (private)", "num", "Very sure: minimum visual score (60-100)", { lvl: 2, adv: true, par: "st-cfg-suggest-facesure", priv: true, min: 60, max: 100, step: 1, kw: "visual score threshold", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualAvailable); } }),
+    stItem("st-cfg-suggest-visual-mass", "suggestVisualMass", "suggest", "Face recognition (private)", "cb", "Scan every row's cover in the mass list", { lvl: 1, par: "st-cfg-suggest-visual", priv: true, hint: "Mass list: each scraped row sends the scene's COVER image (not the video) to the AnimeVisage server, one at a time (about 0.5 second each), and the recognised performers appear as suggestions. Off: every row only gets a round \"Scan face\" button. Scenes without a cover are skipped.", kw: "animevisage mass bulk automatic all rows cover thumbnail", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualAvailable); } }),
     // Layout
     stItem("st-cfg-fullscreen-desktop", "fullscreenOnDesktop", "layout", "Panel", "cb", "Fullscreen panel on desktop (mass list)", { kw: "full screen" }),
     stItem("st-cfg-fullscreen-solo", "fullscreenSolo", "layout", "Panel", "cb", "Fullscreen panel on the single scene page", { kw: "full screen solo" }),
@@ -6888,13 +7301,17 @@
 
   // ── Suggest : suggested performers and face scan ──
 
-  // ── Suggested performers (solo popup; engine in performerFinder.js) ─────────
+  // ── Suggested performers (solo popup + mass list; engine in performerFinder.js) ─────────
   // Chips are unchecked/checked per row (r.suggOn). A checked chip carries the
   // same data attributes as a performer added with the search box, so
   // getCheckedScraped() applies it without any change of its own.
   var SUGG_BADGE = { title: "title", alias: "alias", details: "details", tag: "tag", series: "series", face: "face" };
 
-  // compact = mass list: text suggestions only (the face scan stays a solo-popup feature)
+  // Checked by default: a high-confidence text match (setting suggestPrecheck), or a very sure face match on the cover
+  // (setting suggestFaceSure; c.sure is set by performerFinder.js)
+  function suggestPrechecked(c) { return !!((pluginConfig.suggestPrecheck && c.tier === "high") || (pluginConfig.suggestFaceSure && c.sure)); }
+
+  // compact = mass list: text suggestions + a round "Scan face" button that scans the scene's COVER (see runSuggestedScan)
   function suggestedPerformersHTML(r, id, compact) {
     var F = window.stPerformerFinder;
     if (!pluginConfig.suggestPerformers || !F) return "";
@@ -6913,20 +7330,29 @@
       r.visualAutoFor = r.scraped;
       setTimeout(function () { if (state.rows[id]) runSuggestedScan(id); }, 0);   // not from inside the render
     }
+    // Mass list (setting suggestVisualMass, OFF by default): scan the cover of each scraped row once per scrape result,
+    // one at a time (the server handles one request at a time)
+    if (compact && F.visualAvailable && pluginConfig.suggestVisual && pluginConfig.suggestVisualMass &&
+        r.visualAutoFor !== r.scraped && !(r.visualState && /^(running|queued)$/.test(r.visualState.status))) {
+      r.visualAutoFor = r.scraped;
+      queueSuggestedScan(id);
+    }
     var excludeIds = (scene.performers || []).map(function (p) { return p.id; });
     var excludeNames = [];
     (scraped.performers || []).forEach(function (p) {
       if (p.stored_id) excludeIds.push(p.stored_id);
       excludeNames.push(p.name);
     });
-    var list = F.rank(scene, { excludeIds: excludeIds, excludeNames: excludeNames, minScore: pluginConfig.suggestMinScore, limit: 12, visual: r.visualHits });
+    var list = F.rank(scene, { excludeIds: excludeIds, excludeNames: excludeNames, minScore: pluginConfig.suggestMinScore, limit: 12, visual: r.visualHits, faceSureMin: pluginConfig.suggestFaceSure ? pluginConfig.suggestFaceSureMin : null });
+    // solo popup: a status bar (frame scan); mass list: a small round button at the end of the suggestions
     var scanBar = compact ? "" : suggestedScanBarHTML(r);
-    // mass list: nothing to say when nothing matches (no empty line on every row)
-    if (!list.length && compact) return "";
+    var fab = compact ? suggestedFabHTML(r, id) : "";
+    // mass list: nothing to say when nothing matches and no face scan to offer (no empty line on every row)
+    if (!list.length && compact) return fab ? '<div class="st-sugg st-sugg-compact">' + caption + '<div class="st-sugg-pills">' + fab + '</div></div>' : "";
     if (!list.length) return '<div class="st-sugg">' + caption + '<span class="st-split-empty">No match in the title, file name or details</span>' + scanBar + '</div>';
     r.suggOn = r.suggOn || {};
     var chip = function (c) {
-      var on = r.suggOn[c.id] !== undefined ? r.suggOn[c.id] : (pluginConfig.suggestPrecheck && c.tier === "high");
+      var on = r.suggOn[c.id] !== undefined ? r.suggOn[c.id] : suggestPrechecked(c);
       var badges = c.reasons.filter(function (x) { return SUGG_BADGE[x.k]; }).map(function (x) {
         return '<span class="st-sugg-badge st-sugg-b-' + x.k + '">' + SUGG_BADGE[x.k] + '</span>';
       }).join("");
@@ -6934,7 +7360,7 @@
       var tipImg = c.image_path && c.image_path.indexOf("default=true") === -1
         ? '<img class="st-sugg-tip-img" loading="lazy" src="' + esc(c.image_path) + '" alt="">' : '';
       var tip = '<span class="st-sugg-tip' + (tipImg ? ' st-sugg-tip-has-img' : '') + '">' + tipImg + '<span class="st-sugg-tip-body"><b>' + esc(c.name) + '</b> &middot; score ' + c.score + '/100' +
-        c.reasons.map(function (x) { return '<span class="st-sugg-row"><span>' + esc(x.label) + '</span><i>+' + x.pts + '</i></span>'; }).join("") +
+        c.reasons.map(function (x) { return '<span class="st-sugg-row"><span>' + esc(x.label) + '</span>' + (x.pts ? '<i>+' + x.pts + '</i>' : '') + '</span>'; }).join("") +
         '<small>Click to add or remove. Nothing is written until Apply.</small></span></span>';
       return '<span class="st-sugg-chip st-sugg-' + c.tier + (on ? ' st-on' : '') + '" data-sugg-id="' + esc(c.id) + '" data-sugg-name="' + esc(c.name) + '"' +
         (on ? ' data-cb="performer-added" data-perf-id="' + esc(c.id) + '" data-perf-name="' + esc(c.name) + '"' : '') + '>' +
@@ -6947,8 +7373,35 @@
     var low = list.filter(function (c) { return c.tier === "low"; });
     // nothing better than weak matches: show them directly, folding the only suggestions would hide them for nothing
     if (!top.length) { top = low; low = []; }
+    if (pluginConfig.suggestThumbs) {
+      // Thumbnail layout: solo = cards, mass list = round avatars (6 shown, the rest behind "+N"). One light element per
+      // suggestion, one shared hover card (wireSuggestThumbPreview), photos lazy-loaded.
+      var all = top.concat(low), cap = compact ? 6 : all.length;
+      var thumb = function (c, i) {
+        var on = r.suggOn[c.id] !== undefined ? r.suggOn[c.id] : suggestPrechecked(c);
+        var photo = c.image_path && c.image_path.indexOf("default=true") === -1
+          ? '<img loading="lazy" decoding="async" src="' + esc(c.image_path) + '" alt="">' : '<b>' + esc(String(c.name).charAt(0).toUpperCase()) + '</b>';
+        var why = c.reasons.map(function (x) { return x.label + (x.pts ? " (+" + x.pts + ")" : ""); }).join("|");
+        var ring = Math.min(100, Math.round(c.score * 1.7));
+        var attrs = ' data-sugg-id="' + esc(c.id) + '" data-sugg-name="' + esc(c.name) + '" data-th-score="' + c.score + '" data-th-why="' + esc(why) + '"' +
+          (c.image_path && c.image_path.indexOf("default=true") === -1 ? ' data-th-img="' + esc(c.image_path) + '"' : '') +
+          (on ? ' data-cb="performer-added" data-perf-id="' + esc(c.id) + '" data-perf-name="' + esc(c.name) + '"' : '');
+        var klass = 'st-sugg-thumb st-sugg-' + c.tier + (on ? ' st-on' : '') + (i >= cap ? ' st-th-extra' : '');
+        if (compact) {
+          return '<span class="' + klass + ' st-th-av"' + attrs + '><span class="st-th-ava" style="--p:' + ring + '"><span class="st-th-ph">' + photo + '</span>' +
+            '<span class="st-th-sc">' + c.score + '</span><span class="st-th-chk"></span></span><span class="st-th-nm">' + esc(c.name) + '</span></span>';
+        }
+        var badge = c.reasons.filter(function (x) { return SUGG_BADGE[x.k]; })[0];
+        return '<span class="' + klass + ' st-th-card"' + attrs + '><span class="st-th-ph">' + photo + '</span><span class="st-th-chk"></span>' +
+          '<span class="st-th-nm">' + esc(c.name) + '</span><span class="st-th-row"><span class="st-th-ring" style="--p:' + ring + '"><i>' + c.score + '</i></span>' +
+          (badge ? '<span class="st-sugg-badge st-sugg-b-' + badge.k + '">' + SUGG_BADGE[badge.k] + '</span>' : '') + '</span></span>';
+      };
+      return '<div class="st-sugg st-sugg-th ' + (compact ? 'st-sugg-compact st-th-h2' : 'st-th-h1') + (r.suggLowOpen ? ' st-low-open' : '') + '">' + caption +
+        '<div class="st-th-strip">' + all.map(thumb).join("") +
+        (all.length > cap ? '<span class="st-th-more" title="Show all / fewer">+' + (all.length - cap) + '</span>' : '') + fab + '</div>' + scanBar + '</div>';
+    }
     return '<div class="st-sugg' + (compact ? ' st-sugg-compact' : '') + (r.suggLowOpen ? ' st-low-open' : '') + '">' + caption +
-      (top.length ? '<div class="st-sugg-pills">' + top.map(chip).join("") + '</div>' : '') +
+      (top.length || fab ? '<div class="st-sugg-pills">' + top.map(chip).join("") + fab + '</div>' : '') +
       (low.length
         ? '<span class="st-sugg-low-toggle">' + low.length + ' weaker match' + (low.length > 1 ? 'es' : '') + '</span>' +
           '<div class="st-sugg-pills st-sugg-lowrow">' + low.map(chip).join("") + '</div>'
@@ -6957,17 +7410,23 @@
     '</div>';
   }
 
-  // "Scan faces" bar of the Suggested block (face recognition; hidden in the public build)
+  // "Scan faces" bar of the Suggested block (solo popup; face recognition, hidden in the public build)
   function suggestedScanBarHTML(r) {
     var F = window.stPerformerFinder;
     if (!F || !F.visualAvailable || !pluginConfig.suggestVisual) return "";
     var v = r.visualState || { status: "idle" };
     var text, btn;
-    if (v.status === "running") {
+    if (v.status === "queued") {
+      text = "Waiting for the face scan...";
+      btn = '<button class="st-sugg-scan" data-act="cancel">Stop</button>';
+    } else if (v.status === "running") {
       text = "Scanning faces... " + (v.done || 0) + " / " + (v.total || "?");
       btn = '<button class="st-sugg-scan" data-act="cancel">Stop</button>';
     } else if (v.status === "done") {
-      text = "Faces: " + v.total + " frames scanned" + (v.cancelled ? " (stopped)" : "") + ", " + v.found + " performer" + (v.found === 1 ? "" : "s") + " seen on 2+ frames";
+      text = v.cover
+        ? (v.total ? v.total + " face" + (v.total === 1 ? "" : "s") + " on the cover, " + v.found + " performer" + (v.found === 1 ? "" : "s") + " suggested" + (v.already ? " (" + v.already + " already on the scene)" : "")
+                   : "No face found on the cover")
+        : "Faces: " + v.total + " frames scanned" + (v.cancelled ? " (stopped)" : "") + ", " + v.found + " performer" + (v.found === 1 ? "" : "s") + " seen on 2+ frames" + (v.already ? " (+" + v.already + " already on the scene)" : "");
       btn = '<button class="st-sugg-scan" data-act="scan">Rescan</button>';
     } else if (v.status === "error") {
       text = v.msg;
@@ -6979,11 +7438,61 @@
     return '<div class="st-sugg-vbar' + (v.status === "error" ? ' st-err' : '') + '"><span class="st-sugg-vstatus">' + esc(text) + '</span>' + btn + '</div>';
   }
 
+  // Mass list: round "Scan face" button (scans the scene's cover, ~0.5 s). It stretches into a pill (icon + text) while
+  // waiting / scanning, shows the result ("2 found") for SUGG_HOLD ms, then folds back into the icon. renderRow() rebuilds
+  // the DOM, so the button remembers its last drawn shape (r.fabPill) and a change of shape is applied one frame AFTER the
+  // draw: that is what lets the CSS width transition play.
+  var SUGG_HOLD = 1500;
+  var FAB_FACE = '<svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="4"/><path d="M5 21c1.2-4 4-6 7-6s5.8 2 7 6"/></svg>';
+  var FAB_SPIN = '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>';
+  function suggestFabWanted(r) {
+    var v = r.visualState || {};
+    return v.status === "queued" || v.status === "running" || (v.status === "done" && !!r.visualDoneAt && Date.now() - r.visualDoneAt < SUGG_HOLD);
+  }
+  function suggestFabSettle(id, want) {
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+      var b = document.querySelector("#st-row-" + id + " .st-sugg-fab");
+      if (b) b.classList.toggle("st-pill", want);
+    }); });
+  }
+  function suggestedFabHTML(r, id) {
+    var F = window.stPerformerFinder;
+    if (!F || !F.visualAvailable || !pluginConfig.suggestVisual) return "";
+    var v = r.visualState || { status: "idle" };
+    var cls = "", tip = "Scan the cover for faces", label = "Scanning...", act = "scan", icon = FAB_FACE;
+    if (v.status === "queued") { cls = " st-fab-wait"; tip = "Waiting for the face scan... (click to stop)"; label = "Waiting..."; act = "cancel"; }
+    else if (v.status === "running") { cls = " st-fab-run"; tip = "Scanning the cover... (click to stop)"; label = "Scanning..."; act = "cancel"; icon = FAB_SPIN; }
+    else if (v.status === "done") {
+      cls = " st-fab-done"; label = v.total ? v.found + " found" : "No face";
+      tip = (v.total ? v.total + " face" + (v.total === 1 ? "" : "s") + " on the cover, " + v.found + " performer" + (v.found === 1 ? "" : "s") + " suggested" + (v.already ? " (" + v.already + " already on the scene)" : "") : "No face found on the cover") + " - click to rescan";
+    } else if (v.status === "error") { cls = " st-fab-err"; tip = v.msg + " - click to retry"; }
+    var want = suggestFabWanted(r), had = !!r.fabPill;
+    r.fabPill = want;
+    if (want !== had) suggestFabSettle(id, want);
+    return '<button type="button" class="st-sugg-fab' + cls + (had ? ' st-pill' : '') + '" data-act="' + act + '" data-tip="' + esc(tip) + '">' +
+      '<span class="st-fab-ic">' + icon + '</span><span class="st-fab-lab">' + esc(label) + '</span></button>';
+  }
+
+  // Mass list: scans wait in one chain so the server gets one image at a time
+  var suggScanChain = Promise.resolve();
+  function queueSuggestedScan(id) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.visualState = { status: "queued" };   // shown by the button being drawn right now
+    suggScanChain = suggScanChain.then(function () {
+      var rr = state.rows[id];
+      if (!rr || !rr.visualState || rr.visualState.status !== "queued") return null;   // stopped, or the row is gone
+      return runSuggestedScan(id, false, "cover");
+    }).catch(function () {});
+  }
+
   // silent = started together with the scrape: no re-render (the progress bar covers the row), the
   // progress goes to the bar's label; stScrapeOne() waits for r.visualPromise before the hand-over.
-  function runSuggestedScan(id, silent) {
+  // mode "cover" = ONE request on the scene's cover (mass list); default = frames of the video (solo popup).
+  function runSuggestedScan(id, silent, mode) {
     var r = state.rows[id], F = window.stPerformerFinder;
     if (!r || !F || !F.visualScan) return Promise.resolve();
+    var cover = mode === "cover";
     r.visualState = { status: "running", done: 0, total: 0 };
     r.visualCancel = false;
     if (!silent) renderRow(id);
@@ -6993,13 +7502,31 @@
       var st = document.querySelector("#st-row-" + id + " .st-sugg-vstatus");
       if (st) st.textContent = "Scanning faces... " + done + " / " + total;
     };
-    r.visualPromise = F.visualScan(r.scene.id, {
-      baseUrl: pluginConfig.suggestVisualUrl, frames: pluginConfig.suggestVisualFrames,
-      onProgress: progress, isCancelled: function () { return r.visualCancel; }
-    }).then(function (res) {
+    // already on the scene (or just found by the scrape): not suggested, and not counted in "found"
+    var present = (r.scene.performers || []).map(function (p) { return String(p.id); })
+      .concat(((r.scraped && r.scraped.performers) || []).map(function (p) { return p.stored_id ? String(p.stored_id) : ""; }).filter(Boolean));
+    var scan = cover
+      ? F.visualScanCover(r.scene.id, { baseUrl: pluginConfig.suggestVisualUrl, isCancelled: function () { return r.visualCancel; }, excludeIds: present })
+      : F.visualScan(r.scene.id, {
+          baseUrl: pluginConfig.suggestVisualUrl, frames: pluginConfig.suggestVisualFrames,
+          onProgress: progress, isCancelled: function () { return r.visualCancel; }
+        });
+    r.visualPromise = scan.then(function (res) {
+      if (cover && r.visualCancel) { r.visualState = { status: "idle" }; return; }
       r.visualHits = res.hits;
-      r.visualState = { status: "done", total: res.total, cancelled: r.visualCancel,
-        found: res.hits.filter(function (h) { return h.sightings >= 2; }).length };
+      var seen = res.hits.filter(function (h) { return h.cover || h.sightings >= 2; });
+      var already = cover ? (res.already || 0) : seen.filter(function (h) { return present.indexOf(String(h.id)) !== -1; }).length;
+      var found = cover ? seen.length : seen.length - already;
+      r.visualState = { status: "done", total: res.total, cancelled: r.visualCancel, found: found, already: already, cover: cover };
+      r.visualDoneAt = Date.now();
+      // mass list: fold the button back into its icon once the result has been shown long enough
+      setTimeout(function () {
+        var rr = state.rows[id];
+        if (!rr || suggestFabWanted(rr)) return;
+        var b = document.querySelector("#st-row-" + id + " .st-sugg-fab");
+        if (b) b.classList.remove("st-pill");
+        rr.fabPill = false;
+      }, SUGG_HOLD + 60);
     }).catch(function (e) {
       var m = String((e && e.message) || e);
       r.visualState = { status: "error", msg: /Failed to fetch|NetworkError/.test(m)
@@ -7010,6 +7537,56 @@
     });
     return r.visualPromise;
   }
+
+  // Hover card of the thumbnail suggestions (setting suggestThumbs): bigger photo + name, score and the reason of each
+  // point. One shared element on <body> (position: fixed, viewport coordinates), filled on mouseover from the data-th-*
+  // attributes of the thumbnail; the photo is only fetched on the first hover.
+  (function wireSuggestThumbPreview() {
+    var card = null, imgEl = null, nameEl = null, scEl = null, whyEl = null, cur = null;
+    function build() {
+      card = document.createElement("div");
+      card.className = "st-th-preview";
+      imgEl = document.createElement("img"); imgEl.alt = "";
+      var body = document.createElement("div"); body.className = "st-thp-body";
+      nameEl = document.createElement("b"); scEl = document.createElement("span"); scEl.className = "st-thp-sc";
+      whyEl = document.createElement("div"); whyEl.className = "st-thp-why";
+      var hint = document.createElement("small"); hint.textContent = "Click to add or remove. Nothing is written until Apply.";
+      body.appendChild(nameEl); body.appendChild(scEl); body.appendChild(whyEl); body.appendChild(hint);
+      card.appendChild(imgEl); card.appendChild(body);
+      document.body.appendChild(card);
+    }
+    function hide() { cur = null; if (card) card.style.display = "none"; }
+    function show(t) {
+      if (!card) build();
+      cur = t;
+      var src = t.getAttribute("data-th-img");
+      if (src) { if (imgEl.getAttribute("src") !== src) imgEl.setAttribute("src", src); imgEl.style.display = ""; }
+      else { imgEl.removeAttribute("src"); imgEl.style.display = "none"; }
+      nameEl.textContent = t.getAttribute("data-sugg-name") || "";
+      scEl.textContent = "score " + (t.getAttribute("data-th-score") || "?") + "/100";
+      whyEl.textContent = "";
+      (t.getAttribute("data-th-why") || "").split("|").filter(Boolean).forEach(function (w) {
+        var row = document.createElement("div"); row.textContent = w; whyEl.appendChild(row);
+      });
+      card.style.display = "flex";
+      var rc = t.getBoundingClientRect(), cw = card.offsetWidth, ch = card.offsetHeight, gap = 8;
+      var top = rc.top - ch - gap;
+      if (top < 6) top = Math.min(window.innerHeight - ch - 6, rc.bottom + gap);   // no room above: below
+      var left = Math.max(6, Math.min(window.innerWidth - cw - 6, rc.left + rc.width / 2 - cw / 2));
+      card.style.top = top + "px"; card.style.left = left + "px";
+    }
+    document.addEventListener("mouseover", function (e) {
+      var t = e.target.closest && e.target.closest(".st-sugg-thumb");
+      if (!t) { if (cur) hide(); return; }
+      if (t !== cur) show(t);
+    });
+    // mouseout alone misses fast moves: a global mousemove checks the pointer is still over the thumbnail
+    document.addEventListener("mousemove", function (e) {
+      if (cur && !(e.target.closest && e.target.closest(".st-sugg-thumb"))) hide();
+    });
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("blur", hide);
+  })();
 
   // Face scan wanted together with the scrape: solo popup, face recognition and its auto option on.
   function faceScanWithScrape(id) {
@@ -7041,6 +7618,7 @@
     replacePerformers:       false,   // same for performers
     skipGenders:             "",      // comma list (MALE, FEMALE, ...): scraped performers of these genders are left out of the row
     autoCheckDetails:        false,
+    protectLongerDetails:    true,    // CUSTOM (Sina): an existing Details text longer than the scraped one is kept (not pre-filled with the scrape)
     prioritizeExistingStudio: true,   // pre-select the studio already in the DB
     studioBlacklist:         [],      // lowercase names
     // Automatically adds "Artists:" candidates not chosen as the main studio
@@ -7089,6 +7667,10 @@
     suggestVisualUrl:        "http://localhost:7861",
     suggestVisualFrames:     12,
     suggestVisualAuto:       false,
+    suggestFaceSure:         false,   // pre-check a face-only suggestion of the COVER scan when the match is very sure
+    suggestFaceSureMin:      90,
+    suggestVisualMass:       false,   // mass list: scan the cover of every scraped row, one at a time (OFF by default)
+    suggestThumbs:           false,   // suggestions as a row of thumbnails instead of pills
     // Studio logo / banner from the studio's Twitter/X account (studioSocial.js, private Studio Social Scraper)
     studioSocialFetch:       false,   // face scan started together with the scrape (solo popup)
     // "auto" = fallback chain (scraperChain), "manual" = a single scraper
@@ -7122,6 +7704,8 @@
     // field; day-first reading of "23.02.07"; always show the Date field (mass list too) when the scrape has none.
     fileNameDate: false,
     fileNameDateDmy: false,
+    fileNameDateFolders: false,   // CUSTOM (Sina, 2026-11-15): also read year + month from the folder names
+    fileNameDateAuto: false,   // CUSTOM (Sina, 2026-11-15): pre-fill the date read from the file name (safe formats only)
     showDateField: false,
     fileNameStudio: false,   // OFFER the studio the file name starts with
     fileNameStudioAuto: false,   // ...and pick it by itself (sub-option)
@@ -7243,6 +7827,7 @@
           if (cfg.replacePerformers  !== undefined) pluginConfig.replacePerformers  = !!cfg.replacePerformers;
           if (typeof cfg.skipGenders === "string") pluginConfig.skipGenders = cfg.skipGenders;
           if (cfg.autoCheckDetails   !== undefined) pluginConfig.autoCheckDetails   = !!cfg.autoCheckDetails;
+          if (cfg.protectLongerDetails !== undefined) pluginConfig.protectLongerDetails = !!cfg.protectLongerDetails;
           if (cfg.prioritizeExistingStudio !== undefined) pluginConfig.prioritizeExistingStudio = !!cfg.prioritizeExistingStudio;
           if (cfg.autoAddOtherStudios !== undefined) pluginConfig.autoAddOtherStudios = !!cfg.autoAddOtherStudios;
           if (cfg.multiStudioSelect !== undefined) pluginConfig.multiStudioSelect = !!cfg.multiStudioSelect;
@@ -7267,6 +7852,8 @@
           if (cfg.cleanSearchTitle !== undefined) pluginConfig.cleanSearchTitle = !!cfg.cleanSearchTitle;
           if (cfg.fileNameDate !== undefined) pluginConfig.fileNameDate = !!cfg.fileNameDate;
           if (cfg.fileNameDateDmy !== undefined) pluginConfig.fileNameDateDmy = !!cfg.fileNameDateDmy;
+          if (cfg.fileNameDateAuto !== undefined) pluginConfig.fileNameDateAuto = !!cfg.fileNameDateAuto;
+          if (cfg.fileNameDateFolders !== undefined) pluginConfig.fileNameDateFolders = !!cfg.fileNameDateFolders;
           if (cfg.showDateField !== undefined) pluginConfig.showDateField = !!cfg.showDateField;
           if (cfg.fileNameStudio !== undefined) pluginConfig.fileNameStudio = !!cfg.fileNameStudio;
           if (cfg.fileNameStudioAuto !== undefined) pluginConfig.fileNameStudioAuto = !!cfg.fileNameStudioAuto;
@@ -7296,6 +7883,10 @@
           if (typeof cfg.suggestVisualUrl === "string" && cfg.suggestVisualUrl) pluginConfig.suggestVisualUrl = cfg.suggestVisualUrl;
           if (typeof cfg.suggestVisualFrames === "number") pluginConfig.suggestVisualFrames = cfg.suggestVisualFrames;
           if (cfg.suggestVisualAuto !== undefined) pluginConfig.suggestVisualAuto = !!cfg.suggestVisualAuto;
+          if (cfg.suggestFaceSure !== undefined) pluginConfig.suggestFaceSure = !!cfg.suggestFaceSure;
+          if (typeof cfg.suggestFaceSureMin === "number") pluginConfig.suggestFaceSureMin = cfg.suggestFaceSureMin;
+          if (cfg.suggestVisualMass !== undefined) pluginConfig.suggestVisualMass = !!cfg.suggestVisualMass;
+          if (cfg.suggestThumbs !== undefined) pluginConfig.suggestThumbs = !!cfg.suggestThumbs;
           if (cfg.studioSocialFetch !== undefined) pluginConfig.studioSocialFetch = !!cfg.studioSocialFetch;
           if (cfg.hideSceneModeToggle !== undefined) pluginConfig.hideSceneModeToggle = !!cfg.hideSceneModeToggle;
           if (cfg.hideToolbarButton !== undefined) pluginConfig.hideToolbarButton = !!cfg.hideToolbarButton;
@@ -7616,6 +8207,9 @@
   function scrapeOneEffective(sceneID) {
     var r = state.rows[sceneID];
     var scene = r ? r.scene : null;
+    if (fnHintsNeedsFolderLookup(scene)) return fnHintsResolveFolderDate(scene).then(function () { return scrapeOneEffective(sceneID); });   // CUSTOM (Sina, 2026-11-15) folder date lookup first
+    var fastIso = fnHintsFastDate(scene);   // CUSTOM (Sina, 2026-11-15) Date-only shortcut: no scraper
+    if (fastIso) return Promise.resolve({ scraped: { date: fastIso }, scraperID: "filename", scraperName: "File name", fast: true });
     // Manually typed title (manual fill-in row, after a failed scrape):
     // write it as the scene's real title first, THEN re-scrape normally by
     // scene_id - the only way script scrapers actually pick up a corrected
@@ -8351,7 +8945,7 @@
     visible:     false,
     scrapers:    [],
     manualScraperID: "",   // scraper chosen in manual mode
-    studioFilter: "all",  // "all" | "new" | "existing"
+    studioFilter: "all",  // "all" | "new" | "existing" | "none" | "failed"
     multiStudioOnly: false,  // false | true (only rows with >=2 studio candidates, cumulative AND with studioFilter) | "exclude" (hide those rows)
     scraperFilter: "all", // "all" | a scraperID (only scrapers with >=1 result are listed)
     currentPage: 1,
@@ -8439,7 +9033,7 @@
   // page in a new tab. Only the pill body counts: the x / undo buttons keep their own click.
   (function wirePerformerMiddleClick() {
     function perfIdOf(el) {
-      var pill = el.closest && el.closest(".st-existing-pill-perf, .st-sugg-chip, .st-perf-added-chip");
+      var pill = el.closest && el.closest(".st-existing-pill-perf, .st-sugg-chip, .st-sugg-thumb, .st-perf-added-chip");
       if (!pill || el.closest("button")) return null;
       var id = pill.getAttribute("data-perf-id") || pill.getAttribute("data-sugg-id") || "";
       return /^\d+$/.test(id) ? id : null;
@@ -8623,6 +9217,19 @@
       });
   };
 
+  // ── Fresh scene data after a successful Apply ──
+  // A row keeps the scene as it was when the list was loaded (r.scene). After an Apply that data is stale: the "Already on this scene" lists and the merge
+  // done by getCheckedScraped() would start from the OLD lists, so a second Apply of the same row (Retry) could take off what the first one had added.
+  // Called right after a successful Apply. The object is updated IN PLACE (the list item and the row share it). Never fails the Apply: worst case = old behaviour.
+  // (Same fix as imageTagger, see Taggers-project/tools/fix_refresh_after_apply_scene.js.)
+  function refreshSceneData(id) {
+    return gql("FindScenesByIds", Q_FIND_BY_IDS, { ids: [String(id)] }).then(function (d) {
+      var fresh = ((d.findScenes || {}).scenes || [])[0], r = state.rows[id];
+      if (!fresh || !r || !r.scene) return;
+      Object.keys(fresh).forEach(function (k) { r.scene[k] = fresh[k]; });
+    }).catch(function () {});
+  }
+
   window.stApplyOne = function (id) {
     var r = state.rows[id];
     if (!r) return;
@@ -8642,6 +9249,7 @@
     r.status = "applying"; renderRow(id);
 
     return applyScrapedData(id, filtered)
+      .then(function () { return refreshSceneData(id); })   // r.scene = what is in Stash NOW (see refreshSceneData)
       .then(function () {
         r.status = "done"; renderRow(id); updatePageInfo(); renderScraperFilterOptions(); applyStudioFilter();
         flashAppliedRow(id);
@@ -8693,11 +9301,13 @@
     var r = state.rows[id];
     if (!r) return;
     r.customCover = null;
+    r.customCoverFrom = undefined;
     if (r.coverChoice === "custom") r.coverChoice = undefined;
     renderRow(id);
   };
 
   initCoverDrop();
+  initCoverPaste();
 
   window.stPickCover = function (id, choice) {
     var r = state.rows[id];
@@ -8735,6 +9345,7 @@
     var r = state.rows[id];
     if (!r) return;
     r.dateEditValue = "";
+    r.dateAutoDone = true;
     r.dateCalendarOpen = false;
     renderRow(id);
   };

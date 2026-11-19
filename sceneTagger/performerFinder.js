@@ -41,6 +41,8 @@
     tagAlias: 55,      // a scene tag equal to a several-word alias ("ada wong (resident evil)"): 89 % right on 8888
     tagFull: 45,       // a scene tag equal to the full name (with its series): 61 % right on 8888
     details: 25,       // name or alias only in the details
+    detailsLine: 35,   // CUSTOM (Sina, 2026-11-16): a line of the details that IS the one-word name/alias ("Rebecca")
+    detailsLineShared: 22, // same, but the one-word name is shared with other performers
     series: 10,        // "(series)" of the name also in the text
     faceBase: 20,      // face seen on 2 frames of the video (+5 per extra frame, 40 max)
     faceStep: 5,
@@ -55,6 +57,14 @@
   // score >= SEEN_MIN and at most SEEN_GAP points under the best (same rule as the Stash UI panel).
   var SEEN_MIN = 60;
   var SEEN_GAP = 15;
+  // The cover (screenshot) of a scene is ONE still: kept candidates per face and points, same rule as an image in imageTagger.
+  // A face on the cover alone is capped at FACE_ONLY_MAX (never pre-checked).
+  var COVER_TOP = 4;
+  var COVER_BASE = 20;   // points at a visual score of SEEN_MIN
+  var COVER_STEP = 0.5;  // + per extra visual point (faceMax at most)
+  // "Very sure" face match (setting suggestFaceSure, cover scan only): visual score >= opts.faceSureMin AND at least
+  // SURE_LEAD points ahead of the next candidate of the same face. Only then is a face-only suggestion pre-checked.
+  var SURE_LEAD = 8;
 
   // Same idea as the alias blacklist of titlePerformerMatch
   var ALIAS_BLACKLIST = { "unknown": 1, "n/a": 1, "na": 1, "none": 1, "unnamed": 1, "anonymous": 1, "unidentified": 1 };
@@ -94,7 +104,10 @@
     var tokens = n ? n.split(" ") : [];
     var set = {};
     tokens.forEach(function (t) { set[t] = true; });
-    return { spaced: n ? " " + n + " " : "", tokens: tokens, set: set };
+    // CUSTOM (Sina, 2026-11-16): each line of the text, normalised (a line that is only a name)
+    var lines = {};
+    String(text || "").split(/\r?\n/).forEach(function (l) { var c = norm(l); if (c) lines[c] = true; });
+    return { spaced: n ? " " + n + " " : "", tokens: tokens, set: set, lines: lines };
   }
 
   function hasPhrase(src, phrase) { return !!phrase && src.spaced.indexOf(" " + phrase + " ") !== -1; }
@@ -138,18 +151,20 @@
       var full = norm(raw);
       var base = norm(baseRaw);
       if (!full) return;
-      var aliases = [];
+      var aliases = [], oneWordAliases = [];
       (p.alias_list || []).forEach(function (a) {
         var c = norm(a);
         var words = c ? c.split(" ") : [];
         // one-word aliases are too ambiguous to suggest (same rule as FastTag / titlePerformerMatch)
-        if (!c || c.length <= 3 || words.length < 2 || STOP_WORDS[c] || ALIAS_BLACKLIST[String(a).trim().toLowerCase()]) return;
+        if (!c || c.length <= 3 || STOP_WORDS[c] || ALIAS_BLACKLIST[String(a).trim().toLowerCase()]) return;
+        // CUSTOM (Sina, 2026-11-16): one-word aliases are kept apart, used only for an exact line of the details
+        if (words.length < 2) { if (c.length >= 3) oneWordAliases.push(c); return; }
         aliases.push(c);
       });
       entries.push({
         id: String(p.id), name: raw, image_path: p.image_path || "", scene_count: p.scene_count || 0,
         full: full, fullWords: full.split(" "), base: base, baseWords: base ? base.split(" ") : [],
-        series: series, aliases: aliases,
+        series: series, aliases: aliases, oneWordAliases: oneWordAliases,
         baseKey: wordKey(raw), aliasKeys: (p.alias_list || []).map(wordKey).filter(Boolean)
       });
       if (base) baseCount[base] = (baseCount[base] || 0) + 1;
@@ -212,6 +227,14 @@
     var inPrimary = nameSignal(e, primary, true, seriesOK);
     // in the details only full names and several-word aliases count (no single first name)
     var inDetails = nameSignal(e, details, false, seriesOK);
+    // CUSTOM (Sina, 2026-11-16): a whole line of the details that is exactly the one-word name
+    // (without its "(series)") or a one-word alias: "Rebecca" alone on a line.
+    var lineHit = false;
+    if (!inDetails && details.lines) {
+      var oneWordName = e.baseWords.length === 1 && e.base.length >= 3 && !STOP_WORDS[e.base] ? e.base : "";
+      lineHit = (oneWordName && details.lines[oneWordName]) ||
+        e.oneWordAliases.some(function (a) { return details.lines[a] && !STOP_WORDS[a]; });
+    }
     var best = 0;
     if (inPrimary) {
       reasons.push({ k: inPrimary.k === "alias" ? "alias" : "title", label: inPrimary.label, pts: inPrimary.pts });
@@ -221,10 +244,17 @@
       var dp = inPrimary ? PTS.twoSources : PTS.details;
       reasons.push({ k: "details", label: inPrimary ? "also in details" : "in details (" + inDetails.label + ")", pts: dp });
       best += dp;
+    } else if (lineHit) {
+      var lp = e.baseShared ? PTS.detailsLineShared : PTS.detailsLine;
+      var lpts = inPrimary ? PTS.twoSources : lp;
+      reasons.push({ k: "details", label: inPrimary ? "also in details" : "alone on a line of the details", pts: lpts });
+      best += lpts;
     }
     // a scene tag written like the full name or a several-word alias (rule34-style character tags).
     // One-word tags and names without their series were tried: 0 right out of 86 on 8888 ("human").
-    if (!inPrimary) {
+    // CUSTOM (Sina, 2026-11-15): counted even when the title already matched (a weak first-name match
+    // used to hide a scene tag equal to an alias); the best of the two signals wins.
+    {
       var tagPts = 0;
       if (e.aliases.some(function (a) { return tagSet[a]; })) tagPts = PTS.tagAlias;
       else if (tagSet[e.full]) tagPts = PTS.tagFull;
@@ -288,16 +318,25 @@
       scored.forEach(function (x) { byScored[x.e.id] = x; });
       opts.visual.forEach(function (h) {
         var id = String(h.id), e = state.byId[id];
-        if (!e || skipIds[id] || h.sightings < 2) return;
-        var pts = Math.min(PTS.faceMax, PTS.faceBase + PTS.faceStep * (h.sightings - 2));
-        var reason = { k: "face", label: "seen on " + h.sightings + " of " + h.total + " frames", pts: pts };
+        if (!e || skipIds[id] || (!h.cover && h.sightings < 2)) return;
+        var pts, reason;
+        if (h.cover) {   // scan of the cover image (visualScanCover): points from the visual score, no frame count
+          pts = Math.round(Math.min(PTS.faceMax, COVER_BASE + COVER_STEP * Math.max(0, h.best - SEEN_MIN)));
+          reason = { k: "face", label: "face on the cover (visual " + Math.round(h.best) + ")", pts: pts };
+        } else {
+          pts = Math.min(PTS.faceMax, PTS.faceBase + PTS.faceStep * (h.sightings - 2));
+          reason = { k: "face", label: "seen on " + h.sightings + " of " + h.total + " frames", pts: pts };
+        }
+        var sure = !!h.cover && typeof opts.faceSureMin === "number" && h.best >= opts.faceSureMin && (h.lead || 0) >= SURE_LEAD;
+        var sureReason = { k: "sure", label: "very sure face match (visual " + Math.round(h.best) + ", " + Math.round(h.lead || 0) + " points ahead of the next): pre-checked", pts: 0 };
         var x = byScored[id];
         if (x) {
           x.r.reasons.push(reason);
           x.r.score = Math.min(100, x.r.score + pts);
           x.r.vis = true;
+          if (sure) { x.r.sure = true; x.r.reasons.push(sureReason); }
         } else {
-          scored.push({ e: e, r: { score: Math.min(FACE_ONLY_MAX, pts), reasons: [reason], seriesOK: false, single: false, strong: false, vis: true, faceOnly: true } });
+          scored.push({ e: e, r: { score: Math.min(FACE_ONLY_MAX, pts), reasons: sure ? [reason, sureReason] : [reason], seriesOK: false, single: false, strong: false, vis: true, faceOnly: true, sure: sure } });
         }
       });
     }
@@ -308,7 +347,7 @@
       // "briar" next to a full "yor briar": a lone word of a name already found is not another performer
       if (r.single && !r.seriesOK && !r.vis && coveredWords[e.base]) return;
       out.push({
-        id: e.id, name: e.name, image_path: e.image_path, score: r.score, reasons: r.reasons, faceOnly: !!r.faceOnly,
+        id: e.id, name: e.name, image_path: e.image_path, score: r.score, reasons: r.reasons, faceOnly: !!r.faceOnly, sure: !!r.sure,
         tier: r.score >= TIER_HIGH ? "high" : r.score >= TIER_MID ? "mid" : "low",
         _sc: e.scene_count, _len: e.full.length
       });
@@ -364,9 +403,49 @@
     });
   }
 
+  // Scans the COVER of a scene (Stash's /scene/<id>/screenshot, a still) through the AnimeVisage server: ONE request,
+  // about 0.5 s, instead of the 8-12 s of the frame scan. The browser downloads the cover and posts it to /search
+  // (nothing to change on the server). Performers already on the scene are not suggested and do not set the gap
+  // reference (a sure match already there would push the next ones out). Hints from Stash are switched off server side.
+  // opts: { baseUrl, isCancelled(), excludeIds: [ids already on the scene] }
+  // Returns { total (faces), already, hits: [{ id, name, best, faces, face, cover: true }] }.
+  function visualScanCover(sceneId, opts) {
+    if (!VISUAL_SOURCE) return Promise.reject(new Error("Face recognition is not available in this build"));
+    opts = opts || {};
+    var base = String(opts.baseUrl || "http://localhost:7861").replace(/[/]+$/, "");
+    return fetch("/scene/" + encodeURIComponent(sceneId) + "/screenshot", { credentials: "same-origin" })
+      .then(function (r) { if (!r.ok) throw new Error("This scene has no cover image (HTTP " + r.status + ")"); return r.blob(); })
+      .then(function (blob) {
+        if (opts.isCancelled && opts.isCancelled()) return { faces: [] };
+        return fetch(base + "/search?results=6&scene=" + encodeURIComponent(sceneId) + "&off=nom,serie,tag,lie", {
+          method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob, credentials: "omit"
+        }).then(function (r) { if (!r.ok) throw new Error("Search failed: HTTP " + r.status); return r.json(); });
+      })
+      .then(function (j) {
+        if (j.error) throw new Error(j.error);
+        var hits = {}, already = {}, faces = j.faces || [], skip = {};
+        (opts.excludeIds || []).forEach(function (id) { if (id) skip[String(id)] = true; });
+        faces.forEach(function (f, fi) {
+          var ps = (f.performers || []).slice().sort(function (a, b) { return b.visual - a.visual; });
+          if (!ps.length) return;
+          ps.forEach(function (p) { if (skip[String(p.id)] && p.visual >= SEEN_MIN && ps[0].visual - p.visual <= SEEN_GAP) already[String(p.id)] = true; });
+          var cand = ps.filter(function (p) { return !skip[String(p.id)]; });
+          if (!cand.length) return;
+          cand.slice(0, COVER_TOP).forEach(function (p, pi) {
+            if (p.visual < SEEN_MIN || cand[0].visual - p.visual > SEEN_GAP) return;
+            var h = hits[p.id] || (hits[p.id] = { id: String(p.id), name: p.name, best: 0, lead: 0, faces: faces.length, cover: true });
+            // lead = points ahead of the next candidate of THIS face (0 when not the best of the face): see SURE_LEAD
+            if (p.visual >= h.best) { h.best = p.visual; h.face = fi; h.lead = pi === 0 ? p.visual - (cand[1] ? cand[1].visual : 0) : 0; }
+          });
+        });
+        return { total: faces.length, already: Object.keys(already).length, hits: Object.keys(hits).map(function (k) { return hits[k]; }) };
+      });
+  }
+
   window.stPerformerFinder = {
     visualAvailable: VISUAL_SOURCE,
     visualScan: visualScan,
+    visualScanCover: visualScanCover,
     load: load,
     rank: rank,
     isReady: function () { return state.entries.length > 0; },

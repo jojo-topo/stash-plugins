@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.31.2"
+version: "1.31.8"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -130,6 +130,16 @@ settings:
   fileNameDate:
     displayName: "Offer the date found in the file name"
     description: "Reads a date such as 23.02.07 or 2023-02-07 in the file name and offers it next to the Date field (button). Nothing is written until Apply."
+    type: BOOLEAN
+
+  fileNameDateAuto:
+    displayName: "Fill the date from the file name by itself"
+    description: "Sub-option of 'Offer the date found in the file name'. When the scrape found no date and the scene has none yet, the Date field is pre-filled with the date in the file name (still editable; Apply All writes it). Only unambiguous names are used: 4-digit year first (2011-09-20, 20110920). 23.02.07 is never filled automatically."
+    type: BOOLEAN
+
+  fileNameDateFolders:
+    displayName: "Also read year and month from the folder names"
+    description: "Sub-option of 'Offer the date found in the file name'. A folder named like a year followed by a month folder (2011/September) gives year and month; the day comes from a neighbouring scene of the same folder when it has one, otherwise the 1st. A year folder with no month folder gives January 1st of that year. The file name date always wins. Nothing is written until Apply."
     type: BOOLEAN
 
   fileNameDateDmy:
@@ -281,6 +291,11 @@ settings:
     displayName: "Suggestions - minimum score (0-100)"
     description: "Weaker matches are hidden. Default 20; 35 and above are shown as medium, 55 and above as high."
     type: NUMBER
+
+  suggestThumbs:
+    displayName: "Show suggestions as thumbnails"
+    description: "If enabled, performer suggestions are a row of small portraits with a score ring (cards in the scene popup, round avatars in the mass list) instead of pills. Hover a portrait for a bigger photo and the reasons. Photos load only when they scroll into view."
+    type: BOOLEAN
 
 ui:
   javascript:
