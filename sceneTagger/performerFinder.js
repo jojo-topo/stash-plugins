@@ -24,6 +24,15 @@
   // ======================================================================================
   var VISUAL_SOURCE = false;
 
+  // Public face-recognition source: the Visage cloud (Gradio API, same backend as the Visage plugin). It scans the
+  // scene COVER only (one image, no video frames). The cover is downscaled and sent to CLOUD_URL; the matches come
+  // back as StashDB ids and are mapped to local performers by stash_id (a performer unknown locally is dropped).
+  // Needs the URL in the `csp: connect-src` list of sceneTagger.yml. Stays true in the public build.
+  var CLOUD_SOURCE = true;
+  var CLOUD_URL = "https://cc1234-stashface-onnx.hf.space";
+  var CLOUD_SIDE = 640;     // longest side of the image sent (px)
+  var CLOUD_RESULTS = 6;    // matches asked per face
+
   var STASH_GQL = "/graphql";
   var CACHE_MS = 10 * 60 * 1000;
   // A performer carrying one of these tags is never suggested
@@ -403,20 +412,97 @@
     });
   }
 
+  // ── Visage cloud engine (Gradio API) ───────────────────────────────────────
+
+  // Reduces the cover (a few hundred KB) before it leaves the machine; falls back to the original on any failure.
+  function cloudShrink(blob) {
+    if (!window.createImageBitmap || !document.createElement) return Promise.resolve(blob);
+    return createImageBitmap(blob).then(function (bmp) {
+      var k = Math.min(1, CLOUD_SIDE / Math.max(bmp.width, bmp.height));
+      var c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(bmp.width * k)); c.height = Math.max(1, Math.round(bmp.height * k));
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      return new Promise(function (res) { c.toBlob(function (b) { res(b || blob); }, "image/jpeg", 0.85); });
+    }).catch(function () { return blob; });
+  }
+
+  // StashDB ids -> local performers (by stash_id, any endpoint). Returns { stashdbId: { id, name } }.
+  function cloudLocalPerformers(ids) {
+    var uniq = {}; ids.forEach(function (i) { if (/^[0-9a-fA-F-]{36}$/.test(i)) uniq[i] = true; });
+    var keys = Object.keys(uniq);
+    if (!keys.length) return Promise.resolve({});
+    var q = "query{" + keys.map(function (k, n) {
+      return "p" + n + ":findPerformers(performer_filter:{stash_id_endpoint:{endpoint:\"\",stash_id:\"" + k + "\",modifier:EQUALS}}){performers{id name}}";
+    }).join(" ") + "}";
+    return fetch(STASH_GQL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: q }), credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.errors) throw new Error("Stash: " + (j.errors[0] && j.errors[0].message));
+        var out = {};
+        keys.forEach(function (k, n) { var p = j.data["p" + n].performers[0]; if (p) out[k] = { id: String(p.id), name: p.name }; });
+        return out;
+      });
+  }
+
+  // Sends one image to the Visage cloud and returns { faces: [{ performers: [{ id (local), name, visual (0-100) }] }] },
+  // the same shape as the AnimeVisage /search answer.
+  function cloudSearch(blob) {
+    var api = CLOUD_URL + "/gradio_api";
+    var fail = function (what, r) { throw new Error("Visage cloud: " + what + " (HTTP " + r.status + ")"); };
+    return cloudShrink(blob).then(function (small) {
+      var fd = new FormData(); fd.append("files", small, "cover.jpg");
+      return fetch(api + "/upload", { method: "POST", body: fd, credentials: "omit" });
+    }).then(function (r) { if (!r.ok) fail("upload failed", r); return r.json(); })
+      .then(function (paths) {
+        return fetch(api + "/call/multiple_image_search", {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "omit",
+          body: JSON.stringify({ data: [{ path: paths[0], meta: { _type: "gradio.FileData" } }, CLOUD_RESULTS] })
+        });
+      })
+      .then(function (r) { if (!r.ok) fail("request refused", r); return r.json(); })
+      .then(function (j) { return fetch(api + "/call/multiple_image_search/" + j.event_id, { credentials: "omit" }); })
+      .then(function (r) { if (!r.ok) fail("no answer", r); return r.text(); })
+      .then(function (txt) {
+        var ev = "", payload = null;
+        txt.split("\n").forEach(function (line) {
+          if (line.indexOf("event: ") === 0) ev = line.slice(7).trim();
+          else if (line.indexOf("data: ") === 0 && ev === "complete") { try { payload = JSON.parse(line.slice(6)); } catch (e) {} }
+          else if (line.indexOf("data: ") === 0 && ev === "error") throw new Error("Visage cloud: the server reported an error" + (line.length > 12 ? " - " + line.slice(6, 120) : ""));
+        });
+        if (payload === null) throw new Error("Visage cloud: empty answer (the Space may be starting, try again in a minute)");
+        var out = Array.isArray(payload) && payload.length === 1 ? payload[0] : payload;
+        if (out && !Array.isArray(out) && out.data) out = out.data;
+        if (out && out.error) { if (/no faces/i.test(String(out.error))) return { faces: [] }; throw new Error("Visage cloud: " + out.error); }
+        var faces = Array.isArray(out) ? out : [];
+        var ids = [];
+        faces.forEach(function (f) { (f.performers || []).forEach(function (p) { if (p.source !== "stash") ids.push(String(p.id)); }); });
+        return cloudLocalPerformers(ids).then(function (map) {
+          return { faces: faces.map(function (f) {
+            return { performers: (f.performers || []).filter(function (p) { return map[String(p.id)]; }).map(function (p) {
+              return { id: map[String(p.id)].id, name: map[String(p.id)].name, visual: Number(p.confidence) || 0 };
+            }) };
+          }) };
+        });
+      });
+  }
+
   // Scans the COVER of a scene (Stash's /scene/<id>/screenshot, a still) through the AnimeVisage server: ONE request,
   // about 0.5 s, instead of the 8-12 s of the frame scan. The browser downloads the cover and posts it to /search
   // (nothing to change on the server). Performers already on the scene are not suggested and do not set the gap
   // reference (a sure match already there would push the next ones out). Hints from Stash are switched off server side.
   // opts: { baseUrl, isCancelled(), excludeIds: [ids already on the scene] }
   // Returns { total (faces), already, hits: [{ id, name, best, faces, face, cover: true }] }.
+  // opts.engine "cloud" (or a build without AnimeVisage) = Visage cloud, otherwise the AnimeVisage server.
   function visualScanCover(sceneId, opts) {
-    if (!VISUAL_SOURCE) return Promise.reject(new Error("Face recognition is not available in this build"));
     opts = opts || {};
+    var cloud = CLOUD_SOURCE && (!VISUAL_SOURCE || opts.engine === "cloud");
+    if (!cloud && !VISUAL_SOURCE) return Promise.reject(new Error("Face recognition is not available in this build"));
     var base = String(opts.baseUrl || "http://localhost:7861").replace(/[/]+$/, "");
     return fetch("/scene/" + encodeURIComponent(sceneId) + "/screenshot", { credentials: "same-origin" })
       .then(function (r) { if (!r.ok) throw new Error("This scene has no cover image (HTTP " + r.status + ")"); return r.blob(); })
       .then(function (blob) {
         if (opts.isCancelled && opts.isCancelled()) return { faces: [] };
+        if (cloud) return cloudSearch(blob);
         return fetch(base + "/search?results=6&scene=" + encodeURIComponent(sceneId) + "&off=nom,serie,tag,lie", {
           method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob, credentials: "omit"
         }).then(function (r) { if (!r.ok) throw new Error("Search failed: HTTP " + r.status); return r.json(); });
@@ -443,7 +529,9 @@
   }
 
   window.stPerformerFinder = {
-    visualAvailable: VISUAL_SOURCE,
+    visualAvailable: VISUAL_SOURCE || CLOUD_SOURCE,   // some face engine exists
+    visualLocal: VISUAL_SOURCE,                        // the private AnimeVisage server exists (not in the public build)
+    cloudAvailable: CLOUD_SOURCE,
     visualScan: visualScan,
     visualScanCover: visualScanCover,
     load: load,

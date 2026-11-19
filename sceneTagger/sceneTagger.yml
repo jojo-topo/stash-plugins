@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.31.8"
+version: "1.31.9"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -297,6 +297,11 @@ settings:
     description: "If enabled, performer suggestions are a row of small portraits with a score ring (cards in the scene popup, round avatars in the mass list) instead of pills. Hover a portrait for a bigger photo and the reasons. Photos load only when they scroll into view."
     type: BOOLEAN
 
+  suggestFaceCloud:
+    displayName: "Suggest performers - face recognition (Visage cloud)"
+    description: "Adds a Scan face button to the Suggested block. The scene cover (reduced to 640 px) is sent to the public Visage server (cc1234-stashface-onnx.hf.space) when you press it. Only real performers known to StashDB are recognised."
+    type: BOOLEAN
+
 ui:
   javascript:
     - performerFinder.js
@@ -307,3 +312,6 @@ ui:
     - sceneTagger.css
   assets:
     /: assets
+  csp:
+    connect-src:
+      - "https://cc1234-stashface-onnx.hf.space"

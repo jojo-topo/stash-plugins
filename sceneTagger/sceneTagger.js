@@ -3046,6 +3046,7 @@
     bindSettingCb("st-cfg-suggest-thumbs",      "suggestThumbs");
     bindSettingNum("st-cfg-suggest-min",        "suggestMinScore", 20, 0);
     // the suggestions are drawn with the row: redraw the open ones
+    bindSettingCb("st-cfg-suggest-facecloud",   "suggestFaceCloud");
     bindSettingCb("st-cfg-suggest-visual-mass", "suggestVisualMass");
     bindSettingCb("st-cfg-suggest-facesure",    "suggestFaceSure");
     bindSettingNum("st-cfg-suggest-facesure-min", "suggestFaceSureMin", 90, 60);
@@ -6581,9 +6582,10 @@
     stItem("st-cfg-suggest-precheck", "suggestPrecheck", "suggest", "Text suggestions", "cb", "Pre-check high-confidence suggestions", { lvl: 1, par: "st-cfg-suggest-perf", kw: "precheck" }),
     stItem("st-cfg-suggest-min", "suggestMinScore", "suggest", "Text suggestions", "num", "Minimum score (0-100)", { lvl: 1, adv: true, par: "st-cfg-suggest-perf", min: 0, max: 100, step: 5, kw: "score threshold" }),
     stItem("st-cfg-suggest-thumbs", "suggestThumbs", "suggest", "Text suggestions", "cb", "Show suggestions as thumbnails", { lvl: 1, par: "st-cfg-suggest-perf", hint: "Instead of pills, suggestions are a row of small portraits with a score ring: cards in the scene popup, round avatars (6 shown, the rest behind \"+N\") in the mass list. Photos load only when they scroll into view; hover a portrait for a bigger photo and the reasons.", kw: "thumbnails vignettes avatars cards layout" }),
-    stItem("st-cfg-suggest-facesure", "suggestFaceSure", "suggest", "Face recognition (private)", "cb", "Pre-check very sure cover face matches", { lvl: 1, par: "st-cfg-suggest-visual", priv: true, hint: "A face-only suggestion is normally never pre-checked (a face alone is often wrong). With this on, a face found on the scene's COVER is pre-checked when its visual score reaches the minimum below AND it is at least 8 points ahead of the next candidate of the same face. Apply writes what is checked, so keep the minimum high. The frame scan of the scene popup is not concerned.", kw: "precheck pre-check sure confident face automatic cover", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualAvailable); } }),
-    stItem("st-cfg-suggest-facesure-min", "suggestFaceSureMin", "suggest", "Face recognition (private)", "num", "Very sure: minimum visual score (60-100)", { lvl: 2, adv: true, par: "st-cfg-suggest-facesure", priv: true, min: 60, max: 100, step: 1, kw: "visual score threshold", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualAvailable); } }),
-    stItem("st-cfg-suggest-visual-mass", "suggestVisualMass", "suggest", "Face recognition (private)", "cb", "Scan every row's cover in the mass list", { lvl: 1, par: "st-cfg-suggest-visual", priv: true, hint: "Mass list: each scraped row sends the scene's COVER image (not the video) to the AnimeVisage server, one at a time (about 0.5 second each), and the recognised performers appear as suggestions. Off: every row only gets a round \"Scan face\" button. Scenes without a cover are skipped.", kw: "animevisage mass bulk automatic all rows cover thumbnail", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualAvailable); } }),
+    stItem("st-cfg-suggest-facecloud", "suggestFaceCloud", "suggest", "Face recognition", "cb", "Face recognition (Visage cloud)", { lvl: 1, par: "st-cfg-suggest-perf", hint: "Adds a round \"Scan face\" button to the Suggested block (scene popup and every row of the mass list). It sends the scene's COVER image, reduced to 640 px, to the public Visage server (cc1234-stashface-onnx.hf.space, the same service as the Visage plugin) and suggests the performers it recognises, matched to your local performers by their StashDB id. Only real performers known to StashDB are recognised. Off by default: nothing leaves your machine until you press the button.", kw: "visage cloud face recognition scan cover stashdb", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.cloudAvailable); } }),
+    stItem("st-cfg-suggest-facesure", "suggestFaceSure", "suggest", "Face recognition (private)", "cb", "Pre-check very sure cover face matches", { lvl: 1, par: "st-cfg-suggest-visual", priv: true, hint: "A face-only suggestion is normally never pre-checked (a face alone is often wrong). With this on, a face found on the scene's COVER is pre-checked when its visual score reaches the minimum below AND it is at least 8 points ahead of the next candidate of the same face. Apply writes what is checked, so keep the minimum high. The frame scan of the scene popup is not concerned.", kw: "precheck pre-check sure confident face automatic cover", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualLocal); } }),
+    stItem("st-cfg-suggest-facesure-min", "suggestFaceSureMin", "suggest", "Face recognition (private)", "num", "Very sure: minimum visual score (60-100)", { lvl: 2, adv: true, par: "st-cfg-suggest-facesure", priv: true, min: 60, max: 100, step: 1, kw: "visual score threshold", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualLocal); } }),
+    stItem("st-cfg-suggest-visual-mass", "suggestVisualMass", "suggest", "Face recognition (private)", "cb", "Scan every row's cover in the mass list", { lvl: 1, par: "st-cfg-suggest-visual", priv: true, hint: "Mass list: each scraped row sends the scene's COVER image (not the video) to the AnimeVisage server, one at a time (about 0.5 second each), and the recognised performers appear as suggestions. Off: every row only gets a round \"Scan face\" button. Scenes without a cover are skipped.", kw: "animevisage mass bulk automatic all rows cover thumbnail", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualLocal); } }),
     // Layout
     stItem("st-cfg-fullscreen-desktop", "fullscreenOnDesktop", "layout", "Panel", "cb", "Fullscreen panel on desktop (mass list)", { kw: "full screen" }),
     stItem("st-cfg-fullscreen-solo", "fullscreenSolo", "layout", "Panel", "cb", "Fullscreen panel on the single scene page", { kw: "full screen solo" }),
@@ -7312,6 +7314,11 @@
   function suggestPrechecked(c) { return !!((pluginConfig.suggestPrecheck && c.tier === "high") || (pluginConfig.suggestFaceSure && c.sure)); }
 
   // compact = mass list: text suggestions + a round "Scan face" button that scans the scene's COVER (see runSuggestedScan)
+  // Face recognition wanted: the private AnimeVisage server (suggestVisual) or the public Visage cloud (suggestFaceCloud).
+  function faceOn() { return !!(pluginConfig.suggestVisual || pluginConfig.suggestFaceCloud); }
+  // AnimeVisage wins when it exists in this build and is on; otherwise the cloud (cover scan only).
+  function faceEngine() { var F = window.stPerformerFinder; return pluginConfig.suggestVisual && F && F.visualLocal ? "local" : "cloud"; }
+
   function suggestedPerformersHTML(r, id, compact) {
     var F = window.stPerformerFinder;
     if (!pluginConfig.suggestPerformers || !F) return "";
@@ -7325,14 +7332,14 @@
     }
     var scene = r.scene, scraped = r.scraped || {};
     // Optional: start the face scan once per scrape result (r.scraped changes on a new scrape)
-    if (!compact && F.visualAvailable && pluginConfig.suggestVisual && pluginConfig.suggestVisualAuto &&
+    if (!compact && F.visualAvailable && faceOn() && pluginConfig.suggestVisualAuto &&
         r.visualAutoFor !== r.scraped && !r.visualPreScanned && !(r.visualState && r.visualState.status === "running")) {
       r.visualAutoFor = r.scraped;
       setTimeout(function () { if (state.rows[id]) runSuggestedScan(id); }, 0);   // not from inside the render
     }
     // Mass list (setting suggestVisualMass, OFF by default): scan the cover of each scraped row once per scrape result,
     // one at a time (the server handles one request at a time)
-    if (compact && F.visualAvailable && pluginConfig.suggestVisual && pluginConfig.suggestVisualMass &&
+    if (compact && F.visualAvailable && faceOn() && pluginConfig.suggestVisualMass &&
         r.visualAutoFor !== r.scraped && !(r.visualState && /^(running|queued)$/.test(r.visualState.status))) {
       r.visualAutoFor = r.scraped;
       queueSuggestedScan(id);
@@ -7413,7 +7420,7 @@
   // "Scan faces" bar of the Suggested block (solo popup; face recognition, hidden in the public build)
   function suggestedScanBarHTML(r) {
     var F = window.stPerformerFinder;
-    if (!F || !F.visualAvailable || !pluginConfig.suggestVisual) return "";
+    if (!F || !F.visualAvailable || !faceOn()) return "";
     var v = r.visualState || { status: "idle" };
     var text, btn;
     if (v.status === "queued") {
@@ -7457,7 +7464,7 @@
   }
   function suggestedFabHTML(r, id) {
     var F = window.stPerformerFinder;
-    if (!F || !F.visualAvailable || !pluginConfig.suggestVisual) return "";
+    if (!F || !F.visualAvailable || !faceOn()) return "";
     var v = r.visualState || { status: "idle" };
     var cls = "", tip = "Scan the cover for faces", label = "Scanning...", act = "scan", icon = FAB_FACE;
     if (v.status === "queued") { cls = " st-fab-wait"; tip = "Waiting for the face scan... (click to stop)"; label = "Waiting..."; act = "cancel"; }
@@ -7492,7 +7499,7 @@
   function runSuggestedScan(id, silent, mode) {
     var r = state.rows[id], F = window.stPerformerFinder;
     if (!r || !F || !F.visualScan) return Promise.resolve();
-    var cover = mode === "cover";
+    var cover = mode === "cover" || faceEngine() === "cloud";   // the cloud scans the cover only
     r.visualState = { status: "running", done: 0, total: 0 };
     r.visualCancel = false;
     if (!silent) renderRow(id);
@@ -7506,7 +7513,7 @@
     var present = (r.scene.performers || []).map(function (p) { return String(p.id); })
       .concat(((r.scraped && r.scraped.performers) || []).map(function (p) { return p.stored_id ? String(p.stored_id) : ""; }).filter(Boolean));
     var scan = cover
-      ? F.visualScanCover(r.scene.id, { baseUrl: pluginConfig.suggestVisualUrl, isCancelled: function () { return r.visualCancel; }, excludeIds: present })
+      ? F.visualScanCover(r.scene.id, { engine: faceEngine(), baseUrl: pluginConfig.suggestVisualUrl, isCancelled: function () { return r.visualCancel; }, excludeIds: present })
       : F.visualScan(r.scene.id, {
           baseUrl: pluginConfig.suggestVisualUrl, frames: pluginConfig.suggestVisualFrames,
           onProgress: progress, isCancelled: function () { return r.visualCancel; }
@@ -7530,7 +7537,7 @@
     }).catch(function (e) {
       var m = String((e && e.message) || e);
       r.visualState = { status: "error", msg: /Failed to fetch|NetworkError/.test(m)
-        ? "AnimeVisage server not reachable. Start it: Settings > Tasks > AnimeVisage > Start server." : m };
+        ? (faceEngine() === "cloud" ? "Visage cloud not reachable (offline, blocked, or the Space is asleep). Reload plugins if you just updated, then retry." : "AnimeVisage server not reachable. Start it: Settings > Tasks > AnimeVisage > Start server.") : m };
     }).then(function () {
       // a silent scan leaves the redraw to the scrape hand-over, unless that already happened
       if (state.rows[id] && (!silent || state.rows[id].status !== "scraping")) renderRow(id);
@@ -7592,7 +7599,7 @@
   function faceScanWithScrape(id) {
     var F = window.stPerformerFinder, r = state.rows[id];
     var panelEl = document.getElementById(PANEL_ID);
-    return !!(r && F && fieldOn("performers") && F.visualAvailable && pluginConfig.suggestPerformers && pluginConfig.suggestVisual &&
+    return !!(r && F && fieldOn("performers") && F.visualAvailable && pluginConfig.suggestPerformers && faceOn() &&
       pluginConfig.suggestVisualAuto && panelEl && panelEl.classList.contains("st-panel-solo"));
   }
 
@@ -7664,6 +7671,7 @@
     suggestMinScore:         20,
     // Face recognition source (private AnimeVisage server, see performerFinder.js VISUAL_SOURCE)
     suggestVisual:           false,
+    suggestFaceCloud:        false,   // public face recognition: the Visage cloud (cover scan, performerFinder.js CLOUD_SOURCE)
     suggestVisualUrl:        "http://localhost:7861",
     suggestVisualFrames:     12,
     suggestVisualAuto:       false,
@@ -7880,6 +7888,7 @@
           if (cfg.suggestPrecheck !== undefined) pluginConfig.suggestPrecheck = !!cfg.suggestPrecheck;
           if (typeof cfg.suggestMinScore === "number") pluginConfig.suggestMinScore = cfg.suggestMinScore;
           if (cfg.suggestVisual !== undefined) pluginConfig.suggestVisual = !!cfg.suggestVisual;
+          if (cfg.suggestFaceCloud !== undefined) pluginConfig.suggestFaceCloud = !!cfg.suggestFaceCloud;
           if (typeof cfg.suggestVisualUrl === "string" && cfg.suggestVisualUrl) pluginConfig.suggestVisualUrl = cfg.suggestVisualUrl;
           if (typeof cfg.suggestVisualFrames === "number") pluginConfig.suggestVisualFrames = cfg.suggestVisualFrames;
           if (cfg.suggestVisualAuto !== undefined) pluginConfig.suggestVisualAuto = !!cfg.suggestVisualAuto;
