@@ -322,11 +322,22 @@
       scored.push({ e: e, r: r });
     });
     // faces seen in the video (visualScan): added to the text score, or a candidate on their own
-    if (VISUAL_SOURCE && opts.visual && opts.visual.length) {
+    if ((VISUAL_SOURCE || CLOUD_SOURCE) && opts.visual && opts.visual.length) {
       var byScored = {};
       scored.forEach(function (x) { byScored[x.e.id] = x; });
       opts.visual.forEach(function (h) {
         var id = String(h.id), e = state.byId[id];
+        if (h.isNew) {   // Visage cloud: a performer the library does not have (or has without StashDB id: matched by name)
+          var nn = norm(h.name);
+          if (!nn || !h.cover || skipNames[nn]) return;
+          state.entries.some(function (en) { if (en.full === nn) { e = en; id = String(en.id); return true; } return false; });
+          if (!e) {
+            e = { id: h.id, name: h.name, image_path: h.image || "", full: nn, scene_count: 0, isNew: true,
+              newData: { gender: h.gender || null, country: h.country || null, images: h.image ? [h.image] : [],
+                stash_ids: h.stashId ? [{ endpoint: "https://stashdb.org/graphql", stash_id: h.stashId }] : [] } };
+            id = String(h.id);
+          }
+        }
         if (!e || skipIds[id] || (!h.cover && h.sightings < 2)) return;
         var pts, reason;
         if (h.cover) {   // scan of the cover image (visualScanCover): points from the visual score, no frame count
@@ -336,8 +347,10 @@
           pts = Math.min(PTS.faceMax, PTS.faceBase + PTS.faceStep * (h.sightings - 2));
           reason = { k: "face", label: "seen on " + h.sightings + " of " + h.total + " frames", pts: pts };
         }
-        var sure = !!h.cover && typeof opts.faceSureMin === "number" && h.best >= opts.faceSureMin && (h.lead || 0) >= SURE_LEAD;
+        var sure = !!h.cover && !e.isNew && typeof opts.faceSureMin === "number" && h.best >= opts.faceSureMin && (h.lead || 0) >= SURE_LEAD;
         var sureReason = { k: "sure", label: "very sure face match (visual " + Math.round(h.best) + ", " + Math.round(h.lead || 0) + " points ahead of the next): pre-checked", pts: 0 };
+        if (e.isNew) { reason = { k: "face", label: reason.label, pts: reason.pts }; }
+        var newReason = { k: "new", label: "not in your library: Apply creates it (StashDB id, photo, gender, country)", pts: 0 };
         var x = byScored[id];
         if (x) {
           x.r.reasons.push(reason);
@@ -345,7 +358,7 @@
           x.r.vis = true;
           if (sure) { x.r.sure = true; x.r.reasons.push(sureReason); }
         } else {
-          scored.push({ e: e, r: { score: Math.min(FACE_ONLY_MAX, pts), reasons: sure ? [reason, sureReason] : [reason], seriesOK: false, single: false, strong: false, vis: true, faceOnly: true, sure: sure } });
+          scored.push({ e: e, r: { score: Math.min(FACE_ONLY_MAX, pts), reasons: sure ? [reason, sureReason] : (e.isNew ? [reason, newReason] : [reason]), seriesOK: false, single: false, strong: false, vis: true, faceOnly: true, sure: sure } });
         }
       });
     }
@@ -356,7 +369,7 @@
       // "briar" next to a full "yor briar": a lone word of a name already found is not another performer
       if (r.single && !r.seriesOK && !r.vis && coveredWords[e.base]) return;
       out.push({
-        id: e.id, name: e.name, image_path: e.image_path, score: r.score, reasons: r.reasons, faceOnly: !!r.faceOnly, sure: !!r.sure,
+        id: e.id, name: e.name, image_path: e.image_path, isNew: !!e.isNew, newData: e.newData || null, score: r.score, reasons: r.reasons, faceOnly: !!r.faceOnly, sure: !!r.sure,
         tier: r.score >= TIER_HIGH ? "high" : r.score >= TIER_MID ? "mid" : "low",
         _sc: e.scene_count, _len: e.full.length
       });
@@ -480,9 +493,13 @@
         var ids = [];
         faces.forEach(function (f) { (f.performers || []).forEach(function (p) { if (p.source !== "stash") ids.push(String(p.id)); }); });
         return cloudLocalPerformers(ids).then(function (map) {
+          // a performer the cloud recognises but the library does not have is kept as a NEW candidate (id "new:<stashdb id>"):
+          // rank() suggests it, Apply creates it (name, gender, country, photo, StashDB id).
           return { faces: faces.map(function (f) {
-            return { performers: (f.performers || []).filter(function (p) { return map[String(p.id)]; }).map(function (p) {
-              return { id: map[String(p.id)].id, name: map[String(p.id)].name, visual: Number(p.confidence) || 0 };
+            return { performers: (f.performers || []).map(function (p) {
+              var c = Number(p.confidence) || 0, loc = map[String(p.id)];
+              if (loc) return { id: loc.id, name: loc.name, visual: c };
+              return { id: "new:" + p.id, name: p.name, visual: c, isNew: true, stashId: String(p.id), image: p.image || "", country: p.country || "", gender: p.gender || "" };
             }) };
           }) };
         });
@@ -522,12 +539,12 @@
           if (!cand.length) return;
           cand.slice(0, COVER_TOP).forEach(function (p, pi) {
             if (p.visual < SEEN_MIN || cand[0].visual - p.visual > SEEN_GAP) return;
-            var h = hits[p.id] || (hits[p.id] = { id: String(p.id), name: p.name, best: 0, lead: 0, faces: faces.length, cover: true });
+            var h = hits[p.id] || (hits[p.id] = { id: String(p.id), name: p.name, best: 0, lead: 0, faces: faces.length, cover: true, isNew: !!p.isNew, stashId: p.stashId, image: p.image, country: p.country, gender: p.gender });
             // lead = points ahead of the next candidate of THIS face (0 when not the best of the face): see SURE_LEAD
             if (p.visual >= h.best) { h.best = p.visual; h.face = fi; h.lead = pi === 0 ? p.visual - (cand[1] ? cand[1].visual : 0) : 0; }
           });
         });
-        return { total: faces.length, already: Object.keys(already).length, hits: Object.keys(hits).map(function (k) { return hits[k]; }) };
+        return { total: faces.length, missing: j.missing || [], already: Object.keys(already).length, hits: Object.keys(hits).map(function (k) { return hits[k]; }) };
       });
   }
 

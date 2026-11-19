@@ -3913,7 +3913,9 @@
     // Performers added manually via the search bar
     var addedPerfs = row.querySelectorAll('[data-cb="performer-added"]');
     addedPerfs.forEach(function (el) {
-      selectedPerfs.push({ stored_id: el.getAttribute("data-perf-id") || null, name: el.getAttribute("data-perf-name") });
+      var pidA = el.getAttribute("data-perf-id") || null;
+      var nd = pidA && /^new:/.test(pidA) ? (r.suggNew || {})[pidA] : null;   // Visage cloud: not in the library yet, Apply creates it
+      selectedPerfs.push(nd ? Object.assign({ stored_id: null, name: el.getAttribute("data-perf-name") }, nd) : { stored_id: pidA, name: el.getAttribute("data-perf-name") });
     });
     if (selectedPerfs.length) filtered.performers = selectedPerfs;
     // URLs: solo mode has the combined editable stack (see renderRow()) -
@@ -6592,7 +6594,7 @@
     stItem("st-cfg-suggest-precheck", "suggestPrecheck", "suggest", "Text suggestions", "cb", "Pre-check high-confidence suggestions", { lvl: 1, par: "st-cfg-suggest-perf", kw: "precheck" }),
     stItem("st-cfg-suggest-min", "suggestMinScore", "suggest", "Text suggestions", "num", "Minimum score (0-100)", { lvl: 1, adv: true, par: "st-cfg-suggest-perf", min: 0, max: 100, step: 5, kw: "score threshold" }),
     stItem("st-cfg-suggest-thumbs", "suggestThumbs", "suggest", "Text suggestions", "cb", "Show suggestions as thumbnails", { lvl: 1, par: "st-cfg-suggest-perf", hint: "Instead of pills, suggestions are a row of small portraits with a score ring: cards in the scene popup, round avatars (6 shown, the rest behind \"+N\") in the mass list. Photos load only when they scroll into view; hover a portrait for a bigger photo and the reasons.", kw: "thumbnails vignettes avatars cards layout" }),
-    stItem("st-cfg-suggest-facecloud", "suggestFaceCloud", "suggest", "Face recognition", "cb", "Face recognition (Visage cloud)", { lvl: 1, par: "st-cfg-suggest-perf", hint: "Adds a round \"Scan face\" button to the Suggested block (scene popup and every row of the mass list). It sends the scene's COVER image, reduced to 640 px, to the public Visage server (cc1234-stashface-onnx.hf.space, the same service as the Visage plugin) and suggests the performers it recognises, matched to your local performers by their StashDB id. Only real performers known to StashDB are recognised. Off by default: nothing leaves your machine until you press the button.", kw: "visage cloud face recognition scan cover stashdb", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.cloudAvailable); } }),
+    stItem("st-cfg-suggest-facecloud", "suggestFaceCloud", "suggest", "Face recognition", "cb", "Face recognition (Visage cloud)", { lvl: 1, par: "st-cfg-suggest-perf", hint: "Adds a round \"Scan face\" button to the Suggested block (scene popup and every row of the mass list). It sends the scene's COVER image, reduced to 640 px, to the public Visage server (cc1234-stashface-onnx.hf.space, the same service as the Visage plugin) and suggests the performers it recognises, matched to your local performers by their StashDB id. Only real performers known to StashDB are recognised. A performer it recognises that is not in your library is suggested too (marked NEW, never pre-checked): checking it makes Apply create the performer with its StashDB id, photo, gender and country. Off by default: nothing leaves your machine until you press the button.", kw: "visage cloud face recognition scan cover stashdb", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.cloudAvailable); } }),
     stItem("st-cfg-suggest-facecloud-url", "suggestFaceCloudUrl", "suggest", "Face recognition", "text", "Visage server URL (empty = public Visage Space)", { lvl: 2, adv: true, par: "st-cfg-suggest-facecloud", ph: "https://cc1234-stashface-onnx.hf.space", hint: "Use another Visage-compatible server (your own Space or a LAN server), written as https://host or http://host:port with no path. IMPORTANT: Stash only lets the browser reach the addresses listed under csp > connect-src in sceneTagger.yml: add yours there too (and reload plugins), and again after each update of the plugin, otherwise the scan fails with \"not reachable\".", kw: "visage cloud server url space huggingface", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.cloudAvailable); } }),
     stItem("st-cfg-suggest-facesure", "suggestFaceSure", "suggest", "Face recognition (private)", "cb", "Pre-check very sure cover face matches", { lvl: 1, par: "st-cfg-suggest-visual", priv: true, hint: "A face-only suggestion is normally never pre-checked (a face alone is often wrong). With this on, a face found on the scene's COVER is pre-checked when its visual score reaches the minimum below AND it is at least 8 points ahead of the next candidate of the same face. Apply writes what is checked, so keep the minimum high. The frame scan of the scene popup is not concerned.", kw: "precheck pre-check sure confident face automatic cover", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualLocal); } }),
     stItem("st-cfg-suggest-facesure-min", "suggestFaceSureMin", "suggest", "Face recognition (private)", "num", "Very sure: minimum visual score (60-100)", { lvl: 2, adv: true, par: "st-cfg-suggest-facesure", priv: true, min: 60, max: 100, step: 1, kw: "visual score threshold", gate: function () { return !!(window.stPerformerFinder && window.stPerformerFinder.visualLocal); } }),
@@ -7318,7 +7320,7 @@
   // Chips are unchecked/checked per row (r.suggOn). A checked chip carries the
   // same data attributes as a performer added with the search box, so
   // getCheckedScraped() applies it without any change of its own.
-  var SUGG_BADGE = { title: "title", alias: "alias", details: "details", tag: "tag", series: "series", face: "face" };
+  var SUGG_BADGE = { title: "title", alias: "alias", details: "details", tag: "tag", series: "series", face: "face", "new": "new" };
 
   // Checked by default: a high-confidence text match (setting suggestPrecheck), or a very sure face match on the cover
   // (setting suggestFaceSure; c.sure is set by performerFinder.js)
@@ -7362,6 +7364,9 @@
       excludeNames.push(p.name);
     });
     var list = F.rank(scene, { excludeIds: excludeIds, excludeNames: excludeNames, minScore: pluginConfig.suggestMinScore, limit: 12, visual: r.visualHits, faceSureMin: pluginConfig.suggestFaceSure ? pluginConfig.suggestFaceSureMin : null });
+    // performers from the Visage cloud that the library does not have: kept so Apply can create them
+    r.suggNew = r.suggNew || {};
+    list.forEach(function (c) { if (c.isNew) r.suggNew[c.id] = c.newData; });
     // solo popup: a status bar (frame scan); mass list: a small round button at the end of the suggestions
     var scanBar = compact ? "" : suggestedScanBarHTML(r);
     var fab = compact ? suggestedFabHTML(r, id) : "";
@@ -7429,6 +7434,11 @@
   }
 
   // "Scan faces" bar of the Suggested block (solo popup; face recognition, hidden in the public build)
+  // Visage cloud: performers it recognised that are not in the local library (cannot be suggested, so they are named here)
+  function missingText(v) {
+    if (!v || !v.missing || !v.missing.length) return "";
+    return ". Recognised but not in your library: " + v.missing.map(function (m) { return m.name + " (" + Math.round(m.visual) + "%)"; }).join(", ");
+  }
   function suggestedScanBarHTML(r) {
     var F = window.stPerformerFinder;
     if (!F || !F.visualAvailable || !faceOn()) return "";
@@ -7443,7 +7453,7 @@
     } else if (v.status === "done") {
       text = v.cover
         ? (v.total ? v.total + " face" + (v.total === 1 ? "" : "s") + " on the cover, " + v.found + " performer" + (v.found === 1 ? "" : "s") + " suggested" + (v.already ? " (" + v.already + " already on the scene)" : "")
-                   : "No face found on the cover")
+                   : "No face found on the cover") + missingText(v)
         : "Faces: " + v.total + " frames scanned" + (v.cancelled ? " (stopped)" : "") + ", " + v.found + " performer" + (v.found === 1 ? "" : "s") + " seen on 2+ frames" + (v.already ? " (+" + v.already + " already on the scene)" : "");
       btn = '<button class="st-sugg-scan" data-act="scan">Rescan</button>';
     } else if (v.status === "error") {
@@ -7482,7 +7492,7 @@
     else if (v.status === "running") { cls = " st-fab-run"; tip = "Scanning the cover... (click to stop)"; label = "Scanning..."; act = "cancel"; icon = FAB_SPIN; }
     else if (v.status === "done") {
       cls = " st-fab-done"; label = v.total ? v.found + " found" : "No face";
-      tip = (v.total ? v.total + " face" + (v.total === 1 ? "" : "s") + " on the cover, " + v.found + " performer" + (v.found === 1 ? "" : "s") + " suggested" + (v.already ? " (" + v.already + " already on the scene)" : "") : "No face found on the cover") + " - click to rescan";
+      tip = (v.total ? v.total + " face" + (v.total === 1 ? "" : "s") + " on the cover, " + v.found + " performer" + (v.found === 1 ? "" : "s") + " suggested" + (v.already ? " (" + v.already + " already on the scene)" : "") : "No face found on the cover") + missingText(v) + " - click to rescan";
     } else if (v.status === "error") { cls = " st-fab-err"; tip = v.msg + " - click to retry"; }
     var want = suggestFabWanted(r), had = !!r.fabPill;
     r.fabPill = want;
@@ -7535,7 +7545,7 @@
       var seen = res.hits.filter(function (h) { return h.cover || h.sightings >= 2; });
       var already = cover ? (res.already || 0) : seen.filter(function (h) { return present.indexOf(String(h.id)) !== -1; }).length;
       var found = cover ? seen.length : seen.length - already;
-      r.visualState = { status: "done", total: res.total, cancelled: r.visualCancel, found: found, already: already, cover: cover };
+      r.visualState = { status: "done", total: res.total, cancelled: r.visualCancel, found: found, already: already, cover: cover, missing: res.missing || [] };
       r.visualDoneAt = Date.now();
       // mass list: fold the button back into its icon once the result has been shown long enough
       setTimeout(function () {
@@ -8351,7 +8361,7 @@
 
   var Q_FTAG_SEARCH     = "query FTagS($n:String!){findTags(tag_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){tags{id name}}}";
 
-  var M_CP = "mutation CP($n:String!,$disambiguation:String,$urls:[String!],$gender:GenderEnum,$birthdate:String,$ethnicity:String,$country:String,$eye_color:String,$height_cm:Int,$measurements:String,$fake_tits:String,$penis_length:Float,$circumcised:CircumcisedEnum,$career_start:String,$career_end:String,$tattoos:String,$piercings:String,$alias_list:[String!],$image:String,$details:String,$death_date:String,$hair_color:String,$weight:Int){performerCreate(input:{name:$n,disambiguation:$disambiguation,urls:$urls,gender:$gender,birthdate:$birthdate,ethnicity:$ethnicity,country:$country,eye_color:$eye_color,height_cm:$height_cm,measurements:$measurements,fake_tits:$fake_tits,penis_length:$penis_length,circumcised:$circumcised,career_start:$career_start,career_end:$career_end,tattoos:$tattoos,piercings:$piercings,alias_list:$alias_list,image:$image,details:$details,death_date:$death_date,hair_color:$hair_color,weight:$weight}){id}}";
+  var M_CP = "mutation CP($n:String!,$disambiguation:String,$urls:[String!],$gender:GenderEnum,$birthdate:String,$ethnicity:String,$country:String,$eye_color:String,$height_cm:Int,$measurements:String,$fake_tits:String,$penis_length:Float,$circumcised:CircumcisedEnum,$career_start:String,$career_end:String,$tattoos:String,$piercings:String,$alias_list:[String!],$image:String,$details:String,$death_date:String,$hair_color:String,$weight:Int,$stash_ids:[StashIDInput!]){performerCreate(input:{name:$n,disambiguation:$disambiguation,urls:$urls,gender:$gender,birthdate:$birthdate,ethnicity:$ethnicity,country:$country,eye_color:$eye_color,height_cm:$height_cm,measurements:$measurements,fake_tits:$fake_tits,penis_length:$penis_length,circumcised:$circumcised,career_start:$career_start,career_end:$career_end,tattoos:$tattoos,piercings:$piercings,alias_list:$alias_list,image:$image,details:$details,death_date:$death_date,hair_color:$hair_color,weight:$weight,stash_ids:$stash_ids}){id}}";
 
   var Q_FT = "query FT($n:String!){findTags(tag_filter:{name:{value:$n,modifier:EQUALS}},filter:{per_page:1}){tags{id}}}";
 
@@ -8689,7 +8699,8 @@
         details: p.details || null,
         death_date: p.death_date || null,
         hair_color: p.hair_color || null,
-        weight: p.weight ? toInt(p.weight) : null
+        weight: p.weight ? toInt(p.weight) : null,
+        stash_ids: (p.stash_ids && p.stash_ids.length) ? p.stash_ids : null
       };
       return gql("CP", M_CP, vars).then(function (d2) { return d2.performerCreate.id; }, function (e) {
         if (!isAlreadyExists(e)) throw e;
