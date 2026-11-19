@@ -7452,7 +7452,7 @@
       btn = '<button class="st-sugg-scan" data-act="cancel">Stop</button>';
     } else if (v.status === "done") {
       text = v.cover
-        ? (v.total ? v.total + " face" + (v.total === 1 ? "" : "s") + " on the cover, " + v.found + " performer" + (v.found === 1 ? "" : "s") + " suggested" + (v.already ? " (" + v.already + " already on the scene)" : "")
+        ? (v.total ? v.total + " face" + (v.total === 1 ? "" : "s") + " on the cover, " + v.found + " performer" + (v.found === 1 ? "" : "s") + " suggested" + (v.already ? " (" + v.already + " already on the scene or in the scrape)" : "")
                    : "No face found on the cover") + missingText(v)
         : "Faces: " + v.total + " frames scanned" + (v.cancelled ? " (stopped)" : "") + ", " + v.found + " performer" + (v.found === 1 ? "" : "s") + " seen on 2+ frames" + (v.already ? " (+" + v.already + " already on the scene)" : "");
       btn = '<button class="st-sugg-scan" data-act="scan">Rescan</button>';
@@ -7492,7 +7492,7 @@
     else if (v.status === "running") { cls = " st-fab-run"; tip = "Scanning the cover... (click to stop)"; label = "Scanning..."; act = "cancel"; icon = FAB_SPIN; }
     else if (v.status === "done") {
       cls = " st-fab-done"; label = v.total ? v.found + " found" : "No face";
-      tip = (v.total ? v.total + " face" + (v.total === 1 ? "" : "s") + " on the cover, " + v.found + " performer" + (v.found === 1 ? "" : "s") + " suggested" + (v.already ? " (" + v.already + " already on the scene)" : "") : "No face found on the cover") + missingText(v) + " - click to rescan";
+      tip = (v.total ? v.total + " face" + (v.total === 1 ? "" : "s") + " on the cover, " + v.found + " performer" + (v.found === 1 ? "" : "s") + " suggested" + (v.already ? " (" + v.already + " already on the scene or in the scrape)" : "") : "No face found on the cover") + missingText(v) + " - click to rescan";
     } else if (v.status === "error") { cls = " st-fab-err"; tip = v.msg + " - click to retry"; }
     var want = suggestFabWanted(r), had = !!r.fabPill;
     r.fabPill = want;
@@ -7545,6 +7545,12 @@
       var seen = res.hits.filter(function (h) { return h.cover || h.sightings >= 2; });
       var already = cover ? (res.already || 0) : seen.filter(function (h) { return present.indexOf(String(h.id)) !== -1; }).length;
       var found = cover ? seen.length : seen.length - already;
+      if (cover) {   // a face match that the scrape already brings (same name) is not a new suggestion either
+        var inScrape = {};
+        ((r.scraped && r.scraped.performers) || []).forEach(function (p) { if (p && p.name) inScrape[String(p.name).trim().toLowerCase()] = true; });
+        var dup = seen.filter(function (h) { return inScrape[String(h.name || "").trim().toLowerCase()] && present.indexOf(String(h.id)) === -1; }).length;
+        found -= dup; already += dup;
+      }
       r.visualState = { status: "done", total: res.total, cancelled: r.visualCancel, found: found, already: already, cover: cover, missing: res.missing || [] };
       r.visualDoneAt = Date.now();
       // mass list: fold the button back into its icon once the result has been shown long enough
