@@ -5959,3 +5959,29 @@ html #st-panel.st-compact .st-row-btn .st-btn.st-retry-done:active:not(:disabled
    ovals). Every stacking rule above is scoped to :not(.st-compact), so compact kept the two-column grid. It now stacks
    the two parts, like the wide mass list does. */
 #st-panel.st-compact:not(.st-panel-solo) .st-split-cols { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+
+/* Groups block (setting scrapeGroups): same look as the tags, plus a small optional scene-number box */
+#st-panel .st-group-item .st-count-hint { margin-left: 6px; opacity: .75; }
+#st-panel .st-group-index { width: 46px; height: 22px; margin-left: 8px; padding: 0 6px; font-size: 11px; border-radius: 8px; background: rgba(255,255,255,.06); color: inherit; border: 1px solid rgba(255,255,255,.18); }
+
+/* Groups block, card layout (setting scrapeGroupsPreview): front + back cover, details, Preview button */
+#st-panel .st-group-cards { display: flex; flex-direction: column; gap: 8px; }
+#st-panel .st-group-card { display: flex; gap: 12px; align-items: flex-start; padding: 10px; border-radius: 12px; border: 1px solid rgba(180, 72, 79, .6); background: rgba(255, 255, 255, .03); color: #e8edf7; }
+#st-panel .st-group-card.st-group-add { border-color: rgba(217, 146, 59, .65); }
+#st-panel .st-group-card.st-group-on { background: rgba(79, 122, 67, .42); border-color: rgba(111, 154, 95, .85); }
+#st-panel .st-group-imgs { display: flex; gap: 6px; flex: none; }
+#st-panel .st-group-img, #st-panel .st-group-ph { width: 62px; height: 88px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, .14); box-sizing: border-box; }
+#st-panel .st-group-img { object-fit: cover; display: block; }
+#st-panel .st-group-ph { display: flex; align-items: center; justify-content: center; font-size: 11px; opacity: .55; }
+#st-panel .st-group-body { flex: 1; min-width: 0; }
+#st-panel .st-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+#st-panel .st-group-name { font-weight: 500; color: #f1f4fb; }
+#st-panel .st-group-dl { margin: 6px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; }
+#st-panel .st-group-dl dt { color: #9aa6bb; font-weight: 400; }
+#st-panel .st-group-dl dd { margin: 0; color: #e8edf7; }
+#st-panel .st-group-note { margin-top: 6px; font-size: 11px; color: #9aa6bb; }
+#st-panel .st-group-note.st-err { opacity: 1; color: #ff8a8a; }
+#st-panel .st-group-preview-btn { flex: none; border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .06); color: inherit; border-radius: 999px; font-size: 11px; padding: 2px 12px; cursor: pointer; }
+#st-panel .st-group-preview-btn:disabled { opacity: .5; cursor: default; }
+/* card layout: the cards need the full width, so "Already on this scene" and "New from scrape" are stacked */
+#st-panel#st-panel .st-inline-groups.st-groups-cards .st-split-cols { grid-template-columns: minmax(0, 1fr) !important; gap: 8px; }

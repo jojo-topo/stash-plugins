@@ -807,7 +807,7 @@
   // it (studio logos, performer images, face scan, studio / performer resolution) and filters what is sent
   // to Apply. Kept for the browser session (sessionStorage), see fieldsLoad().
   var FIELD_DEFS = [["title", "Title"], ["date", "Date"], ["studio", "Studio"], ["performers", "Performers"],
-                    ["tags", "Tags"], ["details", "Details"], ["urls", "URLs"], ["cover", "Cover"], ["stashid", "Stash ID"]];
+                    ["tags", "Tags"], ["groups", "Groups"], ["details", "Details"], ["urls", "URLs"], ["cover", "Cover"], ["stashid", "Stash ID"]];
 
   var fieldsOnly = null;   // null = every field, otherwise { key: true, ... }
   // CUSTOM (Sina, 2026-11-15): the selection is kept for the browser session (sessionStorage): it survives a page reload (F5)
@@ -853,6 +853,7 @@
     if (!fieldOn("studio")) { delete f.studio; delete f.otherStudioNames; delete f.studioSocial; delete f.sceneStudioSocial; }
     if (!fieldOn("performers")) { delete f.performers; delete f.clearPerformers; }
     if (!fieldOn("tags")) { delete f.tags; delete f.clearTags; }
+    if (!fieldOn("groups")) delete f.groups;
     if (!fieldOn("details")) { delete f.details; delete f.code; delete f.director; }
     if (!fieldOn("urls")) delete f.urls;
     if (!fieldOn("cover")) delete f.image;
@@ -869,6 +870,7 @@
     studio:     '[data-cb="studio"], [data-cb="studio-radio"], [data-cb="studio-override"], [data-cb="studio-also"], .st-studio-search-input',
     performers: '[data-cb="performer"], [data-cb="perfs-all"], [data-cb="performer-added"], .st-perf-search-input',
     tags:       '[data-cb="tag"], [data-cb="tags-all"], [data-cb="tag-added"], .st-tag-search-input',
+    groups:     '[data-cb="group"]',
     details:    '[data-cb="details"], [data-cb="code"], [data-cb="director"], .st-details-edit',
     urls:       '[data-cb="urls"]',
     cover:      '[data-cb="cover"], .st-cover-options',
@@ -3065,6 +3067,9 @@
       if (el) el.addEventListener("change", function () { Object.keys(state.rows).forEach(function (rid) { renderRow(rid); }); });
     });
     bindSettingCb("st-cfg-tags",                "autoCheckNewTags");
+    bindSettingCb("st-cfg-scrape-groups",       "scrapeGroups");
+    bindSettingCb("st-cfg-scrape-groups-preview", "scrapeGroupsPreview");
+    bindSettingCb("st-cfg-scrape-groups-enrich", "scrapeGroupsEnrich");
     bindSettingCb("st-cfg-replace-tags",        "replaceTags");
     bindSettingCb("st-cfg-replace-performers",  "replacePerformers");
     (function () {   // gender chips: the hidden input holds the comma list (the settings reset also goes through it)
@@ -4028,6 +4033,25 @@
     });
     if (selectedTags.length) filtered.tags = selectedTags;
 
+    // Groups: only the ticked scraped ones (nothing is pre-checked), with the optional scene number typed next to them.
+    // The groups already on the scene are merged in by applyScrapedData() when at least one is ticked.
+    var selectedGroups = [];
+    row.querySelectorAll('[data-cb="group"]').forEach(function (el) {
+      if (!el.checked) return;
+      var gi = parseInt(el.getAttribute("data-idx"), 10), g = scraped.groups && scraped.groups[gi];
+      if (!g) return;
+      var gInp = row.querySelector('.st-group-index[data-gidx="' + gi + '"]');
+      var gn = gInp ? parseInt(gInp.value, 10) : NaN;
+      var gm = Object.assign({}, g, { scene_index: isNaN(gn) ? null : gn });
+      var gpv = r.groupPrev && r.groupPrev[gi] && r.groupPrev[gi].status === "done" ? r.groupPrev[gi].data : null;
+      if (gpv) {   // the covers and details the user previewed complete the group that will be created
+        ["aliases", "duration", "date", "rating", "director", "synopsis", "front_image", "back_image"].forEach(function (k) { if (gpv[k] && !gm[k]) gm[k] = gpv[k]; });
+        if (gpv.studio && !gm.studio) gm.studio = gpv.studio;
+      }
+      selectedGroups.push(gm);
+    });
+    if (selectedGroups.length) filtered.groups = selectedGroups;
+
     // Always keep whatever's already on the scene - performer_ids/tag_ids
     // on sceneUpdate REPLACE the list rather than add to it, so without
     // this, applying a scrape that simply doesn't mention an existing
@@ -4106,7 +4130,8 @@
     tags: '<path d="M20.6 12.3L12.7 4.4a2 2 0 0 0-1.4-.6H5a2 2 0 0 0-2 2v6.3c0 .5.2 1 .6 1.4l7.9 7.9c.8.8 2 .8 2.8 0l6.3-6.3c.8-.8.8-2.1 0-2.8z"/><circle cx="7.5" cy="7.5" r="1"/>',
     details: '<path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/>',
     urls: '<path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.5-1.5"/>',
-    cover: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>'
+    cover: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+    groups: '<rect x="3" y="6" width="14" height="14" rx="2"/><path d="M7 3h14v14"/>'
   };
 
   function sectionIcon(name) {
@@ -4120,6 +4145,7 @@
     // otherwise); CSS hides it again if a banner shows up later (async lookup).
     var name = fieldHTML.indexOf("st-inline-artists") !== -1 ? (fieldHTML.indexOf("st-studio-cover") === -1 ? "studio" : null)
       : fieldHTML.indexOf("st-inline-performers") !== -1 ? "performers"
+      : fieldHTML.indexOf("st-inline-groups") !== -1 ? "groups"
       : fieldHTML.indexOf("st-inline-tags") !== -1 ? "tags"
       : fieldHTML.indexOf("st-inline-details") !== -1 ? "details"
       : fieldHTML.indexOf("st-inline-urls") !== -1 ? "urls"
@@ -4244,6 +4270,8 @@
       useSplitTags = rowSecPerformers_cx.useSplitTags;
 
       rowSecTags({ scene: scene, useSplitTags: useSplitTags, r: r, scraped: scraped, searchInExisting: searchInExisting, isSolo: isSolo, fields: fields });
+
+      rowSecGroups({ scene: scene, r: r, scraped: scraped, isSolo: isSolo, fields: fields });
 
       rowSecDetails({ isSolo: isSolo, panelElForMode: panelElForMode, scraped: scraped, fields: fields, scene: scene, r: r });
 
@@ -4382,6 +4410,8 @@
     rowWirePerformerSearch({ status: status, el: el, r: r, id: id });
 
     rowWireTagSearch({ status: status, el: el, scraped: scraped });
+
+    rowWireGroups({ el: el, r: r, id: id });
 
     rowWireStudioSearch({ status: status, el: el, r: r, id: id });
 
@@ -5544,6 +5574,97 @@
       }
   }
 
+  // Groups (setting scrapeGroups): the groups a scraper returns. Same split as the tags: already on the scene / from the
+  // scrape. Nothing is pre-checked. A scraped group is in the library (stored_id: it will be ADDED to the scene) or not
+  // (it will be CREATED on Apply, see resolveGroup()). With the setting scrapeGroupsPreview each scraped group is a card
+  // (front + back cover, details) filled by its Preview button (see rowWireGroups()); otherwise a one-line chip.
+  function groupDurationText(t) {
+    var s = groupSeconds(t);
+    if (!s) return t ? String(t) : "";
+    var h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+    return h ? h + "h " + (m < 10 ? "0" : "") + m + "min" : m + "min";
+  }
+  function rowSecGroups(cx) {
+    var scene = cx.scene, r = cx.r, scraped = cx.scraped, isSolo = cx.isSolo, fields = cx.fields;
+    if (!pluginConfig.scrapeGroups) return;
+    var sceneGroups = (scene.groups || []).filter(function (g) { return g && g.group; });
+    var scrapedGroups = scraped.groups || [];
+    if (!sceneGroups.length && !scrapedGroups.length) return;
+    // ticks, scene numbers and previews belong to ONE scrape result: a new scrape starts again from nothing
+    if (r.groupFor !== scraped) { r.groupFor = scraped; r.groupOn = {}; r.groupIdx = {}; r.groupPrev = {}; }
+    var cards = !!pluginConfig.scrapeGroupsPreview;
+    var onScene = {};
+    sceneGroups.forEach(function (g) { onScene[String(g.group.id)] = true; });
+    var existingHTML = sceneGroups.length
+      ? '<div class="st-existing-pills">' + sceneGroups.map(function (g) {
+          return '<span class="st-existing-pill st-existing-pill-group" data-group-id="' + esc(g.group.id) + '"><span class="st-tag-name">' + esc(g.group.name) +
+            (g.scene_index ? ' - #' + esc(String(g.scene_index)) : '') + '</span></span>';
+        }).join("") + '</div>'
+      : "";
+    var newCount = 0;
+    var items = scrapedGroups.map(function (g, i) {
+      if (!g || !g.name || (g.stored_id && onScene[String(g.stored_id)])) return "";
+      newCount++;
+      var isNew = !g.stored_id, on = !!r.groupOn[i];
+      var idxHTML = '<input type="number" min="1" class="st-group-index" data-gidx="' + i + '" placeholder="#" value="' + esc(r.groupIdx[i] != null ? String(r.groupIdx[i]) : "") +
+        '" title="Scene number in the group (optional)">';
+      var cbHTML = '<input type="checkbox" data-cb="group" data-idx="' + i + '"' + (on ? ' checked' : '') + '>';
+      var state = isNew ? ' st-tag-new' : ' st-tag-add';
+      var title = isNew ? 'New group: it will be created' : 'Already in your database, not on this scene yet: it will be added';
+      if (!cards) {
+        var meta = [g.date, g.duration].filter(Boolean).join(" - ");
+        return '<label class="st-tag-item st-group-item' + state + '" title="' + title + '">' + cbHTML +
+          '<span class="st-selectable">' + esc(g.name) + '</span>' +
+          (meta ? '<span class="st-count-hint">' + esc(meta) + '</span>' : '') +
+          (isNew ? '<span class="st-new-badge">new</span>' : '') + idxHTML +
+        '</label>';
+      }
+      var hasUrl = !!(g.urls && g.urls.length);
+      var pv = r.groupPrev[i] || {}, d = pv.status === "done" ? pv.data : null;
+      var pick = function (k) { return (d && d[k]) || g[k] || ""; };
+      var studioName = (d && d.studio && d.studio.name) || (g.studio && g.studio.name) || "";
+      // After the Preview only the covers that exist are shown (no empty frame); before it, both slots invite to click Preview
+      var cover = function (k, label) {
+        var src = (d && d[k]) || g[k] || "";
+        if (src) return '<img class="st-group-img" src="' + esc(src) + '" alt="' + label + ' cover" loading="lazy">';
+        return d ? '' : '<span class="st-group-ph">' + label + '</span>';
+      };
+      var coversHTML = cover("front_image", "front") + cover("back_image", "back");
+      var rows = [["Date", pick("date")], ["Duration", groupDurationText(pick("duration"))], ["Studio", studioName], ["Director", pick("director")]]
+        .filter(function (x) { return x[1]; }).map(function (x) { return '<dt>' + x[0] + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join("");
+      var note = pv.status === "loading" ? "Loading the covers..." : pv.status === "error" ? "Preview failed: " + pv.msg
+        : d ? "Covers kept: the group is created with them" : hasUrl ? "" : "No page to preview";
+      var btn = hasUrl
+        ? '<button type="button" class="st-group-preview-btn" data-gi="' + i + '"' + (pv.status === "loading" ? ' disabled' : '') + '>' +
+          (pv.status === "loading" ? 'Loading...' : d ? 'Reload' : 'Preview') + '</button>'
+        : '';
+      return '<div class="st-group-card' + (isNew ? ' st-group-new' : ' st-group-add') + (on ? ' st-group-on' : '') + '" data-gi="' + i + '" title="' + title + '">' +
+        (coversHTML ? '<div class="st-group-imgs">' + coversHTML + '</div>' : '') +
+        '<div class="st-group-body">' +
+          '<label class="st-group-head">' + cbHTML + '<span class="st-selectable st-group-name">' + esc(g.name) + '</span>' + (isNew ? '<span class="st-new-badge">new</span>' : '') + idxHTML + '</label>' +
+          (rows ? '<dl class="st-group-dl">' + rows + '</dl>' : '') +
+          (note ? '<div class="st-group-note' + (pv.status === "error" ? ' st-err' : '') + '">' + esc(note) + '</div>' : '') +
+        '</div>' + btn +
+      '</div>';
+    }).join("");
+    var countText = sceneGroups.length || newCount ? sceneGroups.length + ' existing' + (newCount ? ' &middot; ' + newCount + ' new' : '') : '';
+    fields.push(
+      '<div class="st-inline-field st-inline-tags st-inline-groups' + (cards ? ' st-groups-cards' : '') + (isSolo ? '' : ' st-split-list') + '">' +
+        '<div class="st-inline-label">' + (isSolo ? sectionIcon("groups") : '') + '<span>Groups' + (countText ? ' <span class="st-count-hint">(' + countText + ')</span>' : '') + '</span></div>' +
+        '<div class="st-split-cols' + (isSolo ? '' : ' st-split-stack') + '"' + splitShareStyle(sceneGroups.length, newCount) + '>' +
+          '<div class="st-split-col">' +
+            '<span class="st-existing-caption">Already on this scene</span>' +
+            (existingHTML || '<span class="st-split-empty">None</span>') +
+          '</div>' +
+          '<div class="st-split-col">' +
+            '<span class="st-existing-caption st-new">New from scrape</span>' +
+            (items ? '<div class="' + (cards ? 'st-group-cards' : 'st-tags-grid') + '">' + items + '</div>' : '<span class="st-split-empty">None found</span>') +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
   function rowSecDetails(cx) {
     var isSolo = cx.isSolo, panelElForMode = cx.panelElForMode, scraped = cx.scraped, fields = cx.fields, scene = cx.scene, r = cx.r;
       // ── Details - solo mode: always editable, pre-filled with whatever's
@@ -6309,6 +6430,44 @@
     }
   }
 
+  // Groups block: the ticks and scene numbers are kept in the row state (a Preview redraws the row), and the Preview
+  // button loads the group's covers and details through the scraper's group scrape (cached, see fetchGroupPreview()).
+  function rowWireGroups(cx) {
+    var el = cx.el, r = cx.r, id = cx.id;
+    el.querySelectorAll('[data-cb="group"]').forEach(function (cb) {
+      cb.addEventListener("change", function () {
+        r.groupOn = r.groupOn || {};
+        r.groupOn[parseInt(cb.getAttribute("data-idx"), 10)] = cb.checked;
+        var card = cb.closest(".st-group-card");
+        if (card) card.classList.toggle("st-group-on", cb.checked);
+      });
+    });
+    el.querySelectorAll(".st-group-index").forEach(function (inp) {
+      inp.addEventListener("input", function () {
+        r.groupIdx = r.groupIdx || {};
+        r.groupIdx[parseInt(inp.getAttribute("data-gidx"), 10)] = inp.value;
+      });
+    });
+    el.querySelectorAll(".st-group-preview-btn").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        var gi = parseInt(btn.getAttribute("data-gi"), 10), g = r.scraped && r.scraped.groups && r.scraped.groups[gi];
+        if (!g || !g.urls || !g.urls.length) return;
+        r.groupPrev = r.groupPrev || {};
+        if (r.groupPrev[gi] && r.groupPrev[gi].status === "loading") return;
+        var scrapedNow = r.scraped;
+        r.groupPrev[gi] = { status: "loading" };
+        renderRow(id);
+        fetchGroupPreview(g.urls[0]).then(function (d) { return { status: "done", data: d }; },
+          function (err) { return { status: "error", msg: String((err && err.message) || err) }; }).then(function (res) {
+          if (r.scraped !== scrapedNow) return;   // a new scrape replaced the result meanwhile
+          r.groupPrev[gi] = res;
+          if (state.rows[id]) renderRow(id);
+        });
+      });
+    });
+  }
+
   function rowWireTagSearch(cx) {
     var status = cx.status, el = cx.el, scraped = cx.scraped;
     // ── Live tag search ─────────────────────────────────────────────────────
@@ -6581,6 +6740,9 @@
     // Checked by default & Apply
     stItem("st-cfg-studio", "autoCheckStudio", "apply", "Pre-checked after a scrape", "cb", "Auto-check new studios", { short: "Pre-check new studios", kw: "auto-check precheck" }),
     stItem("st-cfg-performer", "autoCheckPerformer", "apply", "Pre-checked after a scrape", "cb", "Auto-check new performers", { short: "Pre-check new performers", kw: "auto-check precheck" }),
+    stItem("st-cfg-scrape-groups", "scrapeGroups", "apply", "Groups", "cb", "Scrape groups", { short: "Scrape groups", hint: "Adds a Groups block to each row with the groups the scraper returns (AdultEmpire and a few others). Nothing in it is pre-checked: tick a group to add it to the scene on Apply. A group that is not in your library yet is created (name, date, duration, covers...). The groups already on the scene are always kept. Takes effect on the next scrape.", kw: "groups group movie dvd adultempire" }),
+    stItem("st-cfg-scrape-groups-preview", "scrapeGroupsPreview", "apply", "Groups", "cb", "Cover preview (Preview button)", { lvl: 1, par: "st-cfg-scrape-groups", hint: "Shows each scraped group as a card with its front and back cover and its details. Nothing is loaded until you click Preview on a group (one call to the scraper, about 1 to 2 seconds and 200 KB). The covers you previewed are kept: ticking the group creates it with them. With the NSFW/SFW button on, the covers are blurred like the other images.", kw: "groups preview cover front back image thumbnail card" }),
+    stItem("st-cfg-scrape-groups-enrich", "scrapeGroupsEnrich", "apply", "Groups", "cb", "Complete a new group from its page", { lvl: 1, par: "st-cfg-scrape-groups", hint: "Some scrapers return only the name and the URL of a group. With this on, a group that has to be created is first completed with the scraper's own group scrape (covers, date, duration, director, synopsis). Off: the group is created with what the scene scrape returned, like Stash does.", kw: "groups enrich complete cover date duration" }),
     stItem("st-cfg-tags", "autoCheckNewTags", "apply", "Pre-checked after a scrape", "cb", "Auto-check new tags", { short: "Pre-check new tags", kw: "auto-check precheck" }),
     stItem("st-cfg-replace-tags", "replaceTags", "apply", "Stay in sync with the scrape", "cb", "Replace the tags on the scene", { hint: "On Apply, tags already on the scene that the scrape does not return are removed (struck through in the row, click the arrow to keep one). Only when the scrape returns at least one tag.", kw: "replace remove sync overwrite stashbox" }),
     stItem("st-cfg-replace-performers", "replacePerformers", "apply", "Stay in sync with the scrape", "cb", "Replace the performers on the scene", { hint: "On Apply, performers already on the scene that the scrape does not return are removed (struck through in the row, click the arrow to keep one). Only when the scrape returns at least one performer.", kw: "replace remove sync overwrite stashbox" }),
@@ -7648,6 +7810,9 @@
     autoCheckStudio:         false,
     autoCheckPerformer:      false,
     autoCheckNewTags:        false,
+    scrapeGroups:            false,   // Groups block: the groups a scraper returns (never pre-checked)
+    scrapeGroupsPreview:     false,   // Groups block: a Preview button (front + back cover, details) on each group that has a URL
+    scrapeGroupsEnrich:      false,   // new group with a URL: complete it with the scraper's group scrape (covers, date, duration...)
     replaceTags:             false,   // Apply: tags on the scene that the scrape does not return are removed
     replacePerformers:       false,   // same for performers
     skipGenders:             "",      // comma list (MALE, FEMALE, ...): scraped performers of these genders are left out of the row
@@ -7859,6 +8024,9 @@
           if (cfg.autoCheckStudio    !== undefined) pluginConfig.autoCheckStudio    = !!cfg.autoCheckStudio;
           if (cfg.autoCheckPerformer !== undefined) pluginConfig.autoCheckPerformer = !!cfg.autoCheckPerformer;
           if (cfg.autoCheckNewTags   !== undefined) pluginConfig.autoCheckNewTags   = !!cfg.autoCheckNewTags;
+          if (cfg.scrapeGroups       !== undefined) pluginConfig.scrapeGroups       = !!cfg.scrapeGroups;
+          if (cfg.scrapeGroupsPreview !== undefined) pluginConfig.scrapeGroupsPreview = !!cfg.scrapeGroupsPreview;
+          if (cfg.scrapeGroupsEnrich !== undefined) pluginConfig.scrapeGroupsEnrich = !!cfg.scrapeGroupsEnrich;
           if (cfg.replaceTags        !== undefined) pluginConfig.replaceTags        = !!cfg.replaceTags;
           if (cfg.replacePerformers  !== undefined) pluginConfig.replacePerformers  = !!cfg.replacePerformers;
           if (typeof cfg.skipGenders === "string") pluginConfig.skipGenders = cfg.skipGenders;
@@ -8129,6 +8297,10 @@
       .catch(function () { return []; });
   }
 
+  // Groups (setting scrapeGroups): requested only when the setting is on (a scraper may return large base64 covers)
+  var GROUP_FIELDS = "groups{stored_id name aliases duration date rating director urls synopsis studio{stored_id name} front_image back_image}";
+  function withGroups(q) { return pluginConfig.scrapeGroups ? q.replace("tags{stored_id name}", "tags{stored_id name}" + GROUP_FIELDS) : q; }
+
   var Q_SCRAPE = "query ScrapeSingleScene($source:ScraperSourceInput!,$input:ScrapeSingleSceneInput!){scrapeSingleScene(source:$source,input:$input){remote_site_id title code date details director urls image studio{stored_id name image url details}tags{stored_id name}performers{stored_id name disambiguation gender urls birthdate ethnicity country eye_color height measurements fake_tits penis_length circumcised career_start career_end tattoos piercings aliases images details death_date hair_color weight}}}";
 
   // Tried feeding a synthetic scene_input (title only) instead of scene_id
@@ -8142,7 +8314,7 @@
     var source = scraperID.indexOf(STASHBOX_PREFIX) === 0
       ? { stash_box_endpoint: scraperID.slice(STASHBOX_PREFIX.length) }
       : { scraper_id: scraperID };
-    return gql("ScrapeSingleScene", Q_SCRAPE, {
+    return gql("ScrapeSingleScene", withGroups(Q_SCRAPE), {
       source: source,
       input:  { scene_id: String(sceneID) }
     }).then(function (d) {
@@ -8164,7 +8336,7 @@
     var source = scraperID.indexOf(STASHBOX_PREFIX) === 0
       ? { stash_box_endpoint: scraperID.slice(STASHBOX_PREFIX.length) }
       : { scraper_id: scraperID };
-    return gql("ScrapeSingleScene", Q_SCRAPE, {
+    return gql("ScrapeSingleScene", withGroups(Q_SCRAPE), {
       source: source,
       input:  { query: query }
     }).then(function (d) {
@@ -8197,7 +8369,7 @@
   // on rule34.xxx). A failed call is therefore retried a few times.
   function scrapeSceneURL(url, attempt) {
     attempt = attempt || 1;
-    return gql("ScrapeSceneURL", Q_SCRAPE_URL, { url: url })
+    return gql("ScrapeSceneURL", withGroups(Q_SCRAPE_URL), { url: url })
       .then(function (d) { return d.scrapeSceneURL; })
       .catch(function (e) {
         if (attempt >= 10) throw e;
@@ -8368,6 +8540,69 @@
   var Q_FTAG_SEARCH     = "query FTagS($n:String!){findTags(tag_filter:{name:{value:$n,modifier:INCLUDES}},filter:{per_page:10}){tags{id name}}}";
 
   var M_CP = "mutation CP($n:String!,$disambiguation:String,$urls:[String!],$gender:GenderEnum,$birthdate:String,$ethnicity:String,$country:String,$eye_color:String,$height_cm:Int,$measurements:String,$fake_tits:String,$penis_length:Float,$circumcised:CircumcisedEnum,$career_start:String,$career_end:String,$tattoos:String,$piercings:String,$alias_list:[String!],$image:String,$details:String,$death_date:String,$hair_color:String,$weight:Int,$stash_ids:[StashIDInput!]){performerCreate(input:{name:$n,disambiguation:$disambiguation,urls:$urls,gender:$gender,birthdate:$birthdate,ethnicity:$ethnicity,country:$country,eye_color:$eye_color,height_cm:$height_cm,measurements:$measurements,fake_tits:$fake_tits,penis_length:$penis_length,circumcised:$circumcised,career_start:$career_start,career_end:$career_end,tattoos:$tattoos,piercings:$piercings,alias_list:$alias_list,image:$image,details:$details,death_date:$death_date,hair_color:$hair_color,weight:$weight,stash_ids:$stash_ids}){id}}";
+
+  var Q_FG = "query FG($n:String!){findGroups(group_filter:{name:{value:$n,modifier:EQUALS}},filter:{per_page:1}){groups{id}}}";
+  var M_CG = "mutation CG($input:GroupCreateInput!){groupCreate(input:$input){id name}}";
+  var Q_SGP = "query SGP($url:String!){scrapeGroupURL(url:$url){name aliases duration date rating director urls synopsis studio{stored_id name} front_image back_image}}";
+  // The scraper's own group scrape (covers, date, duration...), by the group's URL. One call per URL (cached): the Preview
+  // button of the Groups block and the creation of the group at Apply share it.
+  var groupPrevCache = {};
+  function fetchGroupPreview(url) {
+    if (!groupPrevCache[url]) {
+      groupPrevCache[url] = gql("SGP", Q_SGP, { url: url }).then(function (d) {
+        if (!d.scrapeGroupURL) throw new Error("the scraper returned nothing for that group page");
+        return d.scrapeGroupURL;
+      }).catch(function (e) { delete groupPrevCache[url]; throw e; });
+    }
+    return groupPrevCache[url];
+  }
+
+  // "h:m:s", "m:s" or "s" -> seconds: the same conversion as Stash's own scrape dialog (timestampToSeconds)
+  function groupSeconds(t) {
+    if (!t) return null;
+    var parts = String(t).split(":");
+    if (parts.length > 3) return null;
+    var total = 0, mult = 1;
+    while (parts.length) {
+      var n = parseInt(parts.pop(), 10);
+      if (isNaN(n)) return null;
+      total += mult * n; mult *= 60;
+    }
+    return total || null;
+  }
+  // GroupCreateInput built the way Stash's scrape dialog does it (name, urls, aliases, covers, synopsis, date, director,
+  // duration in seconds, studio when its id is known, rating x 20)
+  function groupInput(g) {
+    var inp = { name: String(g.name).trim() };
+    ["urls", "aliases", "front_image", "back_image", "synopsis", "date", "director"].forEach(function (k) { if (g[k] && (!Array.isArray(g[k]) || g[k].length)) inp[k] = g[k]; });
+    var secs = groupSeconds(g.duration); if (secs) inp.duration = secs;
+    if (g.studio && g.studio.stored_id) inp.studio_id = String(g.studio.stored_id);
+    var rating = parseInt(g.rating || "0", 10) * 20; if (rating && !isNaN(rating)) inp.rating100 = rating;
+    return inp;
+  }
+  // A scraped group -> the id of a group of the library: the one Stash matched (stored_id), one with the same name, or a
+  // new one (completed first with the scraper's group scrape when the setting is on).
+  function resolveGroup(g) {
+    var name = String(g.name || "").trim();
+    if (g.stored_id) return Promise.resolve(String(g.stored_id));
+    return singleFlight("CG:" + name.toLowerCase(), function () {
+      return gql("FG", Q_FG, { n: name }).then(function (d) {
+        var lst = (d.findGroups || {}).groups || [];
+        if (lst.length) return lst[0].id;
+        var full = (pluginConfig.scrapeGroupsEnrich && g.urls && g.urls.length)
+          ? fetchGroupPreview(g.urls[0]).catch(function () { return null; })
+          : Promise.resolve(null);
+        return full.then(function (f) {
+          var m = Object.assign({}, g);
+          if (f) {
+            ["aliases", "duration", "date", "rating", "director", "synopsis", "front_image", "back_image"].forEach(function (k) { if (f[k] && !m[k]) m[k] = f[k]; });
+            if (f.studio && !m.studio) m.studio = f.studio;
+          }
+          return gql("CG", M_CG, { input: groupInput(m) }).then(function (d2) { return d2.groupCreate.id; });
+        });
+      });
+    });
+  }
 
   var Q_FT = "query FT($n:String!){findTags(tag_filter:{name:{value:$n,modifier:EQUALS}},filter:{per_page:1}){tags{id}}}";
 
@@ -8836,7 +9071,13 @@
         }))
       : Promise.resolve([]);
 
-    return Promise.all([p_studio, p_perfs, p_tags, p_otherStudios]).then(function (res) {
+    // Groups the user ticked (scraped.groups only holds those): found, or created, then linked to the scene
+    var p_groups = Promise.all((scraped.groups || []).map(function (g) {
+      if (!g || !g.name) return Promise.resolve(null);
+      return resolveGroup(g).then(function (gid) { return { group_id: String(gid), scene_index: typeof g.scene_index === "number" ? g.scene_index : null }; });
+    }));
+
+    return Promise.all([p_studio, p_perfs, p_tags, p_otherStudios, p_groups]).then(function (res) {
       var inp = { id: String(sceneID) };
       if (scraped.title)    inp.title    = scraped.title;
       if (scraped.date)     inp.date     = scraped.date;
@@ -8848,6 +9089,18 @@
       if (res[0])           inp.studio_id      = res[0];
       var pids = res[1].filter(Boolean);
       var tids = res[2].filter(Boolean);
+      var chosenGroups = res[4].filter(Boolean);
+      if (chosenGroups.length) {
+        // groups on sceneUpdate REPLACE the list: keep the ones already on the scene, add (or renumber) the chosen ones
+        var keptGroups = (((state.rows[sceneID] || {}).scene || {}).groups || []).filter(function (x) { return x && x.group; })
+          .map(function (x) { return { group_id: String(x.group.id), scene_index: x.scene_index == null ? null : x.scene_index }; });
+        chosenGroups.forEach(function (ng) {
+          var k = -1;
+          keptGroups.forEach(function (x, ix) { if (x.group_id === ng.group_id) k = ix; });
+          if (k === -1) keptGroups.push(ng); else if (ng.scene_index != null) keptGroups[k].scene_index = ng.scene_index;
+        });
+        inp.groups = keptGroups;
+      }
       if (pids.length || scraped.clearPerformers) inp.performer_ids = pids;
       if (tids.length || scraped.clearTags) inp.tag_ids = tids;
       if (state.rows[sceneID].markOrganized && !fieldsOnly) inp.organized = true;   // a restricted "Fields" apply never marks organized
@@ -8916,7 +9169,7 @@
   // races that were impossible to fully eliminate (see history of attempts).
   // ────────────────────────────────────────────────────────────────────────
 
-  var Q_FIND_BY_IDS = "query FindScenesByIds($ids:[ID!]){findScenes(ids:$ids){count scenes{id title stash_ids{endpoint stash_id} urls date code details director organized paths{screenshot preview stream}files{path basename duration}studio{id name image_path details}performers{id name image_path}tags{id name}}}}";
+  var Q_FIND_BY_IDS = "query FindScenesByIds($ids:[ID!]){findScenes(ids:$ids){count scenes{id title stash_ids{endpoint stash_id} urls date code details director organized paths{screenshot preview stream}files{path basename duration}studio{id name image_path details}performers{id name image_path}tags{id name}groups{group{id name} scene_index}}}}";
 
   // IDs of the scenes visible on the page, in display order. Each Stash view draws the scenes with its
   // own markup: Grid = .scene-card, Wall = .wall-item, List = the rows of a table (no .scene-card at all
