@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.32.6"
+version: "1.32.8"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -305,6 +305,16 @@ settings:
   scrapeGroupsPreview:
     displayName: "Scrape groups - cover preview (Preview button)"
     description: "Shows each scraped group as a card with its front and back cover and its details. Nothing is loaded until you click Preview on a group (one call to the scraper). The covers you previewed are kept: ticking the group creates it with them."
+    type: BOOLEAN
+
+  scrapeGroupsPreviewAuto:
+    displayName: "Scrape groups - load the covers automatically (single scene)"
+    description: "In the single scene panel, the covers and details of each new group are loaded as soon as the scrape result is shown, without clicking Preview."
+    type: BOOLEAN
+
+  scrapeGroupsPreviewAutoMass:
+    displayName: "Scrape groups - load the covers automatically (mass list)"
+    description: "In the mass list, the covers of every scraped row are loaded automatically, one group at a time (about 1 to 2 seconds and 200 KB each)."
     type: BOOLEAN
 
   scrapeGroupsEnrich:

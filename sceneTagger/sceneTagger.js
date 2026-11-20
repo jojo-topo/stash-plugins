@@ -853,7 +853,7 @@
     if (!fieldOn("studio")) { delete f.studio; delete f.otherStudioNames; delete f.studioSocial; delete f.sceneStudioSocial; }
     if (!fieldOn("performers")) { delete f.performers; delete f.clearPerformers; }
     if (!fieldOn("tags")) { delete f.tags; delete f.clearTags; }
-    if (!fieldOn("groups")) delete f.groups;
+    if (!fieldOn("groups")) { delete f.groups; delete f.removeGroupIds; }
     if (!fieldOn("details")) { delete f.details; delete f.code; delete f.director; }
     if (!fieldOn("urls")) delete f.urls;
     if (!fieldOn("cover")) delete f.image;
@@ -3072,6 +3072,8 @@
     bindSettingCb("st-cfg-tags",                "autoCheckNewTags");
     bindSettingCb("st-cfg-scrape-groups",       "scrapeGroups");
     bindSettingCb("st-cfg-scrape-groups-preview", "scrapeGroupsPreview");
+    bindSettingCb("st-cfg-scrape-groups-preview-auto", "scrapeGroupsPreviewAuto");
+    bindSettingCb("st-cfg-scrape-groups-preview-auto-mass", "scrapeGroupsPreviewAutoMass");
     bindSettingCb("st-cfg-scrape-groups-enrich", "scrapeGroupsEnrich");
     bindSettingCb("st-cfg-replace-tags",        "replaceTags");
     bindSettingCb("st-cfg-replace-performers",  "replacePerformers");
@@ -4068,6 +4070,10 @@
       selectedGroups.push(gm);
     });
     if (selectedGroups.length) filtered.groups = selectedGroups;
+    // Groups already on the scene that the user took off (x on their pill): see applyScrapedData()
+    var removeGroupIds = (r.scene.groups || []).filter(function (g) { return g && g.group && groupIsRemoved(r, g.group.id); })
+      .map(function (g) { return String(g.group.id); });
+    if (removeGroupIds.length) filtered.removeGroupIds = removeGroupIds;
 
     // Always keep whatever's already on the scene - performer_ids/tag_ids
     // on sceneUpdate REPLACE the list rather than add to it, so without
@@ -4288,7 +4294,7 @@
 
       rowSecTags({ scene: scene, useSplitTags: useSplitTags, r: r, scraped: scraped, searchInExisting: searchInExisting, isSolo: isSolo, fields: fields });
 
-      rowSecGroups({ scene: scene, r: r, scraped: scraped, isSolo: isSolo, fields: fields });
+      rowSecGroups({ scene: scene, r: r, scraped: scraped, isSolo: isSolo, fields: fields, id: id });
 
       rowSecDetails({ isSolo: isSolo, panelElForMode: panelElForMode, scraped: scraped, fields: fields, scene: scene, r: r });
 
@@ -5614,10 +5620,23 @@
     sceneGroups.forEach(function (g) { onScene[String(g.group.id)] = true; });
     var existingHTML = sceneGroups.length
       ? '<div class="st-existing-pills">' + sceneGroups.map(function (g) {
-          return '<span class="st-existing-pill st-existing-pill-group" data-group-id="' + esc(g.group.id) + '"><span class="st-tag-name">' + esc(g.group.name) +
-            (g.scene_index ? ' - #' + esc(String(g.scene_index)) : '') + '</span></span>';
+          var rmG = groupIsRemoved(r, g.group.id);
+          return '<span class="st-existing-pill st-existing-pill-group' + (rmG ? ' st-existing-removed' : '') + '" data-group-id="' + esc(g.group.id) + '"><span class="st-tag-name">' + esc(g.group.name) +
+            (g.scene_index ? ' - #' + esc(String(g.scene_index)) : '') + '</span>' +
+            '<button type="button" class="st-existing-remove" title="' + (rmG ? 'Keep on this scene' : 'Remove from this scene (on Apply)') + '">' + (rmG ? '&#8634;' : '&times;') + '</button></span>';
         }).join("") + '</div>'
       : "";
+    // Automatic loading of the covers (settings scrapeGroupsPreviewAuto = single scene, ...AutoMass = mass list): once per
+    // scrape result, for the groups that can be previewed (a URL) and that are not on the scene yet. Single scene: at once;
+    // mass list: one at a time (queue). Off by default.
+    if (cards && r.groupAutoFor !== scraped && cx.id && (isSolo ? pluginConfig.scrapeGroupsPreviewAuto : pluginConfig.scrapeGroupsPreviewAutoMass)) {
+      r.groupAutoFor = scraped;
+      var todo = [];
+      scrapedGroups.forEach(function (g, i) {
+        if (g && g.name && g.urls && g.urls.length && !(g.stored_id && onScene[String(g.stored_id)]) && !r.groupPrev[i]) todo.push(i);
+      });
+      if (todo.length) setTimeout(function () { todo.forEach(function (i) { if (isSolo) loadGroupPreview(cx.id, i); else queueGroupPreview(cx.id, i); }); }, 0);
+    }
     var newCount = 0;
     var items = scrapedGroups.map(function (g, i) {
       if (!g || !g.name || (g.stored_id && onScene[String(g.stored_id)])) return "";
@@ -5649,7 +5668,7 @@
       var coversHTML = cover("front_image", "front") + cover("back_image", "back");
       var rows = [["Date", pick("date")], ["Duration", groupDurationText(pick("duration"))], ["Studio", studioName], ["Director", pick("director")]]
         .filter(function (x) { return x[1]; }).map(function (x) { return '<dt>' + x[0] + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join("");
-      var note = pv.status === "loading" ? "Loading the covers..." : pv.status === "error" ? "Preview failed: " + pv.msg
+      var note = pv.status === "loading" ? "Loading the covers..." : pv.status === "queued" ? "Waiting for its turn to load the covers..." : pv.status === "error" ? "Preview failed: " + pv.msg
         : d ? "Covers kept: the group is created with them" : hasUrl ? "" : "No page to preview";
       var btn = hasUrl
         ? '<button type="button" class="st-group-preview-btn" data-gi="' + i + '"' + (pv.status === "loading" ? ' disabled' : '') + '>' +
@@ -6451,6 +6470,18 @@
   // button loads the group's covers and details through the scraper's group scrape (cached, see fetchGroupPreview()).
   function rowWireGroups(cx) {
     var el = cx.el, r = cx.r, id = cx.id;
+    el.querySelectorAll(".st-existing-pill-group .st-existing-remove").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.preventDefault(); e.stopPropagation();
+        var pill = btn.closest(".st-existing-pill-group");
+        var gid = pill && pill.getAttribute("data-group-id");
+        if (!gid) return;
+        var rm = toggleGroupRemoved(r, gid);
+        pill.classList.toggle("st-existing-removed", rm);
+        btn.innerHTML = rm ? "&#8634;" : "&times;";
+        btn.title = rm ? "Keep on this scene" : "Remove from this scene (on Apply)";
+      });
+    });
     el.querySelectorAll('[data-cb="group"]').forEach(function (cb) {
       cb.addEventListener("change", function () {
         r.groupOn = r.groupOn || {};
@@ -6468,21 +6499,40 @@
     el.querySelectorAll(".st-group-preview-btn").forEach(function (btn) {
       btn.addEventListener("click", function (e) {
         e.preventDefault(); e.stopPropagation();
-        var gi = parseInt(btn.getAttribute("data-gi"), 10), g = r.scraped && r.scraped.groups && r.scraped.groups[gi];
-        if (!g || !g.urls || !g.urls.length) return;
-        r.groupPrev = r.groupPrev || {};
-        if (r.groupPrev[gi] && r.groupPrev[gi].status === "loading") return;
-        var scrapedNow = r.scraped;
-        r.groupPrev[gi] = { status: "loading" };
-        renderRow(id);
-        fetchGroupPreview(g.urls[0]).then(function (d) { return { status: "done", data: d }; },
-          function (err) { return { status: "error", msg: String((err && err.message) || err) }; }).then(function (res) {
-          if (r.scraped !== scrapedNow) return;   // a new scrape replaced the result meanwhile
-          r.groupPrev[gi] = res;
-          if (state.rows[id]) renderRow(id);
-        });
+        loadGroupPreview(id, parseInt(btn.getAttribute("data-gi"), 10));
       });
     });
+  }
+
+  // Loads the covers and details of the scraped group number gi of row id (the scraper's group scrape, cached by URL).
+  // Used by the Preview button and by the automatic loading (settings scrapeGroupsPreviewAuto / ...AutoMass).
+  function loadGroupPreview(id, gi) {
+    var r = state.rows[id], g = r && r.scraped && r.scraped.groups && r.scraped.groups[gi];
+    if (!g || !g.urls || !g.urls.length) return Promise.resolve();
+    r.groupPrev = r.groupPrev || {};
+    if (r.groupPrev[gi] && r.groupPrev[gi].status === "loading") return Promise.resolve();
+    var scrapedNow = r.scraped;
+    r.groupPrev[gi] = { status: "loading" };
+    renderRow(id);
+    return fetchGroupPreview(g.urls[0]).then(function (d) { return { status: "done", data: d }; },
+      function (err) { return { status: "error", msg: String((err && err.message) || err) }; }).then(function (res) {
+      if (r.scraped !== scrapedNow) return;   // a new scrape replaced the result meanwhile
+      r.groupPrev[gi] = res;
+      if (state.rows[id]) renderRow(id);
+    });
+  }
+  // Mass list: the automatic loadings wait in one chain, so the scraper gets one group page at a time
+  var groupPrevChain = Promise.resolve();
+  function queueGroupPreview(id, gi) {
+    var r = state.rows[id];
+    if (!r) return;
+    r.groupPrev = r.groupPrev || {};
+    r.groupPrev[gi] = { status: "queued" };
+    groupPrevChain = groupPrevChain.then(function () {
+      var rr = state.rows[id];
+      if (!rr || !rr.groupPrev || !rr.groupPrev[gi] || rr.groupPrev[gi].status !== "queued") return null;   // clicked meanwhile, or the row is gone
+      return loadGroupPreview(id, gi);
+    }).catch(function () {});
   }
 
   function rowWireTagSearch(cx) {
@@ -6759,6 +6809,8 @@
     stItem("st-cfg-performer", "autoCheckPerformer", "apply", "Pre-checked after a scrape", "cb", "Auto-check new performers", { short: "Pre-check new performers", kw: "auto-check precheck" }),
     stItem("st-cfg-scrape-groups", "scrapeGroups", "apply", "Groups", "cb", "Scrape groups", { short: "Scrape groups", hint: "Adds a Groups block to each row with the groups the scraper returns (AdultEmpire and a few others). Nothing in it is pre-checked: tick a group to add it to the scene on Apply. A group that is not in your library yet is created (name, date, duration, covers...). The groups already on the scene are always kept. Takes effect on the next scrape.", kw: "groups group movie dvd adultempire" }),
     stItem("st-cfg-scrape-groups-preview", "scrapeGroupsPreview", "apply", "Groups", "cb", "Cover preview (Preview button)", { lvl: 1, par: "st-cfg-scrape-groups", hint: "Shows each scraped group as a card with its front and back cover and its details. Nothing is loaded until you click Preview on a group (one call to the scraper, about 1 to 2 seconds and 200 KB). The covers you previewed are kept: ticking the group creates it with them. With the NSFW/SFW button on, the covers are blurred like the other images.", kw: "groups preview cover front back image thumbnail card" }),
+    stItem("st-cfg-scrape-groups-preview-auto", "scrapeGroupsPreviewAuto", "apply", "Groups", "cb", "Load the covers automatically (single scene)", { lvl: 2, par: "st-cfg-scrape-groups-preview", hint: "In the single scene panel, the covers and details of each new group are loaded as soon as the scrape result is shown, without clicking Preview. One call to the scraper per group (about 1 to 2 seconds, 200 KB).", kw: "groups preview cover automatic auto load" }),
+    stItem("st-cfg-scrape-groups-preview-auto-mass", "scrapeGroupsPreviewAutoMass", "apply", "Groups", "cb", "Load the covers automatically (mass list)", { lvl: 2, par: "st-cfg-scrape-groups-preview", hint: "In the mass list, the covers of every scraped row are loaded automatically, ONE GROUP AT A TIME (about 1 to 2 seconds and 200 KB each): with 40 rows that is about a minute and 8 MB. Off: each row waits for its Preview click.", kw: "groups preview cover automatic auto load mass list" }),
     stItem("st-cfg-scrape-groups-enrich", "scrapeGroupsEnrich", "apply", "Groups", "cb", "Complete a new group from its page", { lvl: 1, par: "st-cfg-scrape-groups", hint: "Some scrapers return only the name and the URL of a group. With this on, a group that has to be created is first completed with the scraper's own group scrape (covers, date, duration, director, synopsis). Off: the group is created with what the scene scrape returned, like Stash does.", kw: "groups enrich complete cover date duration" }),
     stItem("st-cfg-tags", "autoCheckNewTags", "apply", "Pre-checked after a scrape", "cb", "Auto-check new tags", { short: "Pre-check new tags", kw: "auto-check precheck" }),
     stItem("st-cfg-replace-tags", "replaceTags", "apply", "Stay in sync with the scrape", "cb", "Replace the tags on the scene", { hint: "On Apply, tags already on the scene that the scrape does not return are removed (struck through in the row, click the arrow to keep one). Only when the scrape returns at least one tag.", kw: "replace remove sync overwrite stashbox" }),
@@ -7828,6 +7880,8 @@
     autoCheckPerformer:      false,
     autoCheckNewTags:        false,
     scrapeGroups:            false,   // Groups block: the groups a scraper returns (never pre-checked)
+    scrapeGroupsPreviewAuto: false,   // single scene panel: load the covers as soon as the scrape result is shown
+    scrapeGroupsPreviewAutoMass: false, // mass list: same, one group at a time (heavier: about 1-2 s and 200 KB per group)
     scrapeGroupsPreview:     false,   // Groups block: a Preview button (front + back cover, details) on each group that has a URL
     scrapeGroupsEnrich:      false,   // new group with a URL: complete it with the scraper's group scrape (covers, date, duration...)
     replaceTags:             false,   // Apply: tags on the scene that the scrape does not return are removed
@@ -8042,6 +8096,8 @@
           if (cfg.autoCheckPerformer !== undefined) pluginConfig.autoCheckPerformer = !!cfg.autoCheckPerformer;
           if (cfg.autoCheckNewTags   !== undefined) pluginConfig.autoCheckNewTags   = !!cfg.autoCheckNewTags;
           if (cfg.scrapeGroups       !== undefined) pluginConfig.scrapeGroups       = !!cfg.scrapeGroups;
+          if (cfg.scrapeGroupsPreviewAuto !== undefined) pluginConfig.scrapeGroupsPreviewAuto = !!cfg.scrapeGroupsPreviewAuto;
+          if (cfg.scrapeGroupsPreviewAutoMass !== undefined) pluginConfig.scrapeGroupsPreviewAutoMass = !!cfg.scrapeGroupsPreviewAutoMass;
           if (cfg.scrapeGroupsPreview !== undefined) pluginConfig.scrapeGroupsPreview = !!cfg.scrapeGroupsPreview;
           if (cfg.scrapeGroupsEnrich !== undefined) pluginConfig.scrapeGroupsEnrich = !!cfg.scrapeGroupsEnrich;
           if (cfg.replaceTags        !== undefined) pluginConfig.replaceTags        = !!cfg.replaceTags;
@@ -8911,6 +8967,15 @@
     return !list.some(function (x) { return x && x.stored_id && String(x.stored_id) === id; });
   }
 
+  // Groups already on the scene that Apply will take off: only the x the user clicked (no "replace" setting for groups).
+  function groupIsRemoved(r, id) { return !!(r.removedGroupIds && r.removedGroupIds[String(id)]); }
+  function toggleGroupRemoved(r, id) {
+    r.removedGroupIds = r.removedGroupIds || {};
+    id = String(id);
+    if (r.removedGroupIds[id]) { delete r.removedGroupIds[id]; return false; }
+    r.removedGroupIds[id] = true; return true;
+  }
+
   function toggleExistingRemoved(r, kind, id) {
     id = String(id);
     var isTag = kind === "tag";
@@ -9107,9 +9172,11 @@
       var pids = res[1].filter(Boolean);
       var tids = res[2].filter(Boolean);
       var chosenGroups = res[4].filter(Boolean);
-      if (chosenGroups.length) {
-        // groups on sceneUpdate REPLACE the list: keep the ones already on the scene, add (or renumber) the chosen ones
-        var keptGroups = (((state.rows[sceneID] || {}).scene || {}).groups || []).filter(function (x) { return x && x.group; })
+      var removedGroups = (scraped.removeGroupIds || []).map(String);
+      if (chosenGroups.length || removedGroups.length) {
+        // groups on sceneUpdate REPLACE the list: keep the ones already on the scene (minus the ones the user took off with
+        // the x of their pill), add (or renumber) the chosen ones. Nothing left = an empty list, which clears the groups.
+        var keptGroups = (((state.rows[sceneID] || {}).scene || {}).groups || []).filter(function (x) { return x && x.group && removedGroups.indexOf(String(x.group.id)) === -1; })
           .map(function (x) { return { group_id: String(x.group.id), scene_index: x.scene_index == null ? null : x.scene_index }; });
         chosenGroups.forEach(function (ng) {
           var k = -1;

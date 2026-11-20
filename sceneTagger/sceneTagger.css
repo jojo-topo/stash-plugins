@@ -5985,3 +5985,12 @@ html #st-panel.st-compact .st-row-btn .st-btn.st-retry-done:active:not(:disabled
 #st-panel .st-group-preview-btn:disabled { opacity: .5; cursor: default; }
 /* card layout: the cards need the full width, so "Already on this scene" and "New from scrape" are stacked */
 #st-panel#st-panel .st-inline-groups.st-groups-cards .st-split-cols { grid-template-columns: minmax(0, 1fr) !important; gap: 8px; }
+
+/* same x on the groups already on the scene */
+#st-panel .st-existing-pill-group { display: inline-flex; align-items: center; }
+#st-panel .st-existing-pill-group .st-existing-remove { flex: none; width: 16px; height: 16px; margin-left: 6px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .12); color: inherit; font-size: 12px; line-height: 16px; cursor: pointer; opacity: .55; }
+#st-panel .st-existing-pill-group:hover .st-existing-remove { opacity: 1; }
+#st-panel .st-existing-pill-group .st-existing-remove:hover { background: #b44; color: #fff; }
+#st-panel .st-existing-pill-group.st-existing-removed { opacity: .55; }
+#st-panel .st-existing-pill-group.st-existing-removed .st-tag-name { text-decoration: line-through; }
+#st-panel .st-existing-pill-group.st-existing-removed .st-existing-remove:hover { background: #3a7; }
