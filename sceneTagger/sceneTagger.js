@@ -3160,28 +3160,41 @@
       });
     })();
     // Settings panel height: drag the bar at its bottom edge, double-click to
-    // go back to the automatic height. Remembered (per browser).
+    // go back to the automatic height. Remembered (per browser, per address).
+    // The height is always cut to the room the panel really has: a height remembered from a bigger window (other screen,
+    // other zoom) used to push the resize bar and the list below the screen (the bar could not even be reached to reset it).
     (function () {
       var handle = document.getElementById("st-settings-resize");
       var sp = document.getElementById("st-settings-panel");
+      var panelEl = document.getElementById("st-panel");
       if (!handle || !sp) return;
+      var desired = null;   // the height the user chose (never cut), given back when the room grows again
+      // room = the panel's height minus its title bar, minus a margin that keeps the resize bar and the top of the list in view
+      var maxH = function () {
+        var panelH = panelEl && panelEl.clientHeight > 200 ? panelEl.clientHeight : window.innerHeight;
+        var bar = document.getElementById("st-titlebar");
+        return Math.max(120, panelH - (bar ? bar.offsetHeight : 48) - 140);
+      };
       var applyHeight = function (h) {
         sp.style.maxHeight = "none";
         sp.style.minHeight = "0";   // the new layout has a CSS minimum height: a manual resize may go below it
         sp.style.flexShrink = "0";
-        sp.style.height = h + "px";
+        sp.style.height = Math.max(60, Math.min(h, maxH())) + "px";
       };
       try {
         var savedH = parseInt(localStorage.getItem("stSettingsHeight"), 10);
-        if (savedH >= 60) applyHeight(savedH);
+        if (savedH >= 60) { desired = savedH; applyHeight(savedH); }
       } catch (e) {}
+      // the room changes with the window (resize, zoom, full screen) and when the panel is shown: cut / give back the height
+      if (window.ResizeObserver && panelEl) new ResizeObserver(function () { if (desired) applyHeight(desired); }).observe(panelEl);
+      window.addEventListener("resize", function () { if (desired) applyHeight(desired); });
       handle.addEventListener("mousedown", function (e) {
         e.preventDefault();
         var startY = e.clientY;
         var startH = sp.getBoundingClientRect().height;
         var move = function (ev) {
-          var h = Math.max(60, Math.min(window.innerHeight * 0.9, startH + ev.clientY - startY));
-          applyHeight(Math.round(h));
+          desired = Math.round(Math.max(60, Math.min(maxH(), startH + ev.clientY - startY)));
+          applyHeight(desired);
         };
         var up = function () {
           document.removeEventListener("mousemove", move);
@@ -3192,6 +3205,7 @@
         document.addEventListener("mouseup", up);
       });
       handle.addEventListener("dblclick", function () {
+        desired = null;
         sp.style.height = "";
         sp.style.maxHeight = "";
         sp.style.minHeight = "";
