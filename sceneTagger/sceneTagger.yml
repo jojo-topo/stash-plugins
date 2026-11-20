@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.30.1"
+version: "1.32.13"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -122,6 +122,86 @@ settings:
     description: "Strips the file extension, dates, resolutions and punctuation from the text sent by 'Search title' (some scrapers like Pornhub return 404 otherwise)."
     type: BOOLEAN
 
+  showDateField:
+    displayName: "Editable Date field in the list"
+    description: "In the list, every row gets the calendar field of the single-scene panel: it starts with the scraped date (or is empty when none was found) and can be changed or cleared. Off: a scraped date stays a chip with a tick box."
+    type: BOOLEAN
+
+  fileNameDate:
+    displayName: "Offer the date found in the file name"
+    description: "Reads a date such as 23.02.07 or 2023-02-07 in the file name and offers it next to the Date field (button). Nothing is written until Apply."
+    type: BOOLEAN
+
+  fileNameDateAuto:
+    displayName: "Fill the date from the file name by itself"
+    description: "Sub-option of 'Offer the date found in the file name'. When the scrape found no date and the scene has none yet, the Date field is pre-filled with the date in the file name (still editable; Apply All writes it). Only unambiguous names are used: 4-digit year first (2011-09-20, 20110920). 23.02.07 is never filled automatically."
+    type: BOOLEAN
+
+  fileNameDateFolders:
+    displayName: "Also read year and month from the folder names"
+    description: "Sub-option of 'Offer the date found in the file name'. A folder named like a year followed by a month folder (2011/September) gives year and month; the day comes from a neighbouring scene of the same folder when it has one, otherwise the 1st. A year folder with no month folder gives January 1st of that year. The file name date always wins. Nothing is written until Apply."
+    type: BOOLEAN
+
+  fileNameDateDmy:
+    displayName: "Read 23.02.07 as day.month.year"
+    description: "Sub-option of 'Offer the date found in the file name'. Default order is year.month.day."
+    type: BOOLEAN
+
+  fileNameStudio:
+    displayName: "Offer the studio the file name starts with"
+    description: "When neither the scene nor the scrape has a studio, offers (button) the library studio or alias the file name starts with. Nothing is written until Apply."
+    type: BOOLEAN
+
+  fileNameStudioAuto:
+    displayName: "Pick the file-name studio automatically"
+    description: "Sub-option of 'Offer the studio the file name starts with': the studio is chosen as soon as the row is shown (the cross cancels it) instead of waiting for a click. A studio on your Blacklist is never picked. Apply All saves it without another look."
+    type: BOOLEAN
+
+  hideBtnMass:
+    displayName: "Hide the 'Mass search' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnClear:
+    displayName: "Hide the 'Clear' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnMode:
+    displayName: "Hide the 'Auto / Manual' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnSfw:
+    displayName: "Hide the 'SFW' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnBulk:
+    displayName: "Hide the 'Bulk' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  hideBtnFields:
+    displayName: "Hide the 'Fields' button of the panel bar"
+    description: "Only hides the button; what it does keeps its current setting. Scrape All, Apply All and Skip All cannot be hidden."
+    type: BOOLEAN
+
+  massSearchAutoScraper:
+    displayName: "Mass search: use the scraper that matches each scene"
+    description: "On by default. A scene whose saved URL (or a YouTube id in its file name) belongs to one of your search-capable scrapers is searched with that scraper; the others use the one chosen next to the Mass search button."
+    type: BOOLEAN
+
+  openSceneClassic:
+    displayName: "Thumbnails open the classic Stash page (in Stash UI)"
+    description: "Only inside Stash UI: a click on a row's thumbnail opens the scene in Stash UI by default; with this on it opens the classic Stash page instead."
+    type: BOOLEAN
+
+  massSearchMax:
+    displayName: "Mass search: results shown per row"
+    description: "3-25, default 8. How many search results each row shows after 'Mass search' (the scraper itself may return about 20-25)."
+    type: NUMBER
+
   namePatternsOn:
     displayName: "Use my file-name patterns"
     description: "Cleans the file name with your own patterns (words, text or regex) before it fills 'Search title'. Nothing is renamed. Only a pattern with 'Scraped title' ticked changes the title that Apply saves."
@@ -212,6 +292,51 @@ settings:
     description: "Weaker matches are hidden. Default 20; 35 and above are shown as medium, 55 and above as high."
     type: NUMBER
 
+  suggestThumbs:
+    displayName: "Show suggestions as thumbnails"
+    description: "If enabled, performer suggestions are a row of small portraits with a score ring (cards in the scene popup, round avatars in the mass list) instead of pills. Hover a portrait for a bigger photo and the reasons. Photos load only when they scroll into view."
+    type: BOOLEAN
+
+  scrapeGroups:
+    displayName: "Scrape groups"
+    description: "Adds a Groups block to each row with the groups the scraper returns (AdultEmpire and a few others). Nothing is pre-checked; a group that is not in your library is created on Apply. The groups already on the scene are always kept."
+    type: BOOLEAN
+
+  ignoreMovieCover:
+    displayName: "Don't use the movie cover as the scene cover"
+    description: "When the scraped page is a movie page (AdultEmpire, for example), the scraper returns the movie cover as the scene image. With this on, that image is not offered as the scene cover and Apply never replaces the scene cover with it. A clip page is not touched."
+    type: BOOLEAN
+
+  scrapeGroupsPreview:
+    displayName: "Scrape groups - cover preview (Preview button)"
+    description: "Shows each scraped group as a card with its front and back cover and its details. Nothing is loaded until you click Preview on a group (one call to the scraper). The covers you previewed are kept: ticking the group creates it with them."
+    type: BOOLEAN
+
+  scrapeGroupsPreviewAuto:
+    displayName: "Scrape groups - load the covers automatically (single scene)"
+    description: "In the single scene panel, the covers and details of each new group are loaded as soon as the scrape result is shown, without clicking Preview."
+    type: BOOLEAN
+
+  scrapeGroupsPreviewAutoMass:
+    displayName: "Scrape groups - load the covers automatically (mass list)"
+    description: "In the mass list, the covers of every scraped row are loaded automatically, one group at a time (about 1 to 2 seconds and 200 KB each)."
+    type: BOOLEAN
+
+  scrapeGroupsEnrich:
+    displayName: "Scrape groups - complete a new group from its page"
+    description: "A group that has to be created is first completed with the scraper's own group scrape (covers, date, duration, director, synopsis). Off: it is created with what the scene scrape returned."
+    type: BOOLEAN
+
+  suggestFaceCloud:
+    displayName: "Suggest performers - face recognition (Visage cloud)"
+    description: "Adds a Scan face button to the Suggested block. The scene cover (reduced to 640 px) is sent to the public Visage server (cc1234-stashface-onnx.hf.space) when you press it. Only real performers known to StashDB are recognised."
+    type: BOOLEAN
+
+  suggestFaceCloudUrl:
+    displayName: "Face recognition (Visage cloud) - server URL"
+    description: "Empty = the public Visage Space (https://cc1234-stashface-onnx.hf.space). To use another Visage-compatible server, type its address here AND add it under csp > connect-src in sceneTagger.yml (Stash blocks any other address), then reload plugins."
+    type: STRING
+
 ui:
   javascript:
     - performerFinder.js
@@ -222,3 +347,6 @@ ui:
     - sceneTagger.css
   assets:
     /: assets
+  csp:
+    connect-src:
+      - "https://cc1234-stashface-onnx.hf.space"

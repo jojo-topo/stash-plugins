@@ -48,8 +48,7 @@
 }
 /* Settings > Display > "Hide Auto/Manual toggle on scene page" - some
    users never touch it there and prefer the extra vertical space back. */
-#st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-btn-scraper-mode,
-#st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-scraper-select-manual {
+#st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-mode-split {
   display: none !important;
 }
 /* With both of the above hidden, #st-panel-header is empty in solo mode
@@ -1330,7 +1329,7 @@ html #st-panel.st-compact .st-row-btn .st-btn.st-retry-done { width: 22px !impor
   align-items: flex-start;
 }
 .st-existing-caption.st-new { color: #d0a868; }
-.st-count-hint { color: #616975; font-weight: 400; }
+.st-count-hint { color: #9ba5b3; font-weight: 400; }
 
 /* ── Studio: stacked existing/new rows with a reserved logo zone.
    object-fit:contain (not cover) so a wide/rectangular studio logo shows
@@ -1403,6 +1402,13 @@ html #st-panel.st-compact .st-row-btn .st-btn.st-retry-done { width: 22px !impor
   box-sizing: border-box;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
+.st-details-modes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px; }
+.st-details-mode {
+  font-size: 11px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .12); color: #aeb6c2;
+}
+.st-details-mode:hover { background: rgba(255, 255, 255, .12); }
+.st-details-mode.st-on { background: #3d8bd6; border-color: #3d8bd6; color: #fff; font-weight: 600; }
 .st-details-edit:focus { border-color: #5e81ac; box-shadow: 0 0 0 3px #5e81ac22; }
 .st-details-edit::placeholder { color: #4e5560; }
 
@@ -1532,6 +1538,8 @@ html #st-panel.st-compact .st-row-btn .st-btn.st-retry-done { width: 22px !impor
   overflow: hidden;
   text-overflow: ellipsis;
 }
+a.st-url-link { text-decoration: none; cursor: pointer; }
+a.st-url-link:hover { text-decoration: underline; }
 .st-url-badge-new {
   font-size: 9px;
   font-weight: 700;
@@ -2923,6 +2931,39 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
 #st-panel.st-panel-solo .st-cover-custom-wrap .st-cover-rm { right: 50%; margin-right: -104px; }
 .st-cover-rm-inline { position: static; align-self: center; flex-shrink: 0; }
 
+/* Cover paste (Ctrl+V / "Paste" button): ring on the target row while Ctrl is held, small pill next to the
+   Cover label, toast after a paste. CUSTOM (2026-11-19) */
+.st-row.st-paste-target { box-shadow: 0 0 0 2px #88c0d0; }
+.st-cover-paste {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 9px;
+  border: 1px solid #88c0d066;
+  border-radius: 999px;
+  color: #88c0d0;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  box-shadow: none;
+}
+.st-cover-paste:hover { background: #88c0d022; border-color: #88c0d0; }
+#st-cover-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  padding: 7px 14px;
+  border-radius: 9px;
+  border: 1px solid #4c7a58;
+  background: #1f2a22;
+  color: #b9e2c4;
+  font-size: 12px;
+  pointer-events: none;
+}
+
 /* Mass list: thumbnail as drop target */
 #st-panel.st-dragging:not(.st-panel-solo) .st-thumb-clip { outline: 2px dashed #4a6070; outline-offset: -2px; }
 .st-thumb-clip.st-dropover::after {
@@ -2986,7 +3027,7 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
   #st-panel-header { container-type: inline-size; }
   .st-filter-radios { order: 1; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; margin-left: 0; }
   @container (max-width: 410px) {
-    #st-btn-scraper-mode, #st-scraper-select-manual { order: 2; }
+    #st-mode-split { order: 2; }
   }
   /* Even narrower: Clear wraps too, so it joins Auto on the last row
      (same order -> DOM order kept, Clear then Auto) instead of sitting
@@ -3507,6 +3548,22 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
 }
 
 #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-option { position: relative; }
+/* CUSTOM (2026-11-19): the "Dropped image" tile is wrapped (.st-cover-custom-wrap) with its remove cross.
+   The wrap was not positioned here, so the cross floated to the top-right corner of the whole video card instead
+   of sitting on the dropped preview. Positioned wrap = the cross lands on the tile's top-right corner. */
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-custom-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 220px;
+  display: flex;
+  justify-content: center;
+}
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-custom-wrap > .st-cover-option { width: 100%; }
+#st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-cover-custom-wrap .st-cover-rm {
+  top: 6px;
+  right: 6px;
+  z-index: 4;
+}
 #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row-info .st-inline-cover { margin: 8px 0 0; width: 100%; box-sizing: border-box; padding: 12px; }
 #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row-info .st-inline-cover .st-cover-options { flex-direction: column; align-items: center; gap: 12px; }
 #st-panel.st-cover-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-row-info .st-inline-cover .st-cover-option img,
@@ -3579,7 +3636,7 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
     min-width: 0;
   }
   #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]) { grid-column: 1; order: 1; border-top: none; padding-right: 18px; }
-  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) { grid-column: 2; order: 2; border-top: none; padding-left: 18px; border-left: 1px solid #2c3542; }
+  #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:is(:has([data-cb="date"]), .st-inline-date) { grid-column: 2; order: 2; border-top: none; padding-left: 18px; border-left: 1px solid #2c3542; }
   #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-performers { grid-column: 1; order: 3; padding-right: 18px; }
   #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls { grid-column: 2; order: 4; padding-left: 18px; border-left: 1px solid #2c3542; }
   #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-tags { order: 5; }
@@ -3612,7 +3669,7 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard { display: flex; flex-direction: column; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field { order: 7; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]) { order: 1; }
-  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) { order: 2; }
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:is(:has([data-cb="date"]), .st-inline-date) { order: 2; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-performers { order: 3; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls { order: 4; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-tags { order: 5; }
@@ -3636,14 +3693,18 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
     margin: 0;
   }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]),
-  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:is(:has([data-cb="date"]), .st-inline-date) {
     border-top: 1px solid #2c3542;
   }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-artists .st-studio-idrow { padding-left: 0; padding-right: 0; }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard .st-inline-artists .st-studio-search-wrap {
     margin-left: 0;
     max-width: 100%;
-    flex-basis: 100%;
+    /* 1.31.2: was "flex-basis: 100%", which in this COLUMN flex container means 100% of the HEIGHT: the
+       wrapper grew to the height of the whole studio block and the suggestion list (top: 100%) opened far
+       below the field. Full width is all that was wanted. */
+    flex: 0 0 auto;
+    width: 100%;
   }
 }
 
@@ -3730,6 +3791,8 @@ body.st-nsfw-on .st-studio-hover .st-sh-cover img {
     height: 100px;
   }
   #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) .st-studio-idrow { padding-left: 18px; padding-right: 18px; }
+  /* candidates row (None / studio A / studio B) lines up with the idrow above (the header is full bleed) */
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) .st-radio-group { padding-left: 18px; padding-right: 18px; }
 }
 
 /* Banner layout: "Manually added" is a small label beside the studio name,
@@ -4266,6 +4329,30 @@ html.st-sui #st-panel .st-state-applying .st-thumb-clip::after { content: "APPLY
 html.st-sui #st-panel .st-state-scraped .st-thumb-clip::after { content: "TO APPLY"; background: #e0a63e; color: #10181e; }
 html.st-sui #st-panel .st-state-done .st-thumb-clip::after { content: "APPLIED"; background: var(--st-ok); color: #10181e; }
 html.st-sui #st-panel .st-state-error .st-thumb-clip::after { content: "FAILED"; background: var(--st-bad); color: #fff; }
+/* CUSTOM (2026-11-19): drag-over on the row thumbnail. The state badges above (TO APPLY...) share this
+   ::after, so without this more specific rule the drop overlay came out as a full orange "TO APPLY" block. */
+html.st-sui #st-panel .st-row .st-thumb-clip.st-dropover::after {
+  content: "Drop an image";
+  inset: 0;
+  left: 0;
+  top: 0;
+  padding: 0;
+  z-index: 5;
+  border-radius: inherit;
+  background: rgba(14, 18, 24, .72);
+  -webkit-backdrop-filter: blur(6px) saturate(130%);
+  backdrop-filter: blur(6px) saturate(130%);
+  border: 2px dashed var(--st-acc, #88c0d0);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06), 0 0 18px rgba(136, 192, 208, .25);
+  color: var(--st-tx, #eceff4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font: 700 12px/1.2 var(--f-label, inherit);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
 
 /* Text, hints, inputs */
 html.st-sui #st-panel .st-filename,
@@ -4673,7 +4760,7 @@ html.st-sui #st-panel .st-btn:disabled { opacity: .6; }
    invisible on the glass. Palette secondary text, white on hover. */
 html.st-sui #st-panel :is(#st-titlebar-fullscreen, #st-titlebar-compact, #st-titlebar-patterns, #st-titlebar-settings, #st-titlebar-close) { color: var(--st-tx2); }
 html.st-sui #st-panel :is(#st-titlebar-fullscreen, #st-titlebar-compact, #st-titlebar-patterns, #st-titlebar-settings, #st-titlebar-close):hover { color: #fff; }
-html.st-sui #st-panel #st-titlebar-patterns.st-np-active { color: var(--pink, #88c0d0); }
+html.st-sui #st-panel #st-titlebar-patterns.st-np-open { color: var(--pink, #88c0d0); }   /* same grey as the other title-bar icons; blue only while the patterns window is open */
 html.st-sui #st-panel #st-titlebar-close:hover { color: color-mix(in srgb, var(--st-bad) 80%, #fff); }
 
 /* Stash UI skin: the "Search title" bar (source select + query input + Search button) takes the
@@ -4729,7 +4816,7 @@ html.st-sui #st-panel .st-ts-search-row .st-btn { height: 40px; }
 /* ...and the secondary buttons (Clear, Auto, Multi-studio) share the last row instead of each
    wrapping onto its own line: 3 rows in total instead of 4. */
 @media (max-width: 768px) {
-  html.st-sui #st-panel #st-panel-header :is(#st-btn-clear, #st-btn-scraper-mode, #st-scraper-select-manual, .st-multi-studio-toggle) { order: 3; }
+  html.st-sui #st-panel #st-panel-header :is(#st-btn-clear, #st-mode-split, .st-multi-studio-toggle) { order: 3; }
 }
 @media (max-width: 768px) {
   /* The filter group and Multi-studio live in .st-filter-radios; flattening it lets Multi-studio
@@ -4754,7 +4841,7 @@ html.st-sui #st-panel .st-ts-search-row .st-btn { height: 40px; }
   #st-panel .st-btn-collapse svg { transition: transform .25s ease; }
   #st-panel.st-hdr-collapsed .st-btn-collapse svg { transform: rotate(180deg); }
   #st-panel .st-btn-collapse:active { background: rgba(255, 255, 255, .16); }
-  #st-panel.st-hdr-collapsed #st-panel-header :is(#st-btn-clear, #st-btn-scraper-mode, #st-scraper-select-manual, .st-filter-radios) { display: none; }
+  #st-panel.st-hdr-collapsed #st-panel-header :is(#st-btn-clear, #st-mode-split, .st-filter-radios) { display: none; }
 }
 
 /* Stash UI liquid glass: "Frosted glass panel" setting. The glass rules above read these variables, so redefining them
@@ -4789,7 +4876,7 @@ html.st-sui:has(#st-panel.st-fullscreen:not([style*="display: none"])) { overflo
   html.st-sui.kb-glass #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field { border-top: 1px solid var(--glass-edge); }
   html.st-sui.kb-glass #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:first-child,
   html.st-sui.kb-glass #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="title"]) { border-top: 0; }
-  html.st-sui.kb-glass #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:has([data-cb="date"]) { border-top: 0; border-left: 1px solid var(--glass-edge); }
+  html.st-sui.kb-glass #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-field:is(:has([data-cb="date"]), .st-inline-date) { border-top: 0; border-left: 1px solid var(--glass-edge); }
   html.st-sui.kb-glass #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-urls { border-left: 1px solid var(--glass-edge); }
   /* two-column mode has no top padding (its banner goes to the card edge with margin-top 0): keep it, or a 4px strip shows above the banner */
   html.st-sui.kb-glass #st-panel.st-one-card-cols.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard { padding: 0 18px; }
@@ -4878,6 +4965,7 @@ html.st-sui.kb-glass #st-panel .st-multi-studio-toggle.st-multi-exclude {
 #st-panel .st-sugg-b-details { color: #b6bfcb; }
 #st-panel .st-sugg-b-tag { color: #9fe3b8; }
 #st-panel .st-sugg-b-series { color: #d7b6ff; }
+#st-panel .st-sugg-b-new { color: #ffb86b; }
 #st-panel .st-sugg-score {
   font-size: 11px;
   font-weight: 700;
@@ -5146,7 +5234,7 @@ html.st-sui.kb-glass #st-panel .st-multi-studio-toggle.st-multi-exclude {
   opacity: .75;
 }
 .st-bulk-seg button.on { background: #1f7fc7; color: #fff; opacity: 1; }
-#st-bulk-preview { flex: 1; min-width: 140px; font-size: 12px; opacity: .9; }
+#st-bulk-preview { flex: 0 1 auto; min-width: 140px; font-size: 12px; opacity: .9; }
 #st-bulk-preview .ok { color: #8fd19e; }
 #st-bulk-preview .skp { color: #ffd48a; }
 #st-btn-bulk.st-bulk-on { background: #1f7fc7; border-color: #1f7fc7; color: #fff; }
@@ -5633,3 +5721,296 @@ html.st-sui #st-np-ov .st-np-btn:disabled { background: color-mix(in srgb, var(-
 html.st-sui.kb-glass #st-np-ov .st-np-inp,
 html.st-sui.kb-glass #st-np-ov .st-np-sel,
 html.st-sui.kb-glass #st-np-ov textarea { border-radius: 10px; }
+
+/* 1.31.2 file-name hints: button that offers the date read from the file name */
+#st-panel .st-fnhint { margin-top: 6px; font-size: 0.78em; }
+/* 1.31.2: in the mass list the card (.st-onecard) clips anything that overflows, so the calendar opens IN the flow (the card grows) instead of floating under the field. Solo keeps the floating popover. */
+#st-panel:not(.st-panel-solo) .st-date-popover { position: static; margin-top: 8px; }
+/* 1.31.2: the file-name studio button sits in the same wrap as the search input: same left edge, same width */
+#st-panel .st-ss-box { position: relative; }
+#st-panel .st-studio-search-wrap .st-fnhint-studio {
+  display: block; width: 100%; box-sizing: border-box; margin-top: 6px; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#st-panel .st-inline-artists .st-studio-search-wrap .st-fnhint-studio { max-width: 260px; }
+#st-panel .st-studio-search-wrap .st-fnhint-studio { font-size: 11px; }
+
+/* 1.31.2 Mass search: candidates of a row as a horizontal strip (the per-row "Search title" list stays vertical) */
+#st-panel .st-btn-mass { background: #5b46a8; border-color: #5b46a8; color: #fff; }   /* no lighter outline: the border has the colour of the fill (the divider before the caret stays) */
+#st-panel .st-btn-mass:hover { background: #6b55bd; border-color: #6b55bd; }
+#st-panel .st-btn-mass:disabled { opacity: 0.6; cursor: default; }
+#st-panel .st-title-search.st-ts-h { align-items: stretch; min-width: 0; }
+#st-panel .st-ts-h .st-ts-results {
+  flex-direction: row; max-height: none; overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; gap: 8px;
+}
+#st-panel .st-ts-h .st-ts-result {
+  display: flex; flex-direction: column; flex: 0 0 190px; width: 190px; gap: 6px; box-sizing: border-box;
+}
+#st-panel .st-ts-h .st-ts-thumb { width: 100%; }
+#st-panel .st-ts-result-exact { border-color: #4c9a6a; background: #1c2a24; }
+#st-panel .st-ts-exact {
+  display: inline-block; margin-top: 4px; font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 1px 7px;
+  background: #2a3d33; color: #8fd1a9;
+}
+/* Mass search split button: main part + caret that opens the scraper list */
+#st-panel .st-mass-split { display: inline-flex; position: relative; align-items: stretch; }
+/* classic look: the same 8px corners as the buttons next to it (the Stash UI skin below keeps its pill ends) */
+#st-panel .st-mass-split .st-mass-main { border-radius: 8px 0 0 8px; }
+#st-panel .st-mass-split .st-mass-caret { border-radius: 0 8px 8px 0; border-left: 1px solid #9b8be0; padding-left: 9px; padding-right: 10px; min-width: 0; }
+#st-panel .st-mass-split .st-combo-list { top: 100%; left: 0; min-width: 190px; }
+/* Stash UI skin: the glass style rounds every .kb-btn fully, which made "Mass search" and its caret two separate pills.
+   Joined here: round only the outer ends, 1px divider. */
+html.st-sui #st-panel .st-mass-split .st-mass-main { border-radius: 999px 0 0 999px !important; padding-right: 12px; }
+html.st-sui #st-panel .st-mass-split .st-mass-caret {
+  border-radius: 0 999px 999px 0 !important; padding: 0 11px !important; margin-left: -1px;
+  border-left-color: #9b8be0;
+}
+/* ...and keeps its violet (the skin's .st-btn-ghost rule would turn it grey) */
+/* !important + the kb-glass variant: the glass skin's .st-btn-ghost rules are more specific */
+html.st-sui #st-panel .st-btn-mass,
+html.st-sui.kb-glass #st-panel .st-btn-mass { background: #5b46a8 !important; border-color: #7f6bd6 !important; color: #fff !important; }
+html.st-sui #st-panel .st-btn-mass:hover:not(:disabled),
+html.st-sui.kb-glass #st-panel .st-btn-mass:hover:not(:disabled) { background: #6b55bd !important; border-color: #9b8be0 !important; color: #fff !important; }
+html.st-sui #st-panel .st-mass-split .st-mass-caret,
+html.st-sui.kb-glass #st-panel .st-mass-split .st-mass-caret { border-left-color: #9b8be0 !important; }
+
+/* "Panel bar" settings: hide a button of the header bar (the feature keeps its setting) */
+body.st-hide-b-mass #st-btn-mass-search, body.st-hide-b-mass #st-mass-combo { display: none !important; }
+body.st-hide-b-clear #st-btn-clear { display: none !important; }
+body.st-hide-b-mode #st-mode-split { display: none !important; }
+body.st-hide-b-sfw #st-btn-nsfw { display: none !important; }
+body.st-hide-b-bulk #st-btn-bulk { display: none !important; }
+body.st-hide-b-fields #st-btn-fields { display: none !important; }
+
+/* Mass search "All scrapers": caret list entry, one-time warning, scraper badge on the cards */
+#st-panel .st-mass-all { display: flex; justify-content: space-between; gap: 12px; }
+/* gold only while "All scrapers" is the selected entry (it used to stay gold next to another selected scraper) */
+#st-panel .st-mass-all.st-combo-option-selected { color: #e9d9a6; }
+#st-panel .st-mass-all small { color: #8a93a1; font-size: 11px; }
+#st-panel .st-mass-sep { border-top: 1px solid #2f3642; margin: 4px 0; }
+#st-panel .st-mass-warn {
+  margin: 8px 12px; border: 1px solid #6b5a2a; background: #2a2412; color: #e9d9a6; border-radius: 8px; padding: 8px 10px; font-size: 12px;
+}
+#st-panel .st-mass-warn-btns { display: inline-flex; gap: 8px; margin-left: 8px; vertical-align: middle; }
+#st-panel .st-ts-src { display: inline-block; font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 1px 8px; margin-top: 4px; margin-right: 4px; }
+#st-panel .st-ts-src-0 { background: #3a2d52; color: #c3aef0; }
+#st-panel .st-ts-src-1 { background: #2d3a52; color: #9bb8e8; }
+#st-panel .st-ts-src-2 { background: #4a3524; color: #e8bf9b; }
+#st-panel .st-ts-src-3 { background: #27403a; color: #9be0cf; }
+#st-panel .st-ts-src-4 { background: #4a2d3a; color: #e8a6c3; }
+#st-panel .st-ts-src-5 { background: #3d4a24; color: #c6dc8f; }
+/* badges row of a result card + the "Open" link (new tab, does not pick the card) */
+#st-panel .st-ts-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+#st-panel .st-ts-badges .st-ts-src, #st-panel .st-ts-badges .st-ts-exact { margin: 0; }
+#st-panel .st-ts-open {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 1px 8px;
+  background: #2a3342; color: #9fb4d0; border: 1px solid #3b4b63; text-decoration: none; cursor: pointer;
+}
+#st-panel .st-ts-open:hover { background: #33405a; color: #cfe0f5; border-color: #5e81ac; text-decoration: none; }
+
+/* Mass search is a list tool: not in the single-scene panel */
+#st-panel.st-panel-solo #st-btn-mass-search,
+#st-panel.st-panel-solo #st-mass-combo,
+#st-panel.st-panel-solo #st-mass-warn { display: none !important; }
+
+/* Compact mode (a ~400px panel): the mass list's "existing / new" columns are stacked, like in the wide layouts.
+   Without it the base two-column grid squeezed the "New from scrape" column to ~80px and clipped its chips. */
+#st-panel.st-compact:not(.st-panel-solo) .st-split-list .st-split-cols.st-split-stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+/* Bulk: the "Set on N" button sits right after the preview (where the eye goes after picking); the secondary
+   buttons stay on the right. While a choice is not set yet, Set pulses and Apply All shows an amber mark. */
+#st-bulk-clear { margin-left: auto; }
+#st-bulk-apply.st-bulk-pending { animation: st-bulk-pulse 1.6s ease-in-out infinite; }
+@keyframes st-bulk-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 196, 77, 0); } 50% { box-shadow: 0 0 0 4px rgba(255, 196, 77, .55); } }
+#st-btn-apply-all.st-bulk-pending { position: relative; }
+#st-btn-apply-all.st-bulk-pending::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ffc44d;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .35);
+}
+
+#st-panel .st-sugg-compact .st-sugg-vbar { margin-top: 6px; padding: 4px 8px; font-size: 12px; }
+#st-panel .st-sugg-compact .st-sugg-scan { padding: 2px 10px; font-size: 12px; }
+
+/* Mass list: round "Scan face" button at the end of the suggestion pills (variant D of mockup_mass_face_scan.html).
+   Stretches into a pill (icon + text) while waiting / scanning, shows the result, then folds back into the icon. */
+#st-panel .st-sugg-fab {
+  position: relative; flex: none; height: 24px; min-width: 24px; padding: 0 4px; margin: 0;
+  display: inline-flex; align-items: center; border-radius: 999px;
+  border: 1px dashed #5c6c88; background: transparent; color: #8fa3c4; cursor: pointer; box-shadow: none;
+  transition: padding .4s cubic-bezier(.4, 0, .2, 1), background .2s, color .25s, border-color .25s, opacity .25s;
+}
+#st-panel .st-sugg-fab:hover { background: #2a2e3d; color: #fff; border-style: solid; }
+#st-panel .st-sugg-fab .st-fab-ic { display: inline-grid; place-items: center; }
+#st-panel .st-sugg-fab svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#st-panel .st-sugg-fab .st-fab-lab {
+  display: inline-block; max-width: 0; opacity: 0; margin-left: 0; overflow: hidden; white-space: nowrap; font-size: 12px; line-height: 1;
+  transition: max-width .4s cubic-bezier(.4, 0, .2, 1), opacity .3s ease, margin-left .4s cubic-bezier(.4, 0, .2, 1);
+}
+#st-panel .st-sugg-fab.st-pill { padding: 0 11px 0 4px; }
+#st-panel .st-sugg-fab.st-pill .st-fab-lab { max-width: 90px; opacity: 1; margin-left: 6px; }
+#st-panel .st-sugg-fab.st-fab-wait { opacity: .6; }
+#st-panel .st-sugg-fab.st-fab-run { border-style: solid; border-color: #3d7fb0; color: #7ec4ff; }
+#st-panel .st-sugg-fab.st-fab-run svg { animation: st-spin 1s linear infinite; }
+#st-panel .st-sugg-fab.st-fab-done { border-style: solid; border-color: #3f6b49; color: #8fd19e; }
+#st-panel .st-sugg-fab.st-fab-done::after {
+  content: "\2713"; position: absolute; right: -4px; bottom: -4px; width: 12px; height: 12px; border-radius: 50%;
+  background: #3f7a52; color: #fff; font-size: 8px; line-height: 12px; text-align: center;
+}
+#st-panel .st-sugg-fab.st-fab-err { border-style: solid; border-color: #7a3d3d; color: #ffb4b4; }
+#st-panel .st-sugg-fab[data-tip]:hover::before {
+  content: attr(data-tip); position: absolute; z-index: 30; left: 0; bottom: calc(100% + 8px);
+  width: max-content; max-width: 260px; white-space: normal; background: #11141a; border: 1px solid #3b4252; border-radius: 8px;
+  padding: 5px 9px; font-size: 11.5px; line-height: 1.35; color: #d8dee9; box-shadow: 0 6px 24px rgba(0, 0, 0, .6); pointer-events: none;
+}
+
+/* Suggestions as thumbnails (setting suggestThumbs; mockup_suggestions_horizontal.html).
+   Solo panel = H1 mini portrait cards that scroll sideways; mass list = H2 round avatars with a score ring. */
+/* Wraps onto a second line when the row is narrow: no scrollbar (the mass list already caps at 6 + "+N"). */
+#st-panel .st-th-strip { display: flex; flex-wrap: wrap; gap: 8px 8px; align-items: flex-start; padding: 2px 2px 4px; margin-top: 6px; }
+#st-panel .st-sugg-thumb { flex: none; position: relative; cursor: pointer; user-select: none; }
+#st-panel .st-sugg-thumb .st-th-ph { display: grid; place-items: center; overflow: hidden; background: linear-gradient(160deg, #3a4660, #1d2230); color: #c4cfdd; font-weight: 700; }
+#st-panel .st-sugg-thumb .st-th-ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#st-panel .st-sugg-thumb .st-th-chk { position: absolute; top: 4px; right: 4px; width: 17px; height: 17px; border-radius: 50%; background: rgba(0, 0, 0, .5); color: #fff; display: grid; place-items: center; font-size: 11px; z-index: 2; }
+#st-panel .st-sugg-thumb .st-th-chk::after { content: "+"; }
+#st-panel .st-sugg-thumb.st-on .st-th-chk { background: #3f7a52; }
+#st-panel .st-sugg-thumb.st-on .st-th-chk::after { content: "\2713"; }
+#st-panel .st-th-more { flex: none; align-self: center; padding: 3px 9px; border-radius: 999px; border: 1px dashed #5c6c88; color: #8fa3c4; font-size: 12px; cursor: pointer; }
+#st-panel .st-th-more:hover { background: #2a2e3d; color: #fff; }
+#st-panel .st-sugg-thumb.st-th-extra { display: none; }
+#st-panel .st-sugg.st-low-open .st-sugg-thumb.st-th-extra { display: block; }
+#st-panel .st-sugg.st-low-open .st-sugg-thumb.st-th-extra.st-th-av { display: block; }
+#st-panel .st-th-ring { --p: 50; --sz: 22px; width: var(--sz); height: var(--sz); border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 8px; font-weight: 700; color: #cdeed8; background: conic-gradient(#5fd08a calc(var(--p) * 1%), rgba(255, 255, 255, .12) 0); }
+#st-panel .st-th-ring i { font-style: normal; width: calc(var(--sz) - 5px); height: calc(var(--sz) - 5px); border-radius: 50%; background: #1d2630; display: grid; place-items: center; }
+/* H1 : cards (solo panel) */
+#st-panel .st-sugg-thumb.st-th-card { width: 84px; border-radius: 12px; overflow: hidden; background: #20262f; border: 1px solid #2c3542; }
+#st-panel .st-sugg-thumb.st-th-card:hover { border-color: #5c6c88; }
+#st-panel .st-sugg-thumb.st-th-card.st-on { border-color: #4f8a5f; box-shadow: 0 0 0 1px #4f8a5f; }
+#st-panel .st-th-card .st-th-ph { width: 100%; height: 96px; font-size: 24px; }
+#st-panel .st-th-card .st-th-nm { display: block; font-size: 10.5px; font-weight: 650; padding: 4px 6px 0; color: #e4e7eb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#st-panel .st-th-card .st-th-row { display: flex; align-items: center; gap: 5px; padding: 3px 6px 6px; }
+/* H2 : round avatars (mass list) */
+#st-panel .st-sugg-thumb.st-th-av { width: 62px; text-align: center; }
+#st-panel .st-th-av .st-th-ava { position: relative; display: block; width: 48px; height: 48px; margin: 0 auto; border-radius: 50%; padding: 3px; background: conic-gradient(#5fd08a calc(var(--p) * 1%), rgba(255, 255, 255, .12) 0); }
+#st-panel .st-th-av .st-th-ph { width: 100%; height: 100%; border-radius: 50%; font-size: 15px; }
+#st-panel .st-th-av.st-on .st-th-ava { box-shadow: 0 0 0 2px #4f8a5f; }
+#st-panel .st-th-av .st-th-sc { position: absolute; right: -5px; bottom: -3px; font-size: 9px; font-weight: 700; background: #11141a; border: 1px solid #3b4252; border-radius: 999px; padding: 0 4px; color: #cdeed8; }
+#st-panel .st-th-av .st-th-chk { top: -3px; right: -1px; width: 15px; height: 15px; font-size: 9px; }
+#st-panel .st-th-av .st-th-nm { display: block; margin-top: 5px; font-size: 10px; color: #c4cfdd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#st-panel .st-th-av.st-on .st-th-nm { color: #9fe0a8; font-weight: 650; }
+#st-panel .st-th-h2 .st-sugg-fab { align-self: center; }
+
+/* Hover card of the thumbnail suggestions (one shared element on <body>, filled by wireSuggestThumbPreview) */
+.st-th-preview {
+  position: fixed; z-index: 2147483000; display: none; gap: 12px; align-items: flex-start; width: 300px; padding: 10px;
+  background: #11141a; border: 1px solid #3b4252; border-radius: 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, .7);
+  color: #d8dee9; font-size: 12px; line-height: 1.4; pointer-events: none;
+}
+.st-th-preview img { flex: none; width: 120px; height: 160px; object-fit: cover; border-radius: 8px; background: #1d2230; }
+.st-th-preview .st-thp-body { flex: 1; min-width: 0; }
+.st-th-preview b { display: block; color: #e4e7eb; font-size: 13px; overflow-wrap: anywhere; }
+.st-th-preview .st-thp-sc { display: block; color: #8fd19e; font-weight: 700; margin: 2px 0 6px; }
+.st-th-preview .st-thp-why div { padding: 1px 0; color: #b6bfcb; }
+.st-th-preview small { display: block; margin-top: 8px; color: #6b7686; }
+
+/* Compact panel on desktop, header UNFOLDED: fewer, fuller rows (was 6 rows with big empty gaps: the chevron alone at the
+   end of the Fields row, "All scrapers" alone, "Multi-studio" alone). The filter block is flattened (display: contents) so
+   its three parts join the header's own wrapping flow, and `order` sets the reading order:
+   row 1  Scrape All / Apply All / Skip All / chevron
+   rows 2-3  Clear / Auto / SFW / Bulk / Fields, then All scrapers + Multi-studio packed after them
+   last  the All / New / Existing / None / Failed group (too wide to share a row).
+   Folded state is unchanged: the hide rule above has a higher specificity than the display: contents below. */
+@media (min-width: 769px) {
+  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header { gap: 6px 8px; }
+  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header .st-filter-radios { display: contents; }
+  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header :is(#st-btn-scrape-all, #st-btn-apply-all, #st-btn-skip-all) { order: 0; }
+  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header .st-btn-collapse { order: 1; }
+  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header :is(#st-btn-clear, #st-mode-split, #st-btn-nsfw, #st-btn-bulk, #st-btn-fields) { order: 2; }
+  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header #st-scraper-filter { order: 4; }
+  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header .st-multi-studio-toggle { order: 5; margin-left: 0; }
+  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header .st-filter-group { order: 6; }
+}
+
+/* Row action buttons (Apply / Retry / Skip / Organized) in the compact panel: the row did not fit in ~340px, the buttons
+   were squeezed below the width of their own text (Stash UI's kb-btn is overflow: hidden, so a flex item may shrink to
+   nothing) and the text ended up off-centre and clipped ("Organize"). The buttons now keep their natural width, the row
+   wraps instead of squeezing, and the label is centred by the button itself even if something still squeezes it. */
+#st-panel .st-inline-actions { flex-wrap: wrap; }
+#st-panel .st-inline-actions > .st-btn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
+
+/* Compact panel: the round Retry button under the "done" tick touched it (both 22px, Retry centred vertically in a row
+   only ~60px tall). The tick and Retry now form a centred column on the right of the row, 10px apart. */
+html #st-panel.st-compact .st-row-btn:has(.st-retry-done) { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+html #st-panel.st-compact .st-row-btn .st-btn.st-retry-done { position: relative; top: auto; left: auto; transform: none; flex: none; }   /* relative, not static: Stash UI's hover shimmer (::before, absolute inset 0) anchors to the nearest positioned ancestor, which was the whole tick + Retry column */
+html #st-panel.st-compact .st-row-btn .st-btn.st-retry-done:active:not(:disabled) { transform: scale(.96); }
+
+/* Compact panel, mass list: the "Already on this image" / "New from scrape" columns (Performers, Tags) stayed side by side
+   in ~340px: the right column was squeezed and ran past the panel edge (badges cut off, long tag names wrapping into big
+   ovals). Every stacking rule above is scoped to :not(.st-compact), so compact kept the two-column grid. It now stacks
+   the two parts, like the wide mass list does. */
+#st-panel.st-compact:not(.st-panel-solo) .st-split-cols { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+
+/* Groups block (setting scrapeGroups): same look as the tags, plus a small optional scene-number box */
+#st-panel .st-group-item .st-count-hint { margin-left: 6px; opacity: .75; }
+#st-panel .st-group-index { width: 46px; height: 22px; margin-left: 8px; padding: 0 6px; font-size: 11px; border-radius: 8px; background: rgba(255,255,255,.06); color: inherit; border: 1px solid rgba(255,255,255,.18); }
+
+/* Groups block, card layout (setting scrapeGroupsPreview): front + back cover, details, Preview button */
+#st-panel .st-group-cards { display: flex; flex-direction: column; gap: 8px; }
+#st-panel .st-group-card { display: flex; gap: 12px; align-items: flex-start; padding: 10px; border-radius: 12px; border: 1px solid rgba(180, 72, 79, .6); background: rgba(255, 255, 255, .03); color: #e8edf7; }
+#st-panel .st-group-card.st-group-add { border-color: rgba(217, 146, 59, .65); }
+#st-panel .st-group-card.st-group-on { background: rgba(79, 122, 67, .42); border-color: rgba(111, 154, 95, .85); }
+#st-panel .st-group-imgs { display: flex; gap: 6px; flex: none; }
+#st-panel .st-group-img, #st-panel .st-group-ph { width: 62px; height: 88px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, .14); box-sizing: border-box; }
+#st-panel .st-group-img { object-fit: cover; display: block; }
+#st-panel .st-group-ph { display: flex; align-items: center; justify-content: center; font-size: 11px; opacity: .55; }
+#st-panel .st-group-body { flex: 1; min-width: 0; }
+#st-panel .st-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; }
+#st-panel .st-group-name { font-weight: 500; color: #f1f4fb; }
+#st-panel .st-group-dl { margin: 6px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; }
+#st-panel .st-group-dl dt { color: #9aa6bb; font-weight: 400; }
+#st-panel .st-group-dl dd { margin: 0; color: #e8edf7; }
+#st-panel .st-group-note { margin-top: 6px; font-size: 11px; color: #9aa6bb; }
+#st-panel .st-group-note.st-err { opacity: 1; color: #ff8a8a; }
+#st-panel .st-group-preview-btn { flex: none; border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .06); color: inherit; border-radius: 999px; font-size: 11px; padding: 2px 12px; cursor: pointer; }
+#st-panel .st-group-preview-btn:disabled { opacity: .5; cursor: default; }
+/* card layout: the cards need the full width, so "Already on this scene" and "New from scrape" are stacked */
+#st-panel#st-panel .st-inline-groups.st-groups-cards .st-split-cols { grid-template-columns: minmax(0, 1fr) !important; gap: 8px; }
+
+/* same x on the groups already on the scene */
+#st-panel .st-existing-pill-group { display: inline-flex; align-items: center; }
+#st-panel .st-existing-pill-group .st-existing-remove { flex: none; width: 16px; height: 16px; margin-left: 6px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .12); color: inherit; font-size: 12px; line-height: 16px; cursor: pointer; opacity: .55; }
+#st-panel .st-existing-pill-group:hover .st-existing-remove { opacity: 1; }
+#st-panel .st-existing-pill-group .st-existing-remove:hover { background: #b44; color: #fff; }
+#st-panel .st-existing-pill-group.st-existing-removed { opacity: .55; }
+#st-panel .st-existing-pill-group.st-existing-removed .st-tag-name { text-decoration: line-through; }
+#st-panel .st-existing-pill-group.st-existing-removed .st-existing-remove:hover { background: #3a7; }
+
+/* One card, full-bleed studio header: the studio search box (and the file-name studio button under it) is indented like the
+   studio name row above it and like the performer / tag search boxes below (the header itself has a -18px margin) */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) .st-studio-search-wrap {
+    box-sizing: border-box;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}
+
+/* Auto / Manual split button (same idea as Mass search): [Auto] alone, or [Manual - scraper][v] with a small caret glued to it */
+#st-panel .st-mode-split { display: inline-flex; position: relative; align-items: stretch; }
+#st-panel .st-mode-split #st-scraper-select-manual { position: static; }   /* the list opens under the whole split button */
+#st-panel .st-mode-split .st-combo-list { top: calc(100% + 4px); left: 0; min-width: 190px; }
+#st-panel .st-mode-split.st-mode-manual .st-mode-main { border-radius: 8px 0 0 8px; }
+#st-panel .st-mode-split .st-mode-caret { border-radius: 0 8px 8px 0; margin-left: -1px; padding-left: 9px; padding-right: 10px; min-width: 0; }
+#st-panel .st-mode-name { display: inline-block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+#st-panel .st-mode-name::before { content: "\00a0\00b7\00a0"; }
+html.st-sui #st-panel .st-mode-split.st-mode-manual .st-mode-main { border-radius: 999px 0 0 999px !important; padding-right: 12px; }
+html.st-sui #st-panel .st-mode-split .st-mode-caret { border-radius: 0 999px 999px 0 !important; padding: 0 11px !important; margin-left: -1px; }
