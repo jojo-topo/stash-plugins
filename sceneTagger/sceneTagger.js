@@ -2379,9 +2379,16 @@
     }
   }
 
+  // Label of the Auto / Manual button: "Auto", or "Manual" followed by the chosen scraper
+  function modeLabelHTML(manual, name) { return manual ? 'Manual<span class="st-mode-name">' + esc(name) + '</span>' : 'Auto'; }
+  function modeTip(manual, name) {
+    return manual ? "Manual: only " + name + " is used (click for automatic fallback)" : "Automatic: your scrapers are tried in order (click to choose one by hand)";
+  }
+
   function rowBindScraperMode(cx) {
     // ── Manual / auto mode ──────────────────────────────────────────────────
     var modeBtn = document.getElementById("st-btn-scraper-mode");
+    var splitEl = document.getElementById("st-mode-split");
     var manualSelect = document.getElementById("st-scraper-select-manual"); // wrapper div, see buildPanel()
     var comboBtn  = document.getElementById("st-scraper-combo-btn");
     var comboList = document.getElementById("st-scraper-combo-list");
@@ -2389,12 +2396,24 @@
     if (comboOptions.length && !state.manualScraperID) {
       state.manualScraperID = comboOptions[0].getAttribute("data-id");
     }
+    // name of the scraper chosen for Manual, then the button, the caret and the glue between them follow the mode
+    function manualName() {
+      var o = comboOptions.filter(function (x) { return x.getAttribute("data-id") === state.manualScraperID; })[0];
+      return o ? o.getAttribute("data-name") : "";
+    }
+    function refreshMode() {
+      var manual = pluginConfig.scraperMode === "manual", name = manualName();
+      if (modeBtn) { modeBtn.innerHTML = modeLabelHTML(manual, name); modeBtn.title = modeTip(manual, name); }
+      if (splitEl) splitEl.classList.toggle("st-mode-manual", manual);
+      if (manualSelect) manualSelect.style.display = manual ? "inline-flex" : "none";
+    }
+    refreshMode();
     if (modeBtn) {
       modeBtn.addEventListener("click", function () {
         pluginConfig.scraperMode = pluginConfig.scraperMode === "manual" ? "auto" : "manual";
         savePluginConfig();
-        modeBtn.textContent = pluginConfig.scraperMode === "manual" ? "Manual" : "Auto";
-        if (manualSelect) manualSelect.style.display = pluginConfig.scraperMode === "manual" ? "inline-flex" : "none";
+        refreshMode();
+        if (pluginConfig.scraperMode !== "manual" && comboList && comboList.style.display === "block") { comboList.style.display = "none"; if (comboBtn) comboBtn.setAttribute("aria-expanded", "false"); }
       });
     }
     // Custom combobox: replaces the native <select> so its dropdown looks
@@ -2422,7 +2441,7 @@
       }
       function comboSelect(opt) {
         state.manualScraperID = opt.getAttribute("data-id");
-        comboBtn.textContent = opt.getAttribute("data-name");
+        refreshMode();
         comboOptions.forEach(function (o) { o.classList.toggle("st-combo-option-selected", o === opt); });
         comboClose();
         comboBtn.focus();
@@ -3071,6 +3090,7 @@
     });
     bindSettingCb("st-cfg-tags",                "autoCheckNewTags");
     bindSettingCb("st-cfg-scrape-groups",       "scrapeGroups");
+    bindSettingCb("st-cfg-ignore-movie-cover", "ignoreMovieCover");
     bindSettingCb("st-cfg-scrape-groups-preview", "scrapeGroupsPreview");
     bindSettingCb("st-cfg-scrape-groups-preview-auto", "scrapeGroupsPreviewAuto");
     bindSettingCb("st-cfg-scrape-groups-preview-auto-mass", "scrapeGroupsPreviewAutoMass");
@@ -3476,9 +3496,13 @@
         '<button class="st-btn st-btn-success"  id="st-btn-apply-all" disabled>Apply All</button>' +
         '<button class="st-btn st-btn-danger"   id="st-btn-skip-all" disabled>Skip All</button>' +
         '<button class="st-btn st-btn-ghost"    id="st-btn-clear">Clear</button>' +
-        '<button class="st-btn st-btn-ghost" id="st-btn-scraper-mode" title="Toggle between automatic fallback and manual choice">' +
-          (pluginConfig.scraperMode === "manual" ? "Manual" : "Auto") +
-        '</button>' +
+        // Auto / Manual: ONE split button (like Mass search). Auto: just [Auto]. Manual: [Manual - scraper][v], the small caret
+        // glued to it opens the list of scrapers (#st-scraper-select-manual keeps its id: it is the wrapper shown / hidden by the toggle).
+        (function () {
+          var manual = pluginConfig.scraperMode === "manual";
+          var curName = (scrapers.filter(function (s) { return s.id === state.manualScraperID; })[0] || scrapers[0] || {}).name || "";
+          return '<span class="st-mode-split' + (manual ? ' st-mode-manual' : '') + '" id="st-mode-split">' +
+            '<button class="st-btn st-btn-ghost st-mode-main" id="st-btn-scraper-mode" title="' + esc(modeTip(manual, curName)) + '">' + modeLabelHTML(manual, curName) + '</button>' +
         // Custom combobox instead of a native <select> - Firefox styles a
         // native select's popup from the element's own CSS, but Chrome
         // ignores it and shows its generic OS-themed dropdown regardless
@@ -3486,16 +3510,16 @@
         // inconsistent across browsers. #st-scraper-select-manual is kept
         // as the wrapper's id so the Auto/Manual toggle's show/hide code
         // doesn't need to change.
-        '<div class="st-combo" id="st-scraper-select-manual" style="display:' + (pluginConfig.scraperMode === "manual" ? "inline-flex" : "none") + '">' +
-          '<button type="button" class="st-combo-btn" id="st-scraper-combo-btn" aria-haspopup="listbox" aria-expanded="false">' +
-            esc((scrapers.filter(function (s) { return s.id === state.manualScraperID; })[0] || scrapers[0] || {}).name || "") +
-          '</button>' +
-          '<div class="st-combo-list" id="st-scraper-combo-list" role="listbox" style="display:none">' +
-            scrapers.map(function (s) {
-              return '<div class="st-combo-option' + (s.id === state.manualScraperID ? ' st-combo-option-selected' : '') + '" role="option" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + esc(s.name) + '</div>';
-            }).join("") +
-          '</div>' +
-        '</div>' +
+            '<div class="st-combo" id="st-scraper-select-manual" style="display:' + (manual ? "inline-flex" : "none") + '">' +
+              '<button type="button" class="st-btn st-btn-ghost st-mode-caret" id="st-scraper-combo-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="Choose the scraper" title="Choose the scraper">&#9662;</button>' +
+              '<div class="st-combo-list" id="st-scraper-combo-list" role="listbox" style="display:none">' +
+                scrapers.map(function (s) {
+                  return '<div class="st-combo-option' + (s.id === state.manualScraperID ? ' st-combo-option-selected' : '') + '" role="option" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + esc(s.name) + '</div>';
+                }).join("") +
+              '</div>' +
+            '</div>' +
+          '</span>';
+        })() +
         '<button class="st-btn st-btn-ghost' + (bulk.open ? ' st-bulk-on' : '') + '" id="st-btn-bulk" title="Set a studio, performers and tags on several scenes at once">Bulk</button>' +
         '<button class="st-btn st-btn-ghost" id="st-btn-fields" title="Choose which fields are fetched around the scrape and applied">Fields</button>' +
         '<button class="st-btn st-btn-ghost' + (pluginConfig.nsfwBlur ? ' st-btn-nsfw-on' : '') + '" id="st-btn-nsfw" title="SFW mode: blur thumbnails and previews">SFW</button>' +
@@ -6808,6 +6832,7 @@
     stItem("st-cfg-studio", "autoCheckStudio", "apply", "Pre-checked after a scrape", "cb", "Auto-check new studios", { short: "Pre-check new studios", kw: "auto-check precheck" }),
     stItem("st-cfg-performer", "autoCheckPerformer", "apply", "Pre-checked after a scrape", "cb", "Auto-check new performers", { short: "Pre-check new performers", kw: "auto-check precheck" }),
     stItem("st-cfg-scrape-groups", "scrapeGroups", "apply", "Groups", "cb", "Scrape groups", { short: "Scrape groups", hint: "Adds a Groups block to each row with the groups the scraper returns (AdultEmpire and a few others). Nothing in it is pre-checked: tick a group to add it to the scene on Apply. A group that is not in your library yet is created (name, date, duration, covers...). The groups already on the scene are always kept. Takes effect on the next scrape.", kw: "groups group movie dvd adultempire" }),
+    stItem("st-cfg-ignore-movie-cover", "ignoreMovieCover", "apply", "Groups", "cb", "Don't use the movie cover as the scene cover", { hint: "When the scraped page is a MOVIE page (AdultEmpire, for example), the scraper returns the movie's cover as the scene image. With this on, that image is not offered as the scene cover (the cover block keeps the scene's own thumbnail) and Apply never replaces it. The group card still shows and uses it. A clip page, whose image belongs to the scene, is not touched. Takes effect on the next scrape.", kw: "groups movie cover scene image thumbnail dvd adultempire ignore" }),
     stItem("st-cfg-scrape-groups-preview", "scrapeGroupsPreview", "apply", "Groups", "cb", "Cover preview (Preview button)", { lvl: 1, par: "st-cfg-scrape-groups", hint: "Shows each scraped group as a card with its front and back cover and its details. Nothing is loaded until you click Preview on a group (one call to the scraper, about 1 to 2 seconds and 200 KB). The covers you previewed are kept: ticking the group creates it with them. With the NSFW/SFW button on, the covers are blurred like the other images.", kw: "groups preview cover front back image thumbnail card" }),
     stItem("st-cfg-scrape-groups-preview-auto", "scrapeGroupsPreviewAuto", "apply", "Groups", "cb", "Load the covers automatically (single scene)", { lvl: 2, par: "st-cfg-scrape-groups-preview", hint: "In the single scene panel, the covers and details of each new group are loaded as soon as the scrape result is shown, without clicking Preview. One call to the scraper per group (about 1 to 2 seconds, 200 KB).", kw: "groups preview cover automatic auto load" }),
     stItem("st-cfg-scrape-groups-preview-auto-mass", "scrapeGroupsPreviewAutoMass", "apply", "Groups", "cb", "Load the covers automatically (mass list)", { lvl: 2, par: "st-cfg-scrape-groups-preview", hint: "In the mass list, the covers of every scraped row are loaded automatically, ONE GROUP AT A TIME (about 1 to 2 seconds and 200 KB each): with 40 rows that is about a minute and 8 MB. Off: each row waits for its Preview click.", kw: "groups preview cover automatic auto load mass list" }),
@@ -7880,6 +7905,7 @@
     autoCheckPerformer:      false,
     autoCheckNewTags:        false,
     scrapeGroups:            false,   // Groups block: the groups a scraper returns (never pre-checked)
+    ignoreMovieCover:        false,   // a scraped MOVIE page: its cover (returned as the scene image) is not offered as the scene cover
     scrapeGroupsPreviewAuto: false,   // single scene panel: load the covers as soon as the scrape result is shown
     scrapeGroupsPreviewAutoMass: false, // mass list: same, one group at a time (heavier: about 1-2 s and 200 KB per group)
     scrapeGroupsPreview:     false,   // Groups block: a Preview button (front + back cover, details) on each group that has a URL
@@ -8096,6 +8122,7 @@
           if (cfg.autoCheckPerformer !== undefined) pluginConfig.autoCheckPerformer = !!cfg.autoCheckPerformer;
           if (cfg.autoCheckNewTags   !== undefined) pluginConfig.autoCheckNewTags   = !!cfg.autoCheckNewTags;
           if (cfg.scrapeGroups       !== undefined) pluginConfig.scrapeGroups       = !!cfg.scrapeGroups;
+          if (cfg.ignoreMovieCover !== undefined) pluginConfig.ignoreMovieCover = !!cfg.ignoreMovieCover;
           if (cfg.scrapeGroupsPreviewAuto !== undefined) pluginConfig.scrapeGroupsPreviewAuto = !!cfg.scrapeGroupsPreviewAuto;
           if (cfg.scrapeGroupsPreviewAutoMass !== undefined) pluginConfig.scrapeGroupsPreviewAutoMass = !!cfg.scrapeGroupsPreviewAutoMass;
           if (cfg.scrapeGroupsPreview !== undefined) pluginConfig.scrapeGroupsPreview = !!cfg.scrapeGroupsPreview;
@@ -8372,7 +8399,7 @@
 
   // Groups (setting scrapeGroups): requested only when the setting is on (a scraper may return large base64 covers)
   var GROUP_FIELDS = "groups{stored_id name aliases duration date rating director urls synopsis studio{stored_id name} front_image back_image}";
-  function withGroups(q) { return pluginConfig.scrapeGroups ? q.replace("tags{stored_id name}", "tags{stored_id name}" + GROUP_FIELDS) : q; }
+  function withGroups(q) { return (pluginConfig.scrapeGroups || pluginConfig.ignoreMovieCover) ? q.replace("tags{stored_id name}", "tags{stored_id name}" + GROUP_FIELDS) : q; }
 
   var Q_SCRAPE = "query ScrapeSingleScene($source:ScraperSourceInput!,$input:ScrapeSingleSceneInput!){scrapeSingleScene(source:$source,input:$input){remote_site_id title code date details director urls image studio{stored_id name image url details}tags{stored_id name}performers{stored_id name disambiguation gender urls birthdate ethnicity country eye_color height measurements fake_tits penis_length circumcised career_start career_end tattoos piercings aliases images details death_date hair_color weight}}}";
 
@@ -8443,7 +8470,11 @@
   function scrapeSceneURL(url, attempt) {
     attempt = attempt || 1;
     return gql("ScrapeSceneURL", withGroups(Q_SCRAPE_URL), { url: url })
-      .then(function (d) { return d.scrapeSceneURL; })
+      .then(function (d) {
+        var s = d.scrapeSceneURL;
+        if (s) s._pageUrl = url;   // the page the scene was scraped from (some scrapers return no urls): see stDropMovieCover()
+        return s;
+      })
       .catch(function (e) {
         if (attempt >= 10) throw e;
         return scrapeSceneURL(url, attempt + 1);
@@ -8915,7 +8946,31 @@
     return o;
   }
 
+  // "Don't use the movie cover as the scene cover" (setting ignoreMovieCover). A scraper that scrapes a MOVIE page
+  // (AdultEmpire...) returns the movie's cover as the scene image. When a scraped group has the URL of the page the scene was
+  // scraped from, that image is the group's cover, not the scene's: it is dropped (the group card still shows and uses it).
+  // The host is not compared (www.adultempire.com / www.adultdvdempire.com are the same page): only the path.
+  function stUrlPath(u) {
+    var s = String(u || "").trim();
+    if (!s) return "";
+    try { return (new URL(s).pathname || "").replace(/\/+$/, "").toLowerCase(); }
+    catch (e) { return s.replace(/^https?:\/\/[^\/]+/i, "").replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase(); }
+  }
+  function stDropMovieCover(s) {
+    if (!pluginConfig.ignoreMovieCover || !s || !s.image || !s.groups || !s.groups.length) return s;
+    var pages = {}, any = false;
+    // the urls the scraper returned for the scene, and the page it was scraped from (_pageUrl, set by scrapeSceneURL())
+    (s.urls || []).concat(s._pageUrl ? [s._pageUrl] : []).forEach(function (u) { var p = stUrlPath(u); if (p && p !== "/") { pages[p] = true; any = true; } });
+    if (!any) return s;
+    var movie = s.groups.some(function (g) {
+      return g && (g.urls || []).some(function (u) { var p = stUrlPath(u); return !!p && !!pages[p]; });
+    });
+    if (movie) { s.movieCoverDropped = true; delete s.image; }
+    return s;
+  }
+
   function stFilterScraped(s) {
+    s = stDropMovieCover(s);
     var sk = stSkipGenders();
     if (s && Object.keys(sk).length && s.performers && s.performers.length) {
       s.performers = s.performers.filter(function (p) {

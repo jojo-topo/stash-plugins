@@ -48,8 +48,7 @@
 }
 /* Settings > Display > "Hide Auto/Manual toggle on scene page" - some
    users never touch it there and prefer the extra vertical space back. */
-#st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-btn-scraper-mode,
-#st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-scraper-select-manual {
+#st-panel.st-panel-solo.st-hide-scene-mode-toggle #st-mode-split {
   display: none !important;
 }
 /* With both of the above hidden, #st-panel-header is empty in solo mode
@@ -3028,7 +3027,7 @@ body.st-split-side #st-panel:not(.st-panel-solo):not(.st-compact) .st-split-list
   #st-panel-header { container-type: inline-size; }
   .st-filter-radios { order: 1; flex: 1 1 100%; flex-wrap: wrap; gap: 8px; margin-left: 0; }
   @container (max-width: 410px) {
-    #st-btn-scraper-mode, #st-scraper-select-manual { order: 2; }
+    #st-mode-split { order: 2; }
   }
   /* Even narrower: Clear wraps too, so it joins Auto on the last row
      (same order -> DOM order kept, Clear then Auto) instead of sitting
@@ -4817,7 +4816,7 @@ html.st-sui #st-panel .st-ts-search-row .st-btn { height: 40px; }
 /* ...and the secondary buttons (Clear, Auto, Multi-studio) share the last row instead of each
    wrapping onto its own line: 3 rows in total instead of 4. */
 @media (max-width: 768px) {
-  html.st-sui #st-panel #st-panel-header :is(#st-btn-clear, #st-btn-scraper-mode, #st-scraper-select-manual, .st-multi-studio-toggle) { order: 3; }
+  html.st-sui #st-panel #st-panel-header :is(#st-btn-clear, #st-mode-split, .st-multi-studio-toggle) { order: 3; }
 }
 @media (max-width: 768px) {
   /* The filter group and Multi-studio live in .st-filter-radios; flattening it lets Multi-studio
@@ -4842,7 +4841,7 @@ html.st-sui #st-panel .st-ts-search-row .st-btn { height: 40px; }
   #st-panel .st-btn-collapse svg { transition: transform .25s ease; }
   #st-panel.st-hdr-collapsed .st-btn-collapse svg { transform: rotate(180deg); }
   #st-panel .st-btn-collapse:active { background: rgba(255, 255, 255, .16); }
-  #st-panel.st-hdr-collapsed #st-panel-header :is(#st-btn-clear, #st-btn-scraper-mode, #st-scraper-select-manual, .st-filter-radios) { display: none; }
+  #st-panel.st-hdr-collapsed #st-panel-header :is(#st-btn-clear, #st-mode-split, .st-filter-radios) { display: none; }
 }
 
 /* Stash UI liquid glass: "Frosted glass panel" setting. The glass rules above read these variables, so redefining them
@@ -5737,8 +5736,8 @@ html.st-sui.kb-glass #st-np-ov textarea { border-radius: 10px; }
 #st-panel .st-studio-search-wrap .st-fnhint-studio { font-size: 11px; }
 
 /* 1.31.2 Mass search: candidates of a row as a horizontal strip (the per-row "Search title" list stays vertical) */
-#st-panel .st-btn-mass { background: #5b46a8; border-color: #7f6bd6; color: #fff; }
-#st-panel .st-btn-mass:hover { background: #6b55bd; }
+#st-panel .st-btn-mass { background: #5b46a8; border-color: #5b46a8; color: #fff; }   /* no lighter outline: the border has the colour of the fill (the divider before the caret stays) */
+#st-panel .st-btn-mass:hover { background: #6b55bd; border-color: #6b55bd; }
 #st-panel .st-btn-mass:disabled { opacity: 0.6; cursor: default; }
 #st-panel .st-title-search.st-ts-h { align-items: stretch; min-width: 0; }
 #st-panel .st-ts-h .st-ts-results {
@@ -5755,8 +5754,9 @@ html.st-sui.kb-glass #st-np-ov textarea { border-radius: 10px; }
 }
 /* Mass search split button: main part + caret that opens the scraper list */
 #st-panel .st-mass-split { display: inline-flex; position: relative; align-items: stretch; }
-#st-panel .st-mass-split .st-mass-main { border-radius: 999px 0 0 999px; }
-#st-panel .st-mass-split .st-mass-caret { border-radius: 0 999px 999px 0; border-left: 1px solid #9b8be0; padding-left: 9px; padding-right: 10px; min-width: 0; }
+/* classic look: the same 8px corners as the buttons next to it (the Stash UI skin below keeps its pill ends) */
+#st-panel .st-mass-split .st-mass-main { border-radius: 8px 0 0 8px; }
+#st-panel .st-mass-split .st-mass-caret { border-radius: 0 8px 8px 0; border-left: 1px solid #9b8be0; padding-left: 9px; padding-right: 10px; min-width: 0; }
 #st-panel .st-mass-split .st-combo-list { top: 100%; left: 0; min-width: 190px; }
 /* Stash UI skin: the glass style rounds every .kb-btn fully, which made "Mass search" and its caret two separate pills.
    Joined here: round only the outer ends, 1px divider. */
@@ -5777,7 +5777,7 @@ html.st-sui.kb-glass #st-panel .st-mass-split .st-mass-caret { border-left-color
 /* "Panel bar" settings: hide a button of the header bar (the feature keeps its setting) */
 body.st-hide-b-mass #st-btn-mass-search, body.st-hide-b-mass #st-mass-combo { display: none !important; }
 body.st-hide-b-clear #st-btn-clear { display: none !important; }
-body.st-hide-b-mode #st-btn-scraper-mode { display: none !important; }
+body.st-hide-b-mode #st-mode-split { display: none !important; }
 body.st-hide-b-sfw #st-btn-nsfw { display: none !important; }
 body.st-hide-b-bulk #st-btn-bulk { display: none !important; }
 body.st-hide-b-fields #st-btn-fields { display: none !important; }
@@ -5934,8 +5934,7 @@ body.st-hide-b-fields #st-btn-fields { display: none !important; }
   #st-panel.st-compact:not(.st-panel-solo) #st-panel-header .st-filter-radios { display: contents; }
   #st-panel.st-compact:not(.st-panel-solo) #st-panel-header :is(#st-btn-scrape-all, #st-btn-apply-all, #st-btn-skip-all) { order: 0; }
   #st-panel.st-compact:not(.st-panel-solo) #st-panel-header .st-btn-collapse { order: 1; }
-  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header :is(#st-btn-clear, #st-btn-scraper-mode, #st-btn-nsfw, #st-btn-bulk, #st-btn-fields) { order: 2; }
-  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header #st-scraper-select-manual { order: 3; }
+  #st-panel.st-compact:not(.st-panel-solo) #st-panel-header :is(#st-btn-clear, #st-mode-split, #st-btn-nsfw, #st-btn-bulk, #st-btn-fields) { order: 2; }
   #st-panel.st-compact:not(.st-panel-solo) #st-panel-header #st-scraper-filter { order: 4; }
   #st-panel.st-compact:not(.st-panel-solo) #st-panel-header .st-multi-studio-toggle { order: 5; margin-left: 0; }
   #st-panel.st-compact:not(.st-panel-solo) #st-panel-header .st-filter-group { order: 6; }
@@ -5994,3 +5993,24 @@ html #st-panel.st-compact .st-row-btn .st-btn.st-retry-done:active:not(:disabled
 #st-panel .st-existing-pill-group.st-existing-removed { opacity: .55; }
 #st-panel .st-existing-pill-group.st-existing-removed .st-tag-name { text-decoration: line-through; }
 #st-panel .st-existing-pill-group.st-existing-removed .st-existing-remove:hover { background: #3a7; }
+
+/* One card, full-bleed studio header: the studio search box (and the file-name studio button under it) is indented like the
+   studio name row above it and like the performer / tag search boxes below (the header itself has a -18px margin) */
+@media (min-width: 769px) {
+  #st-panel.st-one-card.st-banner-layout:not(.st-panel-solo):not(.st-compact) .st-onecard > .st-inline-artists:not(.st-bl-has-picked) .st-studio-search-wrap {
+    box-sizing: border-box;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+}
+
+/* Auto / Manual split button (same idea as Mass search): [Auto] alone, or [Manual - scraper][v] with a small caret glued to it */
+#st-panel .st-mode-split { display: inline-flex; position: relative; align-items: stretch; }
+#st-panel .st-mode-split #st-scraper-select-manual { position: static; }   /* the list opens under the whole split button */
+#st-panel .st-mode-split .st-combo-list { top: calc(100% + 4px); left: 0; min-width: 190px; }
+#st-panel .st-mode-split.st-mode-manual .st-mode-main { border-radius: 8px 0 0 8px; }
+#st-panel .st-mode-split .st-mode-caret { border-radius: 0 8px 8px 0; margin-left: -1px; padding-left: 9px; padding-right: 10px; min-width: 0; }
+#st-panel .st-mode-name { display: inline-block; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+#st-panel .st-mode-name::before { content: "\00a0\00b7\00a0"; }
+html.st-sui #st-panel .st-mode-split.st-mode-manual .st-mode-main { border-radius: 999px 0 0 999px !important; padding-right: 12px; }
+html.st-sui #st-panel .st-mode-split .st-mode-caret { border-radius: 0 999px 999px 0 !important; padding: 0 11px !important; margin-left: -1px; }

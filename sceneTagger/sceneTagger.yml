@@ -1,6 +1,6 @@
 name: sceneTagger
 description: "Bulk scraping panel for scenes — uses scrapeSingleScene"
-version: "1.32.8"
+version: "1.32.13"
 url: "https://github.com/jojo-topo/stash-plugins/tree/master/sceneTagger"
 
 exec:
@@ -300,6 +300,11 @@ settings:
   scrapeGroups:
     displayName: "Scrape groups"
     description: "Adds a Groups block to each row with the groups the scraper returns (AdultEmpire and a few others). Nothing is pre-checked; a group that is not in your library is created on Apply. The groups already on the scene are always kept."
+    type: BOOLEAN
+
+  ignoreMovieCover:
+    displayName: "Don't use the movie cover as the scene cover"
+    description: "When the scraped page is a movie page (AdultEmpire, for example), the scraper returns the movie cover as the scene image. With this on, that image is not offered as the scene cover and Apply never replaces the scene cover with it. A clip page is not touched."
     type: BOOLEAN
 
   scrapeGroupsPreview:
