@@ -28,7 +28,7 @@
   // scene COVER only (one image, no video frames). The cover is downscaled and sent to CLOUD_URL; the matches come
   // back as StashDB ids and are mapped to local performers by stash_id (a performer unknown locally is dropped).
   // Needs the URL in the `csp: connect-src` list of sceneTagger.yml. Stays true in the public build.
-  var CLOUD_SOURCE = true;
+  var CLOUD_SOURCE = false;
   var CLOUD_URL = "https://cc1234-stashface-onnx.hf.space";
   var CLOUD_SIDE = 640;     // longest side of the image sent (px)
   var CLOUD_RESULTS = 6;    // matches asked per face
