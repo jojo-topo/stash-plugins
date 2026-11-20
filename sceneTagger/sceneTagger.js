@@ -1476,7 +1476,7 @@
   }
 
   // Pages where the panel makes sense: the /scenes list (not a single scene
-  // page) AND the "Scenes" tab of a studio page (/studios/<id>) -
+  // page), the "Scenes" tab of a studio, performer or group page (/studios/<id>) -
   // loadScenes() reads scene cards directly from the DOM
   // (getVisibleSceneIdsInOrder), so it works unchanged on any page showing
   // a scene grid, not just /scenes. Same toolbar selector as on /scenes
@@ -1491,6 +1491,9 @@
     if (pathname.match(/^\/studios\/\d+(\/scenes)?\/?$/)) return true;
     // A performer page: only its Scenes tab (default one), same reasoning as studios.
     if (pathname.match(/^\/performers\/\d+(\/scenes)?\/?$/)) return true;
+    // A group page: only its Scenes tab (the default one), same reasoning. The scenes come in the order the page shows
+    // them (e.g. sorted by "Scene Number"). The Performers / Sub-Groups tabs have no scene grid.
+    if (pathname.match(/^\/groups\/\d+(\/scenes)?\/?$/)) return true;
     return false;
   }
 
